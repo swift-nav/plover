@@ -106,7 +106,6 @@ freshMat rs cs = do
   let ref = Ref ("m" ++ show n)
   return $ View ref $ \i j -> Index ref (i * rs + j)
 
-
 range n = [0..n-1]
 
 compile :: LocView -> Rows -> Cols -> Mat Expr
@@ -138,7 +137,7 @@ compile (View _ vfn) rs cs Zero =
   error "zero" -- some loop
 compile (View _ vfn) rs cs One  =
   error "one" -- some loop
-compile 
+--compile 
 
 compileMul :: Expr -> Expr -> Expr
            -> LocView -> LocView -> LocView
@@ -200,6 +199,7 @@ mulBlock d1@(Block rlist1 clist1 f1) d2@(Block rlist2 clist2 f2) =
 
 
 m1 :: Mat Expr
-m1 = Block [1,1] [1,1] (\i j -> Scalar $ i * ERef (Ref "x"))
+m1 = Block [1,1] [1,1] (\i j -> Scalar $ (i+1) * ERef (Ref "x"))
 m2 = Block [2,2,2] [2,2,2] (\i j -> m1)
 m3 = Var 2 2 "M3"
+
