@@ -157,6 +157,8 @@ doOp (_ :! _) n1 n2 = do
 -- END / Expression Simplification/Compilation --
 
 -- Vector Simplification/Compilation --
+-- TODO add length checking
+-- TODO generate decls: -- (len, lenLines) <- simplCompile (vlen vexpr) let decl = Decl (LIndex (fn name) len)
 -- Simplification --
 vlen :: VExpr -> E
 vlen (VLit (Vec at _)) = at
@@ -197,6 +199,7 @@ concretize :: Name -> VExpr -> NameMonad [(LocView, Vec)]
 concretize name (VLit v) = do
   return [(idView name, v)]
 -- TODO general length block vector needs for loop
+-- requires change of concretize type :(
 concretize name v0@(VBlock blocks vfn) = do
   case isLit blocks of
     Just num ->
@@ -249,8 +252,18 @@ compileV vexpr = do
 -- END / Compile to explicit loops --
 -- END / Vector Simplification/Compilation --
 
--- TODO (len, lenLines) <- simplCompile (vlen vexpr) let decl = Decl (LIndex (fn name) len)
--- ^ generate decls
+-- Matrices? --
+matView :: E -> Name -> E -> E -> ELoc
+matView width name i j = ELIndex (fn name) (i * width + j)
+data Mat = Mat E E (E -> E -> E)
+data MExpr
+  = MLit Mat
+  | MMul MExpr MExpr
+simplM :: MExpr -> MExpr
+simplM (MMul (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat rs2 cs2 mfn2))) =
+  simplM $ MLit $ Mat rs1 cs2 $ \i k -> ESum cs1 (\j -> mfn1 i j * mfn2 j k)
+simplM (MLit (Mat rs cs mfn)) = MLit $ Mat (fullSimpl rs) (fullSimpl cs) (\i j -> fullSimpl (mfn i j))
+-- END / Matrices? --
 
 -- Pretty Print Programs --
 ppName :: Name -> String
@@ -283,7 +296,19 @@ ppLine offset line =
       offset ++ "}\n"
 -- END / Pretty Print Programs --
 
--- TESTS --
+-- Notation --
+infixr 3 #
+x # y = VBlock 2 (\(LitNum n) -> if n == 0 then x else y)
+infix 2 **
+x ** y = VDot x y
+n $$ v = VLit $ Vec n (\_ -> v)
+v_1 = 1 $$ 1
+v_0 = 1 $$ 0
+i :: E -> VExpr
+i len = VLit $ Vec len (id)
+-- END / Notation --
+
+-- Test expressions --
 pp = putStr . concat . map (ppLine "")
 chk  = pp . runName . (snd <$>) . compile . fullSimpl
 chkv = pp . runName . (snd <$>) . either compile compileV . simplV
@@ -311,18 +336,7 @@ xy = VBlock 2 $ (\(ELit (I n)) -> if n == 0 then vx1 else vy1)
 yx = VBlock 2 $ (\(ELit (I n)) -> if n == 0 then vy1 else vx1)
 xyd2 = VDot xy v1
 xydyx = VDot xy yx
-
-infixr 3 #
-x # y = VBlock 2 (\(LitNum n) -> if n == 0 then x else y)
-infix 2 **
-x ** y = VDot x y
-n $$ v = VLit $ Vec n (\_ -> v)
-v_1 = 1 $$ 1
-v_0 = 1 $$ 0
-i :: E -> VExpr
-i len = VLit $ Vec len (id)
-
--- END / TESTS --
+-- END / Test expressions --
 
 -- STUFF --
 un = undefined
