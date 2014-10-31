@@ -65,5 +65,6 @@ simplify :: (Num n, Eq n, Ord atom) => Expr e atom n
     -> e -> Poly atom n
 simplify e@Expr{..} expr =
   let reducedTerms = reduceProducts e expr
+      addOne (_, n) | zero == n = id
       addOne (term, n)  = M.insertWith (+) term n
   in foldr addOne poly0 reducedTerms

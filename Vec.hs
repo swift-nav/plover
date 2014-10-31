@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings, PatternSynonyms #-}
---UndecidableInstances, FlexibleInstances #-}
-module Dep where
+module Vec where
 import Names
 import qualified Simplify
 import qualified Data.Map.Strict as M
@@ -9,12 +8,12 @@ import Control.Applicative
 import Data.String
 import Text.PrettyPrint -- TODO remove?
 
--- Goal: reduce expression tree to linear sequence
--- 1: do for atoms
+-- Goal: algebraically simplify expression tree and reduce to linear sequence
+-- 1: do for atoms - works
 -- 2: vectors - works
 -- 3: matrices
 -- TODO make matrix type
--- should simplify handle rebuilding the term?
+-- should Simplify handle rebuilding the term?
 
 -- Expressions
 infixl 6 :+, :*
@@ -209,7 +208,6 @@ concretize name v | Just (op, op', v1, v2) <- vBinOp v = do
   cv1 <- concretize n1 v1
   cv2 <- concretize n2 v2
   return $ cv1 ++ cv2 ++ [(idView name , Vec (vlen v1) $ \i -> ((fn n1 :! i) `op'` (fn n2 :! i)))]
---TODO
 concretize name v@(VDot _ _) = error $ "concretize. VDot should be reduced by now: " ++ show v
 concretize name (VSum v1) = do
   n1 <- freshName
