@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings, PatternSynonyms #-}
 module Vec where
+import Prelude hiding ((**))
 import Names
 import qualified Simplify
 import qualified Data.Map.Strict as M
 import Data.List
 import Control.Applicative
 import Data.String
-import Text.PrettyPrint -- TODO remove?
 
 -- Goal: algebraically simplify expression tree and reduce to linear sequence
 -- 1: do for atoms - works
@@ -24,8 +24,9 @@ data E
   | E :! E
   | ESum E (E -> E)
   deriving (Show, Eq, Ord)
+pattern LitNum n = ELit (I n)
 isLit :: E -> Maybe Int
-isLit (ELit (I n)) = Just n
+isLit (LitNum n) = Just n
 isLit _ = Nothing
 
 -- Vectors
@@ -78,6 +79,7 @@ infix 4 :=
 data Line
   = Loc := RHS
   | Each Name Atom Atom [Line]
+  | Decl Loc
   deriving (Show, Eq)
 
 -- Expression Simplification/Compilation --
@@ -166,24 +168,28 @@ vlen (VSum _) = 1
 vBinOp (VProd v1 v2) = Just (VProd, (:*), v1, v2)
 vBinOp (VPlus v1 v2) = Just (VPlus, (:+), v1, v2)
 vBinOp _ = Nothing
-simplV :: VExpr -> VExpr
+injectExpr :: Either E VExpr -> VExpr
+injectExpr (Right v) = v
+injectExpr (Left e) = VLit $ Vec 1 (\_ -> e)
+simplV :: VExpr -> Either E VExpr
 simplV (VBlock l1 vs1) =
-  VBlock l1 (simplV . vs1)
+  Right $ VBlock l1 (injectExpr . simplV . vs1)
 simplV v | Just (op, op', v1, v2) <- vBinOp v =
   let
     step (VLit v1@(Vec len vf1)) (VLit v2@(Vec _ vf2)) =
-      VLit $ Vec len (\i -> (vf1 i) `op'` (vf2 i))
+      Right $ VLit $ Vec len (\i -> (vf1 i) `op'` (vf2 i))
     step (VBlock l1 vs1) (VBlock l2 vs2) =
       simplV $ VBlock l1 $ \b -> (vs1 b `op` vs2 b)
-    step v1 v2 = v
-    v1' = simplV v1
-    v2' = simplV v2
+    step v1 v2 = Right v
+    v1' = injectExpr $ simplV v1
+    v2' = injectExpr $ simplV v2
   in step v1' v2'
-simplV v0@(VDot v1 v2) = simplV $ VSum $ VProd v1 v2
+simplV v0@(VDot v1 v2) = simplV $ VSum $ injectExpr . simplV $ VProd v1 v2
 simplV (VSum (VLit (Vec len vfn))) =
-  VLit $ Vec 1 (\_ -> ESum len vfn)
-simplV (VSum v) = VSum (simplV v)
-simplV v = v
+  Left $ ESum len (fullSimpl . vfn)
+  --VLit $ Vec 1 (\_ -> ESum len vfn)
+simplV (VSum v) = Right $ VSum (injectExpr $ simplV v)
+simplV v = Right v
 -- END / Simplification --
 -- Assign names, LocViews --
 idView name i = ELIndex (fn name) i
@@ -234,14 +240,17 @@ compileCV (loc, Vec len val) = do
      (val, valLines) <- simplCompile (val ind)
      let line = lhs := RAtom val
      return (lhsLines ++ valLines ++ [line])
-compileV :: VExpr -> NameMonad (Name, [Line])
+compileV :: VExpr -> NameMonad (Atom, [Line])
 compileV vexpr = do
   name <- freshName
   cvs <- concretize name vexpr
   lines <- concat <$> mapM compileCV cvs
-  return (name, lines)
+  return (fn name, lines)
 -- END / Compile to explicit loops --
 -- END / Vector Simplification/Compilation --
+
+-- TODO (len, lenLines) <- simplCompile (vlen vexpr) let decl = Decl (LIndex (fn name) len)
+-- ^ generate decls
 
 -- Pretty Print Programs --
 ppName :: Name -> String
@@ -261,6 +270,8 @@ ppRHS (RDeref name) = "*("++ppName name++")"
 ppLine :: String -> Line -> String
 ppLine offset line =
   case line of
+    Decl loc ->
+      offset ++ ppLoc loc ++ ";\n"
     loc := rhs ->
       offset ++ ppLoc loc ++ " = " ++ ppRHS rhs ++ ";\n"
     Each name lower upper block ->
@@ -275,7 +286,7 @@ ppLine offset line =
 -- TESTS --
 pp = putStr . concat . map (ppLine "")
 chk  = pp . runName . (snd <$>) . compile . fullSimpl
-chkv = pp . runName . (snd <$>) . compileV . simplV
+chkv = pp . runName . (snd <$>) . either compile compileV . simplV
 e1, e2, e3 :: E
 e1 = fn "x" :+ fn "y"
 e2 = e1 :* e1
@@ -285,6 +296,7 @@ e5 l = ESum l (\i -> i :* i)
 v1, v2, v3 :: VExpr
 v1 = VLit $ Vec 2 (\_ -> 2)
 v1' = VLit $ Vec (fn "len") (\_ -> 2)
+v1'' = VLit $ Vec (fn "len") (id)
 v2 = VLit $ Vec 2 ((* (fn "x")))
 v3 = VProd v1 v2
 v3' = VDot v1 v2
@@ -293,9 +305,23 @@ v4' = VBlock 2 (\_ -> v1')
 v5 = VDot v4 v4
 v5' = VDot v4' v4'
 v6 = VDot v1 v1
-vx1 = VLit $ Vec 1 (\_ -> fn "x")
+vx1 = VLit $ Vec 1 (\_ -> 0)
 vy1 = VLit $ Vec 1 (\_ -> fn "y")
 xy = VBlock 2 $ (\(ELit (I n)) -> if n == 0 then vx1 else vy1)
+yx = VBlock 2 $ (\(ELit (I n)) -> if n == 0 then vy1 else vx1)
+xyd2 = VDot xy v1
+xydyx = VDot xy yx
+
+infixr 3 #
+x # y = VBlock 2 (\(LitNum n) -> if n == 0 then x else y)
+infix 2 **
+x ** y = VDot x y
+n $$ v = VLit $ Vec n (\_ -> v)
+v_1 = 1 $$ 1
+v_0 = 1 $$ 0
+i :: E -> VExpr
+i len = VLit $ Vec len (id)
+
 -- END / TESTS --
 
 -- STUFF --
@@ -335,6 +361,13 @@ instance Num E where
   abs = un
   signum = un
   negate = un
+instance Num VExpr where
+  x * y = VProd x y
+  x + y = VPlus x y
+  fromInteger x = 1 $$ (fromInteger x)
+  abs = un
+  signum = un
+  negate = un
 class Named a where
   fn :: Name -> a
 instance Named ELoc where
@@ -345,4 +378,6 @@ instance Named Atom where
   fn = R
 instance Named E where
   fn = ELit . fn
+instance IsString E where
+  fromString = fn
 -- END / STUFF --
