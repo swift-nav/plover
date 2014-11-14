@@ -366,8 +366,6 @@ eExpr = Simplify.Expr
    isAtom _ = Nothing
    isPrim (ELit (I n)) = Just n
    isPrim _ = Nothing
-   isNode (e1 :! e2) =
-     Just ([e1, e2], \[e1, e2] -> e1 :! e2)
 instance Num E where
   x * y = x :* y
   x + y = x :+ y
