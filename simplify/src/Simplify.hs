@@ -6,14 +6,13 @@ import qualified Data.Map.Strict as M
 import Control.Monad (foldM)
 un = undefined
 
-data Expr e atom b = Expr
+data Expr e atom num = Expr
   { isSum :: e -> Maybe [e]
   , isMul :: e -> Maybe [e]
   , isAtom :: e -> Maybe atom
-  , isPrim :: e -> Maybe b
-  , zero :: b
-  , one :: b
-  --, isNode :: e -> Maybe ([e], [e] -> e)
+  , isPrim :: e -> Maybe num
+  , zero :: num
+  , one :: num
   }
 
 data Term atom n
