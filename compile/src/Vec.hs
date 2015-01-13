@@ -255,14 +255,45 @@ compileV vexpr = do
 -- Matrices? --
 matView :: E -> Name -> E -> E -> ELoc
 matView width name i j = ELIndex (fn name) (i * width + j)
-data Mat = Mat E E (E -> E -> E)
+type MatLocView = E -> E -> ELoc
+type MatView = E -> E -> E
+data Mat = Mat E E MatView
 data MExpr
   = MLit Mat
   | MMul MExpr MExpr
+  | MSum MExpr MExpr
 simplM :: MExpr -> MExpr
 simplM (MMul (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat rs2 cs2 mfn2))) =
   simplM $ MLit $ Mat rs1 cs2 $ \i k -> ESum cs1 (\j -> mfn1 i j * mfn2 j k)
+simplM (MSum (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat _ _ mfn2))) =
+  simplM $ MLit $ Mat rs1 cs1 $ \i j -> mfn1 i j + mfn2 i j
 simplM (MLit (Mat rs cs mfn)) = MLit $ Mat (fullSimpl rs) (fullSimpl cs) (\i j -> fullSimpl (mfn i j))
+idMView width name r c = ELIndex (fn name) (r * width + c)
+concretizeM :: Name -> MExpr -> NameMonad [(MatLocView, Mat)]
+concretizeM name (MLit m@(Mat _ cs _)) = return [(idMView cs name, m)]
+compileCM :: (MatLocView, Mat) -> NameMonad [Line]
+compileCM (loc, Mat rs cs val) = do
+  (rLoopBound, rlLines) <- simplCompile rs
+  (cLoopBound, clLines) <- simplCompile cs
+  rIndex <- freshName
+  cIndex <- freshName
+  blockLines <- compileEntry loc val (fn rIndex) (fn cIndex)
+  let loop = Each rIndex (I 0) rLoopBound
+               [Each cIndex (I 0) cLoopBound
+                 blockLines]
+  return $ rlLines ++ clLines ++ [loop]
+ where
+   compileEntry loc val i j = do
+     (lhs, lhsLines) <- compileELoc (loc i j)
+     (val, valLines) <- simplCompile (val i j)
+     return $ lhsLines ++ valLines ++ [lhs := RAtom val]
+
+compileM :: MExpr -> NameMonad (Atom, [Line])
+compileM mexpr = do
+  name <- freshName
+  cms <- concretizeM name mexpr
+  lines <- concat <$> mapM compileCM cms
+  return (fn name, lines)
 -- END / Matrices? --
 
 -- Pretty Print Programs --
@@ -312,12 +343,14 @@ i len = VLit $ Vec len (id)
 pp = putStr . concat . map (ppLine "")
 chk  = pp . runName . (snd <$>) . compile . fullSimpl
 chkv = pp . runName . (snd <$>) . either compile compileV . simplV
+chkm = pp . runName . (snd <$>) . compileM . simplM
 e1, e2, e3 :: E
 e1 = fn "x" :+ fn "y"
 e2 = e1 :* e1
 e3 = e2 :* e2
 e4 = (e2 :! e2)
 e5 l = ESum l (\i -> i :* i)
+
 v1, v2, v3 :: VExpr
 v1 = VLit $ Vec 2 (\_ -> 2)
 v1' = VLit $ Vec (fn "len") (\_ -> 2)
@@ -336,6 +369,10 @@ xy = VBlock 2 $ (\(ELit (I n)) -> if n == 0 then vx1 else vy1)
 yx = VBlock 2 $ (\(ELit (I n)) -> if n == 0 then vy1 else vx1)
 xyd2 = VDot xy v1
 xydyx = VDot xy yx
+
+m1  = MLit $ Mat 1 1 (\_ _ -> 1)
+mp2 = MLit $ Mat 2 2 (\i j -> i + j)
+mpn n = MLit $ Mat n n (\i j -> i + j)
 -- END / Test expressions --
 
 -- STUFF --
@@ -377,6 +414,13 @@ instance Num VExpr where
   x * y = VProd x y
   x + y = VPlus x y
   fromInteger x = 1 $$ (fromInteger x)
+  abs = un
+  signum = un
+  negate = un
+instance Num MExpr where
+  x * y = MMul x y
+  x + y = MSum x y
+  fromInteger x = MLit $ Mat 1 1 (\_ _ -> fromInteger x)
   abs = un
   signum = un
   negate = un
