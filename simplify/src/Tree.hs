@@ -17,6 +17,7 @@ type Expr f = Free f Name
 -- Populates Env with a Name for each node
 nameTreeM :: Traversable f => Free f Name -> EnvMonad (f Name) Name
 nameTreeM = iterM (\f -> T.sequence f >>= store)
+
 nameTree :: Traversable e => Expr e -> Env (e Name)
 nameTree = snd . runEnv . nameTreeM
 
@@ -68,3 +69,13 @@ test = runEnv $ do
   t4 <- labelTreeM t3
   t5 <- labelTreeM $ Pure t4 * Pure t4
   return t5
+
+pattern (:+) a b = Free (Sum a b)
+pattern (:*) a b = Free (Mul a b)
+pattern Lit n    = Free (L n)
+--pattern (:**) a n b = Node n (Sum a b)
+--
+--test (a :** n b) = 22
+
+--rewrite :: NamedTree TestE -> TestExpr (NamedTree TestE)
+--rewrite (a :+ b) = a :+ b
