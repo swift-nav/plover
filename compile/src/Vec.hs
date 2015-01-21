@@ -320,8 +320,8 @@ matView width name i j = ELIndex (fn name) (i * width + j)
 simplifyM = simplM . expandRefM
 expandRefM :: MExpr -> MExpr
 expandRefM (MRef name rows cols) = MLit (Mat rows cols (\i j -> fn name :! (i * cols) + j))
-expandRefM (MMul m1 m2) = MMul (expandRefM m1) (expandRefM m1)
-expandRefM (MSum m1 m2) = MSum (expandRefM m1) (expandRefM m1)
+expandRefM (MMul m1 m2) = MMul (expandRefM m1) (expandRefM m2)
+expandRefM (MSum m1 m2) = MSum (expandRefM m1) (expandRefM m2)
 expandRefM m@(MLit _) = m
 simplM :: MExpr -> MExpr
 simplM (MMul (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat rs2 cs2 mfn2))) =
