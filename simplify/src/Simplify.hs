@@ -4,7 +4,6 @@ module Simplify
 where
 import qualified Data.Map.Strict as M
 import Control.Monad (foldM)
-un = undefined
 
 data Expr e atom num = Expr
   { isSum :: e -> Maybe [e]
@@ -67,3 +66,8 @@ simplify e@Expr{..} expr =
       addOne (_, n) | zero == n = id
       addOne (term, n)  = M.insertWith (+) term n
   in foldr addOne poly0 reducedTerms
+
+
+
+
+

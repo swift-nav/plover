@@ -85,6 +85,7 @@ data RHS
   | RAtom Atom
   | RLoc Loc
   | RDeref Name
+  | RExpr E
   deriving (Show, Eq)
 infix 4 :=
 infix 4 :==
@@ -95,13 +96,14 @@ data Line
   | Each Name Atom Atom [Line]
   | Decl Name
   deriving (Show, Eq)
+
+-- Functions
 -- Type Environment
 data BaseType = Int | Float
   deriving (Show, Eq)
 data Type = Single BaseType | Array BaseType | Void
   deriving (Show, Eq)
 type TypeList = [(Name, Type)]
--- Functions
 -- Name, Args, Return argument name
 data Signature = Signature Name TypeList (Name, Type)
   deriving (Show, Eq)
@@ -110,21 +112,6 @@ data FnExpr = FnExpr Signature MExpr
 data Fn = Fn Signature [Line]
   deriving (Show, Eq)
 
-simplFn :: FnExpr -> FnExpr
-simplFn (FnExpr sig mexpr) = FnExpr sig (simplifyM mexpr)
-compileFn :: FnExpr -> NameMonad Fn
-compileFn (FnExpr sig@(Signature name args (ret, retType)) mexpr) = do
-  lines <- compileM ret mexpr
-  return $ Fn sig lines
-
-
---compileM :: MExpr -> NameMonad (Atom, [Line])
---compileM mexpr = do
---  name <- freshName
---  cms <- concretizeM name mexpr
---  lines <- concat <$> mapM compileCM cms
---  return (fn name, lines)
---
 -- Expression Simplification/Compilation --
 -- Simplification --
 toE :: Simplify.Poly E Int -> E
@@ -164,14 +151,11 @@ binOp (e1 :+ e2) = Just (e1, e2)
 binOp (e1 :* e2) = Just (e1, e2)
 binOp (e1 :! e2) = Just (e1, e2)
 binOp _ = Nothing
-
-
 compile :: E -> NameMonad (Atom, [Line])
 compile e = do
   n <- freshName
   lines <- compile' n e
   return (R n, lines)
-
 compile' :: Name -> E -> NameMonad [Line]
 compile' n e = do
   case e of
@@ -182,7 +166,6 @@ compile' n e = do
     _ -> do
       (lines, rhs) <- compileExpr e
       return $ lines ++ [fn n :== rhs]
-
 compileExpr :: E -> NameMonad ([Line], RHS)
 compileExpr (ELit b@(I n)) = return ([], RAtom b)
 compileExpr (ELit b@(R n)) = return ([], RAtom b)
@@ -354,19 +337,20 @@ compileM name mexpr = do
   cms <- concretizeM name mexpr
   lines <- concat <$> mapM compileCM cms
   return lines
-
 compileM' expr = do
   n <- freshName
   lines <- compileM n expr
   return (n, lines)
+-- END / Matrices --
 
-seqPair :: Monad m => m a -> (a -> m b) -> m (a, b)
-seqPair m f = do
-  a <- m
-  b <- f a
-  return (a, b)
-
--- END / Matrices? --
+-- Functions --
+simplFn :: FnExpr -> FnExpr
+simplFn (FnExpr sig mexpr) = FnExpr sig (simplifyM mexpr)
+compileFn :: FnExpr -> NameMonad Fn
+compileFn (FnExpr sig@(Signature name args (ret, retType)) mexpr) = do
+  lines <- compileM ret mexpr
+  return $ Fn sig lines
+-- END / Functions --
 
 -- Pretty Print Programs --
 -- TODO use standard C syntax library?
@@ -400,7 +384,6 @@ ppLine offset line =
          ppName name ++ "++) {\n" ++
          concat (map (ppLine ("  " ++ offset)) block) ++
       offset ++ "}\n"
-
 ppBaseType :: BaseType -> String
 ppBaseType Int = "int"
 ppBaseType Float = "float"
