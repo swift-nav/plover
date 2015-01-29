@@ -1,62 +1,76 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module MGen where
-import Prelude hiding ((**))
 import Name
-import qualified Data.Map.Strict as M
+
+import Data.String
 import Data.List
 import Data.Maybe (fromJust)
+import qualified Data.Map.Strict as M
+
 import Control.Applicative ((<$>))
-import Data.String
 import Control.Monad (foldM)
+import Control.Monad.Trans.Either
+import Control.Monad.Trans.Class
+import Control.Monad.Free
+import Data.Foldable (Foldable)
+import qualified Data.Traversable as T (Traversable, mapAccumR, sequence)
+
 import Debug.Trace (trace)
 
-import Control.Monad.Free
-
-data False
-deriving instance Show False
-deriving instance Eq False
-deriving instance Ord False
+type Variable = String
 
 data Line = LStore Loc RHS | LAction RHS
   deriving (Show, Eq, Ord)
-infix 4 :=, :==
+
+infix 4 :=, :==, :<
 pattern l :=  r = LStore l r
-pattern l :== b = LStore l (RHSBlock b)
-data RHS = RHSMat MExpr | RHSExpr ExprU
+pattern l :== b = LStore l (RHSMat b)
+pattern l :< b = LStore l (RHSBlock b)
+
+data RHS = RHSMat MExprU
+         | RHSExpr ExprU
          | RHSCall Variable [(Variable, RHS)]
          | RHSVoid
          | RHSBlock [Line]
   deriving (Show, Eq, Ord)
 
-type Variable = String
 
-data Mat = Mat Expr Expr (View2 Expr)
+type View2 a = Expr -> Expr -> a
+data Dim' a = Dim a a
+  deriving (Show, Eq, Ord)
+type Dim = Dim' Name
+type DimU = Dim' ExprU
+rows (Dim r _) = r
+cols (Dim _ c) = c
+
+data Mat = Mat BaseType DimU (View2 ExprU)
   deriving (Show, Eq, Ord)
 
-data MExpr
+data MExpr' e
   = MRef Variable
   | MLit Mat
-  | MMul MExpr MExpr
-  | MSum MExpr MExpr
-  deriving (Show, Eq, Ord)
+  | MMul e e
+  | MSum e e
+  deriving (Show, Eq, Ord, Functor, Foldable, T.Traversable)
+type MExpr = MExpr' Name
+type MExprU = Free MExpr' Name
 
-type View1 a = Expr -> a
-type View2 a = Expr -> Expr -> a
-data Expr' a = Expr ExprTag [a]
-  deriving (Show, Eq, Ord)
-type Expr = Expr' Name
-type ExprU = Free Expr' Name
-
-data ExprTag
+data Expr' a
   = ERef Variable
   | ELit Int
-  | ESum
-  | EMul
-  | ESummation (Expr -> Expr)
-  deriving (Show, Eq, Ord)
+  | ESum a a
+  | EMul a a
+  | ESummation a (Expr -> Expr)
+ deriving (Show, Eq, Ord, Functor, Foldable, T.Traversable)
+
+--data Expr' a = Expr ExprTag [a]
+--  deriving (Show, Eq, Ord)
+type Expr = Expr' Name
+type ExprU = Free Expr' Name
 
 data Loc 
   = LName Variable
@@ -68,140 +82,273 @@ data BaseType = Int | Float | Void
 type TypeContext = M.Map Variable Name
 type Context = (Blocks, TypeContext)
 
-data Type a = Type TypeTag [a]
-  deriving (Show, Eq, Ord)
+-- TODO change to match Expr' format
 data TypeTag
-  = TMatrix -- basetype, expr, expr
-  | TExpr -- basetype
-  | TBlock -- return type, arg types
-  | TLit BaseType
+  = TMatrix Dim   -- basetype, expr, expr
+  | TExpr         -- basetype
+  | TBlock        -- return type, arg types
+  | TLit BaseType -- None
+  deriving (Show, Eq, Ord)
+-- TODO change to match Expr' format
+data Type' a = Type TypeTag [a]
+  deriving (Show, Eq, Ord)
+type Type = Type' Name
+
+data UValue = UType Type | UExpr Expr | UVar
+  deriving (Show, Eq, Ord)
+data UError = UError [Name] String
   deriving (Show, Eq, Ord)
 
-data UValue = UType (Type Name) | UExpr Expr | UVar
-  deriving (Show, Eq, Ord)
+-- Operations that unify and may fail
+type InnerM = EitherT UError (EnvMonad UValue)
+-- Operations that run InnerM actions, handle errors
+-- TODO aggregate errors?
+type OuterM = EnvMonad UValue
+-- Operations that simply use store/get
+type M = EnvMonad UValue
 
-type M a = EnvMonad UValue a
 data Block = Block [Line] Context
   deriving (Show, Eq, Ord)
 type Blocks = M.Map Variable Block
 
-parseLine :: Context -> Line -> M Context
-parseLine c@(blocks, context) ((LName var) :== lines) = do
+-- Updates a context and the monad environment given a line.
+-- Unification errors for the given line are passed over,
+-- so context may be erroneous as well, but parsing can still continue.
+parseLine :: Context -> Line -> OuterM Context
+parseLine c@(blocks, context) ((LName var) :< lines) = do
   return (M.insert var (Block lines c) blocks, context)
 parseLine c@(blocks, context) ((LName var) := val) = do
-  rhs <- typeExpr c val
-  lhs <- case M.lookup var context of
-    Nothing -> store UVar
-    Just n -> return n
-  okay <- unifyBind lhs rhs
-  if okay then return () else error "EIT"
-  return $ (blocks, M.insert var lhs context)
+  -- Type the RHS, check context for LHS, bind RHS to LHS, return type ref
+  okay <- runEitherT $ do
+    rhs <- typeExpr c val
+    lhs <- lift $ case M.lookup var context of
+      Nothing -> store UVar
+      Just n -> return n
+    unifyBind lhs rhs
+    return lhs
+  -- Check result, update context if valid
+  case okay of
+    Left err -> trace ("parseLine. " ++ show err) $ return c
+    Right typeName -> return (blocks, M.insert var typeName context)
 -- TODO is this ok?
 parseLine c (LAction _) = return c
 
-parseLines :: Context -> [Line] -> M Context
+parseLines :: Context -> [Line] -> OuterM Context
 parseLines = foldM parseLine
 
-typeExpr :: Context -> RHS -> M Name
+-- TODO should return Either Error Name
+typeExpr :: Context -> RHS -> InnerM Name
 typeExpr c@(blocks, context) (RHSCall name bindings) = do
   let (vars, args) = unzip bindings
   argTypes <- mapM (typeExpr c) args
   let block = fromJust (M.lookup name blocks)
   applyBlock block (zip vars argTypes)
-typeExpr c@(blocks, context) (RHSExpr (Free (Expr tag ns))) =
+-- TODO ????????
+typeExpr c@(blocks, context) (RHSExpr (Pure name)) =
+  return name
+typeExpr c@(blocks, context) (RHSExpr (Free tag)) =
   case tag of
-    ERef var ->
+    ERef var -> lift $
       case M.lookup var context of
         Nothing -> store UVar
         Just t -> return t
-    ELit i -> store $ UType (Type (TLit Int) [])
-    ESum -> do
-      let [e1, e2] = ns
+    ELit i -> lift $ store $ UType (Type (TLit Int) [])
+    ESum e1 e2 -> do
       t1 <- typeExpr c (RHSExpr e1)
       t2 <- typeExpr c (RHSExpr e2)
       unifyBind t1 t2
       return t1
-    EMul -> do
-      let [e1, e2] = ns
+    EMul e1 e2 -> do
       t1 <- typeExpr c (RHSExpr e1)
       t2 <- typeExpr c (RHSExpr e2)
       unifyBind t1 t2
       return t1
-    ESummation fn -> store $ UType (Type (TLit Float) [])
+    ESummation _ fn -> lift $ store $ UType (Type (TLit Float) [])
+
 typeExpr c@(blocks, context) RHSVoid =
-  store $ UType (Type (TLit Void) [])
-typeExpr _ b = error (show b)
---typeExpr c@(blocks, context) (RHSMat m) = _
+  lift $ store $ UType (Type (TLit Void) [])
+-- TODO check result from unifications
+typeExpr c@(blocks, context) (RHSMat (Free tag)) =
+  case tag of
+    MRef var -> lift $
+      case M.lookup var context of
+        Nothing -> store UVar
+        Just t -> return t
+    MLit mat -> do
+      mvar <- lift $ store UVar
+      matVar <- storeMat c mat
+      unifyDim mvar matVar
+      return mvar
+    MMul e1 e2 -> do
+      t1 <- typeExpr c (RHSMat e1)
+      t2 <- typeExpr c (RHSMat e2)
+      unifyInner t1 t2
+      return t1
+    MSum e1 e2 -> do
+      t1 <- typeExpr c (RHSMat e1)
+      t2 <- typeExpr c (RHSMat e2)
+      unifyDim t1 t2
+      return t1
+
+-- TODO remove
+typeExpr _ b = error $ "typeExpr. " ++ (show b)
+
+matrixVar :: M Name
+matrixVar = do
+  typeVar <- store UVar
+  rowsVar <- store UVar
+  colsVar <- store UVar
+  store $ UType (Type (TMatrix $ Dim rowsVar colsVar) [typeVar])
+
+matchMatrix :: Name -> InnerM Type
+matchMatrix name = do
+  val <- lift $ get name
+  case val of
+    UVar -> do
+      mvar <- lift $ matrixVar
+      unifyBind name mvar
+      matchMatrix name
+    UType t@(Type (TMatrix _) _) ->
+      right t
+    _ -> left $ UError [name] "not a matrix"
+
+-- Return rows or columns variable
+matrixProperty :: (Dim -> Name) -> Name -> InnerM Name
+matrixProperty fn name = do
+  Type (TMatrix dim) _ <- matchMatrix name
+  return (fn dim)
+
+storeMat :: Context -> Mat -> InnerM Name
+storeMat c (Mat tp (Dim rows cols) _) = do
+  typeVar <- lift $ store $ UType (Type (TLit tp) [])
+  rowsVar <- typeExpr c (RHSExpr rows)
+  colsVar <- typeExpr c (RHSExpr cols)
+  lift $ store $ UType (Type (TMatrix $ Dim rowsVar colsVar) [typeVar])
+
+unifyDim :: Name -> Name -> InnerM ()
+unifyDim n1 n2  = do
+  unifyRows n1 n2
+  unifyCols n1 n2
+  unifyBaseType n1 n2
+
+unifyBaseType :: Name -> Name -> InnerM ()
+unifyBaseType n1 n2 = do
+  Type _ bt1 <- matchMatrix n1
+  Type _ bt2 <- matchMatrix n2
+  assert (bt1 == bt2) [n1, n2] "unifyBaseType."
+
+assert :: Bool -> [Name] -> String -> InnerM ()
+assert True _ _ = return ()
+assert False names str = left $ UError names ("assert failure: " ++ str)
+
+unifyRows :: Name -> Name -> InnerM ()
+unifyRows n1 n2 = do
+  r1 <- matrixProperty rows n1
+  r2 <- matrixProperty rows n2
+  unifyBind r1 r2
+unifyCols :: Name -> Name -> InnerM ()
+unifyCols n1 n2 = do
+  c1 <- matrixProperty cols n1
+  c2 <- matrixProperty cols n2
+  unifyBind c1 c2
+unifyInner :: Name -> Name -> InnerM ()
+unifyInner n1 n2 = do
+  c1 <- matrixProperty cols n1
+  r2 <- matrixProperty rows n2
+  unifyBind c1 r2
+
+chk = runEnv . parseLines emptyContext
+
+unifyBind :: Name -> Name -> InnerM ()
+unifyBind n1 n2 = do
+  bindings <- unify n1 n2
+  mapM_ (uncurry update) bindings
+ where
+  update n1 n2 = lift $ do
+    v2 <- get n2
+    -- TODO remove trace
+    trace (show (n1, v2)) $ put n1 v2
+
+unify :: Name -> Name -> InnerM [Pair]
+unify n1 n2 = do
+  v1 <- lift $ get n1
+  v2 <- lift $ get n2
+  unifyOne n1 v1 n2 v2
+
+type Pair = (Name, Name)
+unifyOne :: Name -> UValue -> Name -> UValue -> InnerM [Pair]
+unifyOne n1 UVar n2 t = right $ [(n1, n2)]
+unifyOne n1 t n2 UVar = unifyOne n2 UVar n1 t
+unifyOne n1 (UType (Type t1 ns1)) n2 (UType (Type t2 ns2)) = do
+  assert (t1 == t2) [n1, n2] $
+    "unifyOne. type tags don't match: " ++ (show t1 ++ show t2)
+  bs <- unifyMany [n1, n2] ns1 ns2
+  return $ (n1, n2) : bs
+
+unifyOne n1 (UExpr e1) n2 (UExpr e2) = do
+  assert (tagEq e1 e2) [n1, n2] $
+    "unifyOne. expr types don't match: " ++ show e1 ++ ", " ++ show e2
+  bs <- unifyMany [n1, n2] (children e1) (children e2)
+  return $ (n1, n2) : bs
+
+unifyOne n1 v1 n2 v2 = left $ UError [n1, n2] $
+  "unifyOne. value types don't match: " ++ show v1 ++ ", " ++ show v2
+
+unifyMany :: [Name] -> [Name] -> [Name] -> InnerM [Pair]
+unifyMany from ns1 ns2 = do
+  assert (length ns1 == length ns2) from $
+    "unifyMany. type arg list lengths don't match: "
+      ++ show ns1 ++ ", " ++ show ns2
+  concat <$> mapM (uncurry unify) (zip ns1 ns2)
+
+tagEq :: (Functor f, Eq (f ())) => f a -> f a -> Bool
+tagEq t1 t2 = fmap (const ()) t1 == fmap (const ()) t2
+
+children :: (T.Traversable t) => t a -> [a]
+children t = fst $ T.mapAccumR step [] t
+ where
+  step list child = (child : list, ())
+
+extend :: TypeContext -> [(Variable, Name)] -> TypeContext
+extend context bindings = foldr (uncurry M.insert) context bindings
+-- Returns type of block result
+-- TODO support empty block?
+applyBlock :: Block -> [(Variable, Name)] -> InnerM Name
+applyBlock (Block lines (blocks, context)) bindings = do
+  let bs' = extend context bindings
+  let (body, ret) = (init lines, last lines)
+  c2 <- lift $ parseLines (blocks, bs') body
+  case ret of
+    LAction rhs -> typeExpr c2 rhs
+    _ -> typeExpr c2 RHSVoid
 
 -- TESTS
 emptyContext :: Context
 emptyContext = (M.fromList [], M.fromList [])
 b1 = [LAction RHSVoid]
 
-p1 = [ "v" :== b1 ]
+p1 = [ "v" :< b1 ]
 p2 = [ "x" := 2
      , "y" := 3
      , LAction "x"
      ]
+
+-- It Works !
 p3 = [ "x" := 2
      , "y" := RHSExpr ("u" * "x")
      , LAction "y"
      ]
+p4 = [ "x" :== 2
+     , "y" :== "x" * "u"
+     ]
 
-chk = runEnv . parseLines emptyContext
 
-unifyBind :: Name -> Name -> M Bool
-unifyBind n1 n2 = do
-  mbs <- unify n1 n2
-  case mbs of
-    Nothing -> return False
-    Just bs -> mapM (uncurry update) bs >> return True
- where
-  update n1 n2 = do
-    v2 <- get n2
-    trace (show (n1, v2)) $ put n1 v2
+e1, e2 :: ExprU
 
-unify :: Name -> Name -> M (Maybe [Pair])
-unify n1 n2 = do
-  v1 <- get n1
-  v2 <- get n2
-  let mpairs = unifyOne n1 v1 n2 v2
-  case mpairs of
-    Nothing -> return Nothing
-    Just (need, assert) -> do
-      mbls <- mapM (uncurry unify) need
-      return $ do
-        bindingLists <- sequence mbls
-        return $ assert ++ concat bindingLists
-
-type Flip = Bool
-type Pair = (Name, Name)
-unifyOne :: Name -> UValue -> Name -> UValue -> Maybe ([Pair], [Pair])
-unifyOne n1 UVar n2 t = Just ([], [(n1, n2)])
-unifyOne n1 t n2 UVar = unifyOne n2 UVar n1 t
-unifyOne n1 (UType (Type t1 ns1)) n2 (UType (Type t2 ns2)) =
-  if t1 == t2 && length ns1 == length ns2
-  then return (zip ns1 ns2, [(n1, n2)])
-  else Nothing
-unifyOne n1 (UExpr (Expr t1 ns1)) n2 (UExpr (Expr t2 ns2)) =
-  if t1 == t2 && length ns1 == length ns2
-  then return (zip ns1 ns2, [(n1, n2)])
-  else Nothing
-unifyOne _ _ _ _ = Nothing
-
-extend :: TypeContext -> [(Variable, Name)] -> TypeContext
-extend context bindings = foldr (uncurry M.insert) context bindings
--- Returns type of block result
--- TODO support empty block?
-applyBlock :: Block -> [(Variable, Name)] -> M Name
-applyBlock (Block lines (blocks, context)) bindings = do
-  let bs' = extend context bindings
-  let (body, ret) = (init lines, last lines)
-  c2 <- parseLines (blocks, bs') body
-  case ret of
-    LAction rhs -> typeExpr c2 rhs
-    _ -> typeExpr c2 RHSVoid
-
+(e1, e2) = evalEnv $ do 
+  n1 <- store 2
+  n2 <- store 3
+  return (Pure n1 * 4, Pure n2 * 3)
 
 
 -- STUFF --
@@ -213,8 +360,8 @@ instance Eq (a -> b) where
 instance Ord (a -> b) where
   compare a b = GT -- ???
 
---instance IsString MExpr where
---  fromString = MRef
+instance IsString MExprU where
+  fromString = Free . MRef
 --instance IsString Expr where
 --  fromString str = Expr (ERef str) []
 instance IsString Loc where
@@ -223,7 +370,7 @@ instance IsString Loc where
 instance IsString RHS where
   fromString = RHSExpr . fromString
 instance IsString ExprU where
-  fromString x = Free (Expr (ERef x) [])
+  fromString = Free . ERef
 instance Num RHS where
   x * y = undefined
   x + y = undefined
@@ -232,19 +379,19 @@ instance Num RHS where
   signum = undefined
   negate = undefined
 instance Num ExprU where
-  x * y = Free (Expr EMul [x, y])
-  x + y = Free (Expr ESum [x, y])
-  fromInteger x = Free (Expr (ELit $ fromInteger x) [])
+  x * y = Free (EMul x y)
+  x + y = Free (ESum x y)
+  fromInteger x = Free (ELit $ fromInteger x)
   abs = undefined
   signum = undefined
   negate = undefined
---instance Num MExpr where
---  x * y = MMul x y
---  x + y = MSum x y
---  fromInteger x = MLit $ Mat 1 1 (\_ _ -> fromInteger x)
---  abs = undefined
---  signum = undefined
---  negate = undefined
+instance Num MExprU where
+  x * y = Free (MMul x y)
+  x + y = Free (MSum x y)
+  fromInteger x = Free $ MLit $ Mat Float (Dim 1 1) (\_ _ -> fromInteger x)
+  abs = undefined
+  signum = undefined
+  negate = undefined
 
 --block1 =
 -- [ "tau" := Call "norm" ["rx_st" - ("meas" :~ "sat_pos")] / "GPS_C"
