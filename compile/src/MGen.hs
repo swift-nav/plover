@@ -17,7 +17,7 @@ import Control.Monad.Trans.Either
 import Control.Monad.Trans.Class
 import Control.Monad.Free
 import Data.Foldable (Foldable)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence)
+import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM)
 
 import Debug.Trace (trace)
 
@@ -59,6 +59,9 @@ data MExpr' e
 type MExpr = MExpr' Name
 type MExprU = Free MExpr' Name
 
+pattern dim ::: fn = Free (MLit (Mat Float dim fn))
+pattern rs :* cs = Dim rs cs
+
 data Expr' a
   = ERef Variable
   | ELit Int
@@ -94,7 +97,7 @@ data Type' a = Type TypeTag [a]
   deriving (Show, Eq, Ord)
 type Type = Type' Name
 
-data UValue = UType Type | UExpr Expr | UVar
+data UValue = UType Type | UExpr Expr | UVar | UEq Name
   deriving (Show, Eq, Ord)
 data UError = UError [Name] String
   deriving (Show, Eq, Ord)
@@ -183,7 +186,10 @@ typeExpr c@(blocks, context) (RHSMat (Free tag)) =
       t1 <- typeExpr c (RHSMat e1)
       t2 <- typeExpr c (RHSMat e2)
       unifyInner t1 t2
-      return t1
+      tprod <- lift matrixVar
+      unifyRows t1 tprod
+      unifyCols t2 tprod
+      return tprod
     MSum e1 e2 -> do
       t1 <- typeExpr c (RHSMat e1)
       t2 <- typeExpr c (RHSMat e2)
@@ -221,9 +227,14 @@ matrixProperty fn name = do
 storeMat :: Context -> Mat -> InnerM Name
 storeMat c (Mat tp (Dim rows cols) _) = do
   typeVar <- lift $ store $ UType (Type (TLit tp) [])
-  rowsVar <- typeExpr c (RHSExpr rows)
-  colsVar <- typeExpr c (RHSExpr cols)
+  --rowsVar <- typeExpr c (RHSExpr rows)
+  --colsVar <- typeExpr c (RHSExpr cols)
+  rowsVar <- lift $ storeExpr rows
+  colsVar <- lift $ storeExpr cols
   lift $ store $ UType (Type (TMatrix $ Dim rowsVar colsVar) [typeVar])
+
+storeExpr :: ExprU -> M Name
+storeExpr e = iterM (\f -> T.sequence f >>= (store . UExpr)) e
 
 unifyDim :: Name -> Name -> InnerM ()
 unifyDim n1 n2  = do
@@ -233,9 +244,10 @@ unifyDim n1 n2  = do
 
 unifyBaseType :: Name -> Name -> InnerM ()
 unifyBaseType n1 n2 = do
-  Type _ bt1 <- matchMatrix n1
-  Type _ bt2 <- matchMatrix n2
-  assert (bt1 == bt2) [n1, n2] "unifyBaseType."
+  -- TODO get rid of this list match
+  Type _ [bt1] <- matchMatrix n1
+  Type _ [bt2] <- matchMatrix n2
+  unifyBind bt1 bt2
 
 assert :: Bool -> [Name] -> String -> InnerM ()
 assert True _ _ = return ()
@@ -257,8 +269,6 @@ unifyInner n1 n2 = do
   r2 <- matrixProperty rows n2
   unifyBind c1 r2
 
-chk = runEnv . parseLines emptyContext
-
 unifyBind :: Name -> Name -> InnerM ()
 unifyBind n1 n2 = do
   bindings <- unify n1 n2
@@ -266,8 +276,9 @@ unifyBind n1 n2 = do
  where
   update n1 n2 = lift $ do
     v2 <- get n2
-    -- TODO remove trace
-    trace (show (n1, v2)) $ put n1 v2
+    case v2 of
+      UVar -> put n1 (UEq n2)
+      _ -> put n1 v2
 
 unify :: Name -> Name -> InnerM [Pair]
 unify n1 n2 = do
@@ -325,6 +336,14 @@ applyBlock (Block lines (blocks, context)) bindings = do
 -- TESTS
 emptyContext :: Context
 emptyContext = (M.fromList [], M.fromList [])
+
+chk x = 
+  let ((blocks, context), vars) = runEnv $ parseLines emptyContext x
+  in do
+    mapM_ print (M.toList context)
+    putStrLn "-----------"
+    mapM_ print (M.toList vars)
+
 b1 = [LAction RHSVoid]
 
 p1 = [ "v" :< b1 ]
@@ -338,13 +357,28 @@ p3 = [ "x" := 2
      , "y" := RHSExpr ("u" * "x")
      , LAction "y"
      ]
+
 p4 = [ "x" :== 2
      , "y" :== "x" * "u"
      ]
 
+-- basic matrix product
+p7 = [ "z" :== "x" * "y" ]
+-- good matrix product
+p5 = [
+       "x" :== (5 :* 2 ::: \i j -> 1)
+     , "y" :== (2 :* 3 ::: \i j -> 1)
+     , "z" :== "x" * "y"
+     ]
+-- bad program
+p6 = [
+       "x" :== (5 :* 2 ::: \i j -> 1)
+     , "y" :== (4 :* 3 ::: \i j -> 1)
+     , "z" :== "x" * "y"
+     ]
+
 
 e1, e2 :: ExprU
-
 (e1, e2) = evalEnv $ do 
   n1 <- store 2
   n2 <- store 3
