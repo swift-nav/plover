@@ -1,14 +1,14 @@
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Smash.Parser.Types where
+module Smash.Parse.Types where
 import Name hiding (store, put, get)
 import Data.String
 import Control.Monad.Free
 import Control.Monad.Trans.Either
 import qualified Data.Map.Strict as M
 import Data.Foldable (Foldable)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM)
+import qualified Data.Traversable as T (Traversable)
 
 type Variable = String
 
@@ -34,12 +34,13 @@ pattern B ps body ret = RHSBlock ps body ret
 pattern l :> rhsb = LStore (LName l) rhsb
 
 type View2 a = a -> a -> a
-data Dim' a = Dim a a
+data Dim' a = Dim
+  { dimRows :: a
+  , dimColumns :: a
+  }
   deriving (Show, Eq, Ord)
 type Dim = Dim' Name
 type DimU = Dim' ExprU
-rows (Dim r _) = r
-cols (Dim _ c) = c
 
 data Mat = Mat BaseType DimU (View2 ExprU)
   deriving (Show, Eq, Ord)
@@ -96,12 +97,12 @@ type M = UnMonad
 
 -- STUFF --
 instance Show (a -> b) where
-  show f = "<fn>"
+  show _ = "<fn>"
 -- TODO is this desirable?
 instance Eq (a -> b) where
-  a == b = False
+  _ == _ = False
 instance Ord (a -> b) where
-  compare a b = GT -- ???
+  compare _ _ = GT -- ???
 
 instance IsString ExprU where
   fromString = Free . ERef

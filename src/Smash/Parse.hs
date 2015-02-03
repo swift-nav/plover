@@ -2,16 +2,13 @@
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
-module Smash.Parser where
-import Smash.Parser.Types
-import Smash.Parser.Tests
+module Smash.Parse where
+import Smash.Parse.Types
+import Smash.Parse.Tests
 
-import Name hiding (store, put, get)
+import Name (Name, runEnv, names)
 import qualified Name as N (store, put, get)
---import Unification
 
-import Data.String
-import Data.List
 import Data.Maybe (fromJust)
 import qualified Data.Map.Strict as M
 
@@ -20,13 +17,15 @@ import Control.Monad (foldM)
 import Control.Monad.Trans.Either
 import Control.Monad.Trans.Class
 import Control.Monad.Free
-import Data.Foldable (Foldable)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM)
+import qualified Data.Traversable as T (Traversable, mapAccumR, sequence)
 
 import Debug.Trace (trace)
 
+store :: UValue -> UnMonad Name
 store = N.store
+get :: Name -> UnMonad UValue
 get = N.get
+put :: Name -> UValue -> UnMonad ()
 put n v = N.put n v
 
 newVar :: M Name
@@ -36,7 +35,7 @@ newVar = store UVar
 -- Unification errors for the given line are passed over,
 -- so context may be erroneous as well, but parsing can still continue.
 parseLine :: Context -> Line -> OuterM Context
-parseLine c@(blocks, context) (LStore LVoid (RHSExpr expr)) = do
+parseLine c (LStore LVoid (RHSExpr expr)) = do
   okay <- runEitherT $ typeExpr c expr
   case okay of
     Left err -> trace ("parseLine. " ++ show err) $ return ()
@@ -64,30 +63,28 @@ parseLine c@(blocks, context) (var :> (B args lines ret)) =
 parseLines :: Context -> [Line] -> OuterM Context
 parseLines = foldM parseLine
 
-intLit = store $ UType $ TLit Int
-
 typeExpr :: Context -> ExprU -> InnerM Name
-typeExpr c@(blocks, context) (Pure name) = return name
+typeExpr _ (Pure name) = return name
 typeExpr c@(blocks, context) (Free expr) =
   case expr of
     ERef var -> lift $
       case M.lookup var context of
         Nothing -> newVar
         Just t -> return t
-    EIntLit i -> lift intLit
+    EIntLit _ -> lift $ store $ UType (TLit Int)
     EMLit mat -> storeMat c mat
     EMul e1 e2 -> do
       t1 <- typeExpr c e1
       t2 <- typeExpr c e2
-      product <- lift $ store (UProduct t1 t2)
-      propagate product
-      return product
+      prodName <- lift $ store (UProduct t1 t2)
+      propagate prodName
+      return prodName
     ESum e1 e2 -> do
       t1 <- typeExpr c e1
       t2 <- typeExpr c e2
-      sum <- lift $ store (USum t1 t2)
-      propagate sum
-      return sum
+      sumName <- lift $ store (USum t1 t2)
+      propagate sumName
+      return sumName
     ECall name args -> do
       let block = fromJust (M.lookup name blocks)
       argTypes <- mapM (typeExpr c) args
@@ -190,12 +187,12 @@ unify n1 n2 = do
   unifyOne n1 v1 n2 v2
 
 unifyOne :: Name -> UValue -> Name -> UValue -> InnerM Bindings
-unifyOne n1 UVar n2 t = right $ [(n1, n2)]
+unifyOne n1 UVar n2 _ = right $ [(n1, n2)]
 unifyOne n1 t n2 UVar = unifyOne n2 UVar n1 t
 -- The consequences of such a unification are handled elsewhere
-unifyOne n1 (UProduct t1 t2) n2 v2 = do
+unifyOne n1 (UProduct _ _) n2 _ = do
   return [(n1, n2)]
-unifyOne n1 (USum t1 t2) n2 v2 = do
+unifyOne n1 (USum _ _) n2 _ = do
   return [(n1, n2)]
 unifyOne n1 (UType e1) n2 (UType e2) = do
   assert (tagEq e1 e2) [n1, n2] $
@@ -223,9 +220,9 @@ extend :: TypeContext -> [(Variable, Name)] -> TypeContext
 extend context bindings = foldr (uncurry M.insert) context bindings
 
 applyBlock :: Block -> [Name] -> InnerM Name
-applyBlock (Block params lines ret (blocks, context)) args = do
+applyBlock (Block params body ret (blocks, context)) args = do
   let bs' = extend context (zip params args)
-  c2 <- lift $ parseLines (blocks, bs') lines
+  c2 <- lift $ parseLines (blocks, bs') body
   typeExpr c2 ret
 
 -- Matrix Unificaiton Utilities
@@ -265,26 +262,26 @@ getDim fn name = do
 
 unifyInner :: Name -> Name -> InnerM ()
 unifyInner n1 n2 = do
-  c1 <- getDim cols n1
-  r2 <- getDim rows n2
+  c1 <- getDim dimColumns n1
+  r2 <- getDim dimRows n2
   unifyBind c1 r2
 
 unifyRows :: Name -> Name -> InnerM ()
 unifyRows n1 n2 = do
-  r1 <- getDim rows n1
-  r2 <- getDim rows n2
+  r1 <- getDim dimRows n1
+  r2 <- getDim dimRows n2
   unifyBind r1 r2
 
 unifyCols :: Name -> Name -> InnerM ()
 unifyCols n1 n2 = do
-  c1 <- getDim cols n1
-  c2 <- getDim cols n2
+  c1 <- getDim dimColumns n1
+  c2 <- getDim dimColumns n2
   unifyBind c1 c2
 
 -- Unification Utilities
 assert :: Bool -> [Name] -> String -> InnerM ()
 assert True _ _ = return ()
-assert False names str = left $ UError names ("assert failure: " ++ str)
+assert False info str = left $ UError info ("assert failure: " ++ str)
 
 tagEq :: (Functor f, Eq (f ())) => f a -> f a -> Bool
 tagEq t1 t2 = fmap (const ()) t1 == fmap (const ()) t2
@@ -311,6 +308,7 @@ storeExpr e = iterM (\f -> T.sequence f >>= (store . UExpr)) e
 emptyContext :: Context
 emptyContext = (M.fromList [], M.fromList [])
 
+chk :: [Line] -> IO ()
 chk x = 
   let ((blocks, context), vars) = runEnv $ parseLines emptyContext x
   in do

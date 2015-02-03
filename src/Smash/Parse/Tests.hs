@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Smash.Parser.Tests where
-import Smash.Parser.Types
+module Smash.Parse.Tests where
+import Smash.Parse.Types
 import Name hiding (store, put, get)
 import Control.Monad.Free
 import Control.Monad.Trans.Either
