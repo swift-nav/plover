@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, NamedFieldPuns #-}
-module Simplify2 
+module Smash.Simplify
   (simplify, Expr(..))
 where
 import qualified Data.Map.Strict as M

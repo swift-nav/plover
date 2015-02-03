@@ -1,4 +1,4 @@
-module Names
+module Smash.Compile.Names
   ( freshName, NameMonad, Name
   , runName
   ) where

@@ -1,11 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
-module MGen2 where
-import Types
-import Tests
+module Smash.Parser where
+import Smash.Parser.Types
+import Smash.Parser.Tests
 
 import Name hiding (store, put, get)
 import qualified Name as N (store, put, get)
@@ -29,9 +28,6 @@ import Debug.Trace (trace)
 store = N.store
 get = N.get
 put n v = N.put n v
---store = ulift . N.store
---get = ulift . N.get
---put n v = ulift $ N.put n v
 
 newVar :: M Name
 newVar = store UVar
@@ -47,7 +43,7 @@ parseLine c@(blocks, context) (LStore LVoid (RHSExpr expr)) = do
     Right _ -> return ()
   return c
   
-parseLine _ (LStore LVoid (RHSBlock _ _)) =
+parseLine _ (LStore LVoid (RHSBlock _ _ _)) =
   error $ "parseLine. cannot create anonymous block"
 parseLine c@(blocks, context) (var := expr) = do
   -- Type the RHS, check context for LHS, bind RHS to LHS, return type ref
@@ -62,18 +58,13 @@ parseLine c@(blocks, context) (var := expr) = do
   case okay of
     Left err -> trace ("parseLine. " ++ show err) $ return c
     Right typeName -> return (blocks, M.insert var typeName context)
-parseLine c@(blocks, context) (var :< (args :> lines)) =
-  return (M.insert var (Block args lines c) blocks, context)
+parseLine c@(blocks, context) (var :> (B args lines ret)) =
+  return (M.insert var (Block args lines ret c) blocks, context)
 
 parseLines :: Context -> [Line] -> OuterM Context
 parseLines = foldM parseLine
 
 intLit = store $ UType $ TLit Int
-
---runHooked :: UnMonad InnerM a (InnerM ()) -> InnerM ()
---runHooked m = do
---  m' <- lift m
---  m'
 
 typeExpr :: Context -> ExprU -> InnerM Name
 typeExpr c@(blocks, context) (Pure name) = return name
@@ -90,10 +81,6 @@ typeExpr c@(blocks, context) (Free expr) =
       t2 <- typeExpr c e2
       product <- lift $ store (UProduct t1 t2)
       propagate product
-      --let h = (prodHook t1 t2 product)
-      --m <- lift $ hook t1 h
-      --lift $ hook t2 h
-      --lift $ hook product h
       return product
     ESum e1 e2 -> do
       t1 <- typeExpr c e1
@@ -139,6 +126,18 @@ withValue name fn = do
     UVar -> return ()
     _ -> fn val
 
+unifyBaseType :: Name -> Name -> InnerM ()
+unifyBaseType n1 n2 = do
+  -- TODO get rid of this list match
+  TMatrix _ bt1 <- matchMatrix n1
+  TMatrix _ bt2 <- matchMatrix n2
+  unifyBind bt1 bt2
+
+unifyLit :: BaseType -> Name -> InnerM ()
+unifyLit bt name = do
+  btn <- lift $ store $ UType $ TLit bt
+  unifyBind name btn
+
 unifyProduct :: UValue -> Name -> Name -> Name -> InnerM ()
 unifyProduct (UType (TMatrix _ _)) product n1 n2 = 
   unifyMatrixProduct product n1 n2
@@ -152,6 +151,7 @@ unifySum (UType (TMatrix _ _)) sum n1 n2 = do
 unifySum (UType (TLit bt)) sum n1 n2 =
   mapM_ (unifyLit bt) [sum, n1, n2]
 
+-- Matrix Unification Utilities
 unifyMatrixProduct :: Name -> Name -> Name -> InnerM ()
 unifyMatrixProduct prod t1 t2 = do
   unifyInner t1 t2
@@ -168,17 +168,8 @@ unifyMatrixDim n1 n2 = do
   unifyCols n1 n2
   unifyBaseType n1 n2
 
-unifyBaseType :: Name -> Name -> InnerM ()
-unifyBaseType n1 n2 = do
-  -- TODO get rid of this list match
-  TMatrix _ bt1 <- matchMatrix n1
-  TMatrix _ bt2 <- matchMatrix n2
-  unifyBind bt1 bt2
-
-unifyLit :: BaseType -> Name -> InnerM ()
-unifyLit bt name = do
-  btn <- lift $ store $ UType $ TLit bt
-  unifyBind name btn
+-- Core Unification Functions
+type Bindings = [(Name, Name)]
 
 unifyBind :: Name -> Name -> InnerM ()
 unifyBind n1 n2 = do
@@ -191,8 +182,6 @@ unifyBind n1 n2 = do
       -- TODO propagate substitutions?
       UVar -> refine n1 (UEq n2)
       _ -> refine n1 v2
-
-type Bindings = [(Name, Name)]
 
 unify :: Name -> Name -> InnerM Bindings
 unify n1 n2 = do
@@ -215,13 +204,14 @@ unifyOne n1 (UType e1) n2 (UType e2) = do
   return $ (n1, n2) : bs
 unifyOne n1 (UExpr e1) n2 (UExpr e2) = do
   assert (tagEq e1 e2) [n1, n2] $
-    "unifyOne. expr types don't match: " ++ show e1 ++ ", " ++ show e2
+    "unifyOne. expr values don't match: " ++ show e1 ++ ", " ++ show e2
   bs <- unifyMany [n1, n2] (children e1) (children e2)
   return $ (n1, n2) : bs
 unifyOne n1 v1 n2 v2 = left $ UError [n1, n2] $
   "unifyOne. value types don't match: " ++ show v1 ++ ", " ++ show v2
 
--- Provenance (for error reporting), lists to unify
+-- First argument: provenance (for error reporting)
+-- second, third: list of names to unify
 unifyMany :: [Name] -> [Name] -> [Name] -> InnerM Bindings
 unifyMany from ns1 ns2 = do
   assert (length ns1 == length ns2) from $
@@ -229,8 +219,14 @@ unifyMany from ns1 ns2 = do
       ++ show ns1 ++ ", " ++ show ns2
   concat <$> mapM (uncurry unify) (zip ns1 ns2)
 
+extend :: TypeContext -> [(Variable, Name)] -> TypeContext
+extend context bindings = foldr (uncurry M.insert) context bindings
+
 applyBlock :: Block -> [Name] -> InnerM Name
-applyBlock = undefined
+applyBlock (Block params lines ret (blocks, context)) args = do
+  let bs' = extend context (zip params args)
+  c2 <- lift $ parseLines (blocks, bs') lines
+  typeExpr c2 ret
 
 -- Matrix Unificaiton Utilities
 matrixVar :: M Name

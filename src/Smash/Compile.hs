@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Vec where
+module Smash.Compile where
 import Prelude hiding ((**))
-import Names
-import qualified Simplify
-import qualified Simplify2 as S
+import Smash.Compile.Names
+import qualified Smash.Simplify as S
+--import qualified Simplify
 import qualified Data.Map.Strict as M
 import Data.List
 import Control.Applicative
@@ -114,22 +114,23 @@ data Fn = Fn Signature [Line]
 
 -- Expression Simplification/Compilation --
 -- Simplification --
-toE :: Simplify.Poly E Int -> E
-toE poly =
-  let toProd (ts, coef) =
-        let n' = ELit (I coef) in
-        case ts of
-          [] -> n'
-          _  -> 
-            foldl1 (:*) $
-              (if coef == 1
-              then []
-              else [n'])
-                ++ (concatMap (\(n, exp) -> replicate exp (id n)) ts)
-  in
-  case map toProd $ M.toList poly of
-    []  -> 0
-    ps  -> foldr1 (:+) ps
+-- TODO delete
+--toE :: Simplify.Poly E Int -> E
+--toE poly =
+--  let toProd (ts, coef) =
+--        let n' = ELit (I coef) in
+--        case ts of
+--          [] -> n'
+--          _  -> 
+--            foldl1 (:*) $
+--              (if coef == 1
+--              then []
+--              else [n'])
+--                ++ (concatMap (\(n, exp) -> replicate exp (id n)) ts)
+--  in
+--  case map toProd $ M.toList poly of
+--    []  -> 0
+--    ps  -> foldr1 (:+) ps
 --simpl = toE . Simplify.simplify eExpr
 simpl = S.simplify expr2expr eScale
 fullSimpl :: E -> E
@@ -473,7 +474,7 @@ expr2expr (a :+ b) = S.Sum [expr2expr a, expr2expr b]
 expr2expr (a :* b) = S.Mul [expr2expr a, expr2expr b]
 expr2expr (ELit (I 0)) = S.Zero
 expr2expr (ELit (I 1)) = S.One
-expr2expr l@(ELit (I n)) = S.Prim n l
+expr2expr l@(ELit (I n)) = S.Prim n
 expr2expr e@(ELit (R n)) = S.Atom e
 expr2expr e@(_ :! _) = S.Atom e
 expr2expr e@(ESum _ _) = S.Atom e
@@ -484,26 +485,26 @@ eScale 1 e = e
 eScale n e = fromIntegral n * e
 
 -- TODO remove references to Simplify in favor of new library
-eExpr :: Simplify.Expr E E Int
-eExpr = Simplify.Expr
-  { Simplify.isSum = isSum
-  , Simplify.isMul = isMul
-  , Simplify.isAtom = isAtom
-  , Simplify.isPrim = isPrim
-  , Simplify.zero = 0
-  , Simplify.one = 1
-  }
-  where
-   isSum (e1 :+ e2) = Just [e1, e2]
-   isSum _ = Nothing
-   isMul (e1 :* e2) = Just [e1, e2]
-   isMul _ = Nothing
-   isAtom e@(ELit (R n)) = Just e
-   isAtom e@(_ :! _) = Just e
-   isAtom e@(ESum _ _) = Just e
-   isAtom _ = Nothing
-   isPrim (ELit (I n)) = Just n
-   isPrim _ = Nothing
+--eExpr :: Simplify.Expr E E Int
+--eExpr = Simplify.Expr
+--  { Simplify.isSum = isSum
+--  , Simplify.isMul = isMul
+--  , Simplify.isAtom = isAtom
+--  , Simplify.isPrim = isPrim
+--  , Simplify.zero = 0
+--  , Simplify.one = 1
+--  }
+--  where
+--   isSum (e1 :+ e2) = Just [e1, e2]
+--   isSum _ = Nothing
+--   isMul (e1 :* e2) = Just [e1, e2]
+--   isMul _ = Nothing
+--   isAtom e@(ELit (R n)) = Just e
+--   isAtom e@(_ :! _) = Just e
+--   isAtom e@(ESum _ _) = Just e
+--   isAtom _ = Nothing
+--   isPrim (ELit (I n)) = Just n
+--   isPrim _ = Nothing
 instance Num E where
   x * y = x :* y
   x + y = x :+ y

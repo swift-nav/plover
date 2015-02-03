@@ -1,9 +1,9 @@
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Types where
-import Data.String
+module Smash.Parser.Types where
 import Name hiding (store, put, get)
+import Data.String
 import Control.Monad.Free
 import Control.Monad.Trans.Either
 import qualified Data.Map.Strict as M
@@ -22,14 +22,16 @@ data Line = LStore Loc RHS
   deriving (Show, Eq, Ord)
 
 data RHS = RHSExpr ExprU
-         | RHSBlock [Variable] [Line]
+         | RHSBlock [Variable] [Line] ExprU
          | RHSVoid -- TODO remove?
   deriving (Show, Eq, Ord)
 
-infix 4 :=, :<, :>
+infix 4 :=, :>
 pattern l := r = LStore (LName l) (RHSExpr r)
-pattern ps :> body = RHSBlock ps body
-pattern l :< rhsb = LStore (LName l) rhsb
+pattern B ps body ret = RHSBlock ps body ret
+--infix 4 :>
+--pattern ps :> body = RHSBlock ps body
+pattern l :> rhsb = LStore (LName l) rhsb
 
 type View2 a = a -> a -> a
 data Dim' a = Dim a a
@@ -49,19 +51,22 @@ data Expr' a
   | EMul a a
   | ESum a a
   | ECall Variable [a]
+  | Void
   deriving (Show, Eq, Ord, Functor, Foldable, T.Traversable)
 type Expr = Expr' Name
 type ExprU = Free Expr' Name
 
+pattern name :< args = Free (ECall name args)
+
 -- Parameters, body, definition context
-data Block = Block [Variable] [Line] Context
+data Block = Block [Variable] [Line] ExprU Context
   deriving (Show, Eq, Ord)
 
 type BlockContext = M.Map Variable Block
 type TypeContext = M.Map Variable Name
 type Context = (BlockContext, TypeContext)
 
-data BaseType = Int | Float | Void
+data BaseType = Int | Float | VoidType
   deriving (Show, Eq, Ord)
 
 data Type' a
