@@ -27,7 +27,7 @@ data Line = LStore Loc RHS | LAction RHS
   deriving (Show, Eq, Ord)
 
 infix 4 :=, :==, :<
-pattern l :=  r = LStore l r
+pattern l :=  r = LStore l (RHSExpr r)
 pattern l :== b = LStore l (RHSMat b)
 pattern l :< b = LStore l (RHSBlock b)
 
@@ -37,7 +37,6 @@ data RHS = RHSMat MExprU
          | RHSVoid
          | RHSBlock [Line]
   deriving (Show, Eq, Ord)
-
 
 type View2 a = Expr -> Expr -> a
 data Dim' a = Dim a a
@@ -70,10 +69,9 @@ data Expr' a
   | ESummation a (Expr -> Expr)
  deriving (Show, Eq, Ord, Functor, Foldable, T.Traversable)
 
---data Expr' a = Expr ExprTag [a]
---  deriving (Show, Eq, Ord)
 type Expr = Expr' Name
 type ExprU = Free Expr' Name
+
 
 data Loc 
   = LName Variable
@@ -120,7 +118,7 @@ type Blocks = M.Map Variable Block
 parseLine :: Context -> Line -> OuterM Context
 parseLine c@(blocks, context) ((LName var) :< lines) = do
   return (M.insert var (Block lines c) blocks, context)
-parseLine c@(blocks, context) ((LName var) := val) = do
+parseLine c@(blocks, context) (LStore (LName var) val) = do
   -- Type the RHS, check context for LHS, bind RHS to LHS, return type ref
   okay <- runEitherT $ do
     rhs <- typeExpr c val
@@ -133,8 +131,14 @@ parseLine c@(blocks, context) ((LName var) := val) = do
   case okay of
     Left err -> trace ("parseLine. " ++ show err) $ return c
     Right typeName -> return (blocks, M.insert var typeName context)
--- TODO is this ok?
-parseLine c (LAction _) = return c
+
+-- Action has no effect on context
+parseLine c (LAction rhs) = do
+  okay <- runEitherT $ typeExpr c rhs
+  case okay of
+    Left err -> trace ("parseLine. " ++ show err) $ return ()
+    Right _ -> return ()
+  return c
 
 parseLines :: Context -> [Line] -> OuterM Context
 parseLines = foldM parseLine
@@ -146,7 +150,6 @@ typeExpr c@(blocks, context) (RHSCall name bindings) = do
   argTypes <- mapM (typeExpr c) args
   let block = fromJust (M.lookup name blocks)
   applyBlock block (zip vars argTypes)
--- TODO ????????
 typeExpr c@(blocks, context) (RHSExpr (Pure name)) =
   return name
 typeExpr c@(blocks, context) (RHSExpr (Free tag)) =
@@ -218,17 +221,14 @@ matchMatrix name = do
       right t
     _ -> left $ UError [name] "not a matrix"
 
--- Return rows or columns variable
-matrixProperty :: (Dim -> Name) -> Name -> InnerM Name
-matrixProperty fn name = do
+getDim :: (Dim -> Name) -> Name -> InnerM Name
+getDim fn name = do
   Type (TMatrix dim) _ <- matchMatrix name
   return (fn dim)
 
 storeMat :: Context -> Mat -> InnerM Name
 storeMat c (Mat tp (Dim rows cols) _) = do
   typeVar <- lift $ store $ UType (Type (TLit tp) [])
-  --rowsVar <- typeExpr c (RHSExpr rows)
-  --colsVar <- typeExpr c (RHSExpr cols)
   rowsVar <- lift $ storeExpr rows
   colsVar <- lift $ storeExpr cols
   lift $ store $ UType (Type (TMatrix $ Dim rowsVar colsVar) [typeVar])
@@ -255,18 +255,19 @@ assert False names str = left $ UError names ("assert failure: " ++ str)
 
 unifyRows :: Name -> Name -> InnerM ()
 unifyRows n1 n2 = do
-  r1 <- matrixProperty rows n1
-  r2 <- matrixProperty rows n2
+  r1 <- getDim rows n1
+  r2 <- getDim rows n2
   unifyBind r1 r2
 unifyCols :: Name -> Name -> InnerM ()
 unifyCols n1 n2 = do
-  c1 <- matrixProperty cols n1
-  c2 <- matrixProperty cols n2
+  c1 <- getDim cols n1
+  c2 <- getDim cols n2
   unifyBind c1 c2
+
 unifyInner :: Name -> Name -> InnerM ()
 unifyInner n1 n2 = do
-  c1 <- matrixProperty cols n1
-  r2 <- matrixProperty rows n2
+  c1 <- getDim cols n1
+  r2 <- getDim rows n2
   unifyBind c1 r2
 
 unifyBind :: Name -> Name -> InnerM ()
@@ -292,7 +293,7 @@ unifyOne n1 UVar n2 t = right $ [(n1, n2)]
 unifyOne n1 t n2 UVar = unifyOne n2 UVar n1 t
 unifyOne n1 (UType (Type t1 ns1)) n2 (UType (Type t2 ns2)) = do
   assert (t1 == t2) [n1, n2] $
-    "unifyOne. type tags don't match: " ++ (show t1 ++ show t2)
+    "unifyOne. type tags don't match: " ++ (show t1 ++ ", " ++ show t2)
   bs <- unifyMany [n1, n2] ns1 ns2
   return $ (n1, n2) : bs
 
@@ -320,8 +321,6 @@ children t = fst $ T.mapAccumR step [] t
  where
   step list child = (child : list, ())
 
-extend :: TypeContext -> [(Variable, Name)] -> TypeContext
-extend context bindings = foldr (uncurry M.insert) context bindings
 -- Returns type of block result
 -- TODO support empty block?
 applyBlock :: Block -> [(Variable, Name)] -> InnerM Name
@@ -330,8 +329,13 @@ applyBlock (Block lines (blocks, context)) bindings = do
   let (body, ret) = (init lines, last lines)
   c2 <- lift $ parseLines (blocks, bs') body
   case ret of
-    LAction rhs -> typeExpr c2 rhs
+    LAction rhs -> do
+      tname <- typeExpr c2 rhs
+      return tname
     _ -> typeExpr c2 RHSVoid
+
+extend :: TypeContext -> [(Variable, Name)] -> TypeContext
+extend context bindings = foldr (uncurry M.insert) context bindings
 
 -- TESTS
 emptyContext :: Context
@@ -352,9 +356,8 @@ p2 = [ "x" := 2
      , LAction "x"
      ]
 
--- It Works !
 p3 = [ "x" := 2
-     , "y" := RHSExpr ("u" * "x")
+     , "y" := "u" * "x"
      , LAction "y"
      ]
 
@@ -364,18 +367,52 @@ p4 = [ "x" :== 2
 
 -- basic matrix product
 p7 = [ "z" :== "x" * "y" ]
+
 -- good matrix product
 p5 = [
        "x" :== (5 :* 2 ::: \i j -> 1)
      , "y" :== (2 :* 3 ::: \i j -> 1)
      , "z" :== "x" * "y"
      ]
+
 -- bad program
 p6 = [
        "x" :== (5 :* 2 ::: \i j -> 1)
      , "y" :== (4 :* 3 ::: \i j -> 1)
      , "z" :== "x" * "y"
      ]
+
+-- TODO this should be allowed
+-- bad program
+p8 = [ "x" :== 1  -- Matrix
+     , "y" := 2   -- Number
+     , "z" := "x" * "y"
+     ]
+
+p9 = [ "fn" :< [ LAction (RHSMat $ "x" * "y") ]
+     , "x" :== (1 :* 2 ::: \i j -> 1)
+     , "y" :== (2 :* 1 ::: \i j -> 1)
+     , LStore "z" (RHSCall "fn" [])
+     ]
+
+p9' = [ "fn" :< [ LAction (RHSMat $ "x" * "y") ]
+     , "x" :== (1 :* 2 ::: \i j -> 1)
+     , "y" :== (2 :* 1 ::: \i j -> 1)
+     ]
+
+p10 =
+     [ "fn" :< [ LAction (RHSExpr $ "x" * "y") ]
+     , "x" :== (1 :* 2 ::: \i j -> 1)
+     , "y" :== (2 :* 1 ::: \i j -> 1)
+     , "z" :== ("x" * "y")
+     ]
+p11 =
+ [ 
+   "x" := 2
+ , "fn" :< [ LAction (RHSExpr "x") ]
+ , "m" :== 1
+ , LStore "z" (RHSCall "fn" [("x", "m")])
+ ]
 
 
 e1, e2 :: ExprU
@@ -400,18 +437,17 @@ instance IsString MExprU where
 --  fromString str = Expr (ERef str) []
 instance IsString Loc where
   fromString = LName
---
 instance IsString RHS where
   fromString = RHSExpr . fromString
 instance IsString ExprU where
   fromString = Free . ERef
-instance Num RHS where
-  x * y = undefined
-  x + y = undefined
-  fromInteger = RHSExpr . fromInteger
-  abs = undefined
-  signum = undefined
-  negate = undefined
+--instance Num RHS where
+--  x * y = undefined
+--  x + y = undefined
+--  fromInteger = RHSExpr . fromInteger
+--  abs = undefined
+--  signum = undefined
+--  negate = undefined
 instance Num ExprU where
   x * y = Free (EMul x y)
   x + y = Free (ESum x y)
@@ -436,6 +472,7 @@ instance Num MExprU where
 -- , "omp" := ("meas" :~ "pseudo") - "pred"
 -- , "G" := 
 --]
+--
 --the_goal =
 -- [ All "j" (Call "block1" ["meas" :! "j", "pred" :! "j", "omp" :! "j", "G" :! "j"])
 -- ,

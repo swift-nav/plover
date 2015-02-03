@@ -46,7 +46,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     MGen, Unification, Vec, VecFree
+  exposed-modules:     MGen2, Unification, Vec, VecFree
                        
 
   -- Other library packages from which modules are imported.

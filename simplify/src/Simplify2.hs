@@ -77,6 +77,17 @@ addTerm (Term coefficient map) p =
 simplify :: (Ord expr, Num expr, Num num) => (expr -> Expr expr num) -> (num -> expr -> expr) -> expr -> expr
 simplify makeExpr scale = makeExpr .> reduce term1 .> foldr addTerm poly0 .> rebuild scale
 
+-- Test expressions
+data TE = TE :+ TE | TE :* TE | Lit Int | Var String
+ deriving (Show, Eq, Ord)
+instance Num TE where
+  (+) = (:+)
+  (*) = (:*)
+  fromInteger = Lit . fromIntegral
+  abs = undefined
+  signum = undefined
+  negate = undefined
+
 chkte = simplify teconvert scale 
  where
   scale n e | e == fromIntegral 1 = Lit n
@@ -88,17 +99,6 @@ teconvert (Lit 0) = Zero
 teconvert (Lit 1) = One
 teconvert l@(Lit x) = Prim x
 teconvert v@(Var s) = Atom v
-
--- Test expressions
-data TE = TE :+ TE | TE :* TE | Lit Int | Var String
- deriving (Show, Eq, Ord)
-instance Num TE where
-  (+) = (:+)
-  (*) = (:*)
-  fromInteger = Lit . fromIntegral
-  abs = undefined
-  signum = undefined
-  negate = undefined
 
 t1 :: TE
 t1 = (Var "x" + Var "y") ^ 4
