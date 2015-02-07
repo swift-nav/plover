@@ -6,10 +6,12 @@ module Smash.Parse where
 import Smash.Parse.Types
 import Smash.Parse.Tests
 
-import Name (Name, runEnv, names)
+import Name (Name, runEnv, withEnv, names, Env)
 import qualified Name as N (store, put, get)
 
 import Data.Maybe (fromJust)
+import Data.Either (isLeft, partitionEithers)
+import Data.List (partition)
 import qualified Data.Map.Strict as M
 
 import Control.Applicative ((<$>))
@@ -17,7 +19,9 @@ import Control.Monad (foldM)
 import Control.Monad.Trans.Either
 import Control.Monad.Trans.Class
 import Control.Monad.Free
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence)
+import Control.Arrow (first, second)
+import qualified Data.Traversable as T (mapM, Traversable, mapAccumR, sequence)
+import Control.Monad.State (runState)
 
 import Debug.Trace (trace)
 
@@ -34,61 +38,73 @@ newVar = store UVar
 -- Updates a context and the monad environment given a line.
 -- Unification errors for the given line are passed over,
 -- so context may be erroneous as well, but parsing can still continue.
-parseLine :: Context -> Line -> OuterM Context
-parseLine c (LStore LVoid (RHSExpr expr)) = do
-  okay <- runEitherT $ typeExpr c expr
-  case okay of
-    Left err -> trace ("parseLine. " ++ show err) $ return ()
-    Right _ -> return ()
-  return c
-  
-parseLine _ (LStore LVoid (RHSBlock _ _ _)) =
-  error $ "parseLine. cannot create anonymous block"
-parseLine c@(blocks, context) (var := expr) = do
+parseLine :: Context -> Line -> OuterM (Context, Either UError (TypedLine Name))
+parseLine c l@(LStore LVoid (RHSExpr expr)) = do
+  mtype <- runEitherT $ typeExpr c expr
+  return $ (c, do
+    tp <- mtype
+    return (TLine tp l (M.toList c)))
+
+--parseLine c (LStore LVoid (RHSBlock _ _ _)) =
+--  return $ (c, Left $ UError [] "parseLine. cannot create anonymous block")
+
+parseLine context l@(var := expr) = do
   -- Type the RHS, check context for LHS, bind RHS to LHS, return type ref
-  okay <- runEitherT $ do
-    rhs <- typeExpr c expr
+  mtype <- runEitherT $ do
+    rhs <- typeExpr context expr
     lhs <- lift $ case M.lookup var context of
       Nothing -> newVar
       Just n -> return n
     unifyBind lhs rhs
     return lhs
   -- Check result, update context if valid
-  case okay of
-    Left err -> trace ("parseLine. " ++ show err) $ return c
-    Right typeName -> return (blocks, M.insert var typeName context)
-parseLine c@(blocks, context) (var :> (B args lines ret)) =
-  return (M.insert var (Block args lines ret c) blocks, context)
+  case mtype of
+    Left err -> return (context, Left err)
+    Right typeName -> do
+      let context' = M.insert var typeName context
+      return (context', Right $ TLine typeName l (M.toList context'))
 
-parseLines :: Context -> [Line] -> OuterM Context
-parseLines = foldM parseLine
+--parseLine c@(blocks, context) l@(var :> (B args lines ret)) = do
+--  lineType <- store (UType (TLit FnType))
+--  return ((M.insert var (Block args lines ret c) blocks, context),
+--          Right $ TLine lineType l)
+
+parseLines :: Context -> [Line]
+           -> OuterM (Context, [Either UError (TypedLine Name)])
+parseLines c lines = do
+  (c', lines') <- foldM step (c, []) lines
+  return (c', reverse lines')
+ where
+  step (c, lines) line = do
+    (c', line') <- parseLine c line
+    return (c', line' : lines)
 
 typeExpr :: Context -> ExprU -> InnerM Name
-typeExpr _ (Pure name) = return name
-typeExpr c@(blocks, context) (Free expr) =
+--typeExpr _ (Pure name) = return name
+typeExpr context (Free expr) =
   case expr of
     ERef var -> lift $
       case M.lookup var context of
         Nothing -> newVar
         Just t -> return t
     EIntLit _ -> lift $ store $ UType (TLit Int)
-    EMLit mat -> storeMat c mat
+    EMLit mat -> storeMat context mat
     EMul e1 e2 -> do
-      t1 <- typeExpr c e1
-      t2 <- typeExpr c e2
+      t1 <- typeExpr context e1
+      t2 <- typeExpr context e2
       prodName <- lift $ store (UProduct t1 t2)
       propagate prodName
       return prodName
     ESum e1 e2 -> do
-      t1 <- typeExpr c e1
-      t2 <- typeExpr c e2
+      t1 <- typeExpr context e1
+      t2 <- typeExpr context e2
       sumName <- lift $ store (USum t1 t2)
       propagate sumName
       return sumName
-    ECall name args -> do
-      let block = fromJust (M.lookup name blocks)
-      argTypes <- mapM (typeExpr c) args
-      applyBlock block argTypes
+--    ECall name args -> do
+--      let block = fromJust (M.lookup name blocks)
+--      argTypes <- mapM (typeExpr context) args
+--      applyBlock block argTypes
 
 refine :: Name -> UValue -> InnerM ()
 refine name val = do
@@ -159,6 +175,7 @@ unifyMatrixSum :: Name -> Name -> Name -> InnerM ()
 unifyMatrixSum sum n1 n2 = do
   unifyMatrixDim n1 n2
   unifyMatrixDim n1 sum
+
 unifyMatrixDim :: Name -> Name -> InnerM ()
 unifyMatrixDim n1 n2 = do
   unifyRows n1 n2
@@ -187,18 +204,20 @@ unify n1 n2 = do
   unifyOne n1 v1 n2 v2
 
 unifyOne :: Name -> UValue -> Name -> UValue -> InnerM Bindings
-unifyOne n1 UVar n2 _ = right $ [(n1, n2)]
+unifyOne n1 UVar n2 _ = return $ [(n1, n2)]
 unifyOne n1 t n2 UVar = unifyOne n2 UVar n1 t
 -- The consequences of such a unification are handled elsewhere
 unifyOne n1 (UProduct _ _) n2 _ = do
   return [(n1, n2)]
 unifyOne n1 (USum _ _) n2 _ = do
   return [(n1, n2)]
+
 unifyOne n1 (UType e1) n2 (UType e2) = do
   assert (tagEq e1 e2) [n1, n2] $
     "unifyOne. expr types don't match: " ++ show e1 ++ ", " ++ show e2
   bs <- unifyMany [n1, n2] (children e1) (children e2)
   return $ (n1, n2) : bs
+
 unifyOne n1 (UExpr e1) n2 (UExpr e2) = do
   assert (tagEq e1 e2) [n1, n2] $
     "unifyOne. expr values don't match: " ++ show e1 ++ ", " ++ show e2
@@ -219,16 +238,17 @@ unifyMany from ns1 ns2 = do
 extend :: TypeContext -> [(Variable, Name)] -> TypeContext
 extend context bindings = foldr (uncurry M.insert) context bindings
 
-applyBlock :: Block -> [Name] -> InnerM Name
-applyBlock (Block params body ret (blocks, context)) args = do
-  let bs' = extend context (zip params args)
-  c2 <- lift $ parseLines (blocks, bs') body
-  typeExpr c2 ret
+--applyBlock :: Block -> [Name] -> InnerM Name
+--applyBlock (Block params body ret (blocks, context)) args = do
+--  let bs' = extend context (zip params args)
+--  (c2, lines) <- lift $ parseLines (blocks, bs') body
+--  typeExpr c2 ret
 
--- Matrix Unificaiton Utilities
+-- Matrix Unification Utilities
 matrixVar :: M Name
 matrixVar = do
-  typeVar <- store UVar
+  -- TODO allow generic matrices
+  typeVar <- store (UType (TLit Float))
   rowsVar <- store UVar
   colsVar <- store UVar
   store $ UType $ TMatrix (Dim rowsVar colsVar) typeVar
@@ -300,19 +320,80 @@ storeMat c (Mat bt (Dim rows cols) _) = do
   lift $ store $ UType (TMatrix (Dim rowsVar colsVar) typeVar)
 
 
+-- Convert between trees and flat named trees
 storeExpr :: ExprU -> M Name
-storeExpr e = iterM (\f -> T.sequence f >>= (store . UExpr)) e
+storeExpr e = iterM (\f -> T.sequence f >>= (store . UExpr))
+                    (fromFix e)
 
+buildExpr :: Name -> InnerM CExpr
+buildExpr n = do
+  val <- lift $ get n 
+  case val of
+    UExpr e -> do
+      maybeTree <- T.mapM buildExpr e
+      return (wrap maybeTree)
+    _ -> left $ UError [n] "buildExpr. not resolved."
+
+buildBaseType :: Name -> InnerM BaseType
+buildBaseType n = do
+  val <- lift $ get n
+  case val of
+    UType (TLit bt) -> return bt
+    _ -> left $ UError [n] "buildBaseType. not resolved."
+
+-- TODO ugh
+buildType :: Name -> InnerM CType
+buildType n = do
+  val <- lift $ get n 
+  case val of
+    UType (TLit bt) -> return $ TLit bt
+    UType (TMatrix (Dim rows' cols') bt') -> do
+      r <- buildExpr rows' 
+      c <- buildExpr cols' 
+      bt <- buildBaseType bt'
+      return (TMatrix (Dim r c) bt)
+    _ -> left $ UError [n] "buildType. not resolved."
+
+toCType :: Name -> Env UValue -> Either UError CType
+toCType name env =
+  withEnv env . runEitherT $ buildType name
+
+addType :: Env UValue -> TypedLine Name
+        -> Either UError (TypedLine CType)
+addType env (TLine name line c) = do
+  ctype <- toCType name env
+  c' <- mapM fixEntry c
+  return (TLine ctype line c')
+ where
+  fixEntry (var, name) = do
+    ctype <- toCType name env
+    return (var, ctype)
+
+typeCheck :: [Line] -> Either [UError] [(TypedLine CType)]
+typeCheck program =
+  let ((_, mlines), env) = runEnv (parseLines emptyContext program)
+      mlines' = map (>>= addType env) mlines
+      (errors, ok) = partitionEithers mlines'
+  in
+    case errors of
+      [] -> Right ok
+      _ -> Left errors
 
 -- Testing
 emptyContext :: Context
-emptyContext = (M.fromList [], M.fromList [])
+emptyContext = M.fromList []
 
 chk :: [Line] -> IO ()
 chk x = 
-  let ((blocks, context), vars) = runEnv $ parseLines emptyContext x
+  let ((context, typedLines), vars) = runEnv $ parseLines emptyContext x
   in do
+    mapM_ print typedLines
+    putStrLn "-----------"
     mapM_ print (M.toList context)
     putStrLn "-----------"
     mapM_ print (M.toList vars)
 
+ch x =
+ case typeCheck x of
+   Left errors -> putStrLn "ERROR:" >> mapM_ print errors
+   Right lines -> putStrLn "okay:" >> mapM_ print lines

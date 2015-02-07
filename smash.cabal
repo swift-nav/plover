@@ -46,7 +46,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Smash.Parse, Smash.Compile, Smash.Simplify
+  exposed-modules:     Smash.Smash, Smash.Parse, Smash.Compile, Smash.Simplify
                        
 
   -- Other library packages from which modules are imported.

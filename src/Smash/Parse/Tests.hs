@@ -2,13 +2,9 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Smash.Parse.Tests where
 import Smash.Parse.Types
-import Name hiding (store, put, get)
 import Control.Monad.Free
-import Control.Monad.Trans.Either
-import qualified Data.Map.Strict as M
-import Data.Foldable (Foldable)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM)
 
+-- TODO monad syntax
 pattern dim ::: fn = Free (EMLit (Mat Float dim fn))
 pattern rs :* cs = Dim rs cs
 
@@ -29,15 +25,29 @@ p3 =
   ]
 
 p4 =
-  [ "b" :> B ["x"] [] "x"
-  , "y" := 22
+  let b = id in
+  [
+    "y" := 22
   , "w" := 1 :* 1 ::: \_ _ -> 1
-  , "z" := "b" :< ["w"]
+  , "z" := b "w"
   ]
 
+-- Bad program:
 p5 =
-  [ "b" :> B ["x", "y"] ["z" := "x" * "y"] "z"
-  , "u" := 2 :* 1 ::: \_ _ -> 1
-  , "w" := 1 :* 2 ::: \_ _ -> 1
-  , "a" := "b" :< ["u", "w"]
+  let b x y = x * y in
+  [
+    "u" := 2 :* 1 ::: \_ _ -> 1
+  , "w" := 2 :* 2 ::: \_ _ -> 1
+  , "a" := b "u" "w"
   ]
+
+p6 =
+  [ "m" := "y" :* "z" ::: \_ _ -> 1
+  , "n" := "z" :* "y" ::: \_ _ -> 1
+  , "k" := "m" * "n"
+  ]
+
+
+p7 =
+  let one = (1 :* 1 ::: \_ _ -> 1) in
+  [ "x" := one * one ]

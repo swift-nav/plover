@@ -10,12 +10,6 @@ import Control.Applicative
 import Data.String
 import Debug.Trace (trace)
 
--- Reorganization:
---   - clean up, document data types
---   - simplifier
---     - better interface
---     - rebuild term
-
 -- Expressions
 infixl 6 :+, :*
 data E
@@ -94,14 +88,15 @@ data Line
   = Loc := RHS  -- Simple assignment
   | Loc :== RHS -- With type decl
   | Each Name Atom Atom [Line]
-  | Decl Name
+  | Decl Name Type
   deriving (Show, Eq)
 
 -- Functions
 -- Type Environment
-data BaseType = Int | Float
+data BaseType = Int | Float | Void
   deriving (Show, Eq)
-data Type = Single BaseType | Array BaseType | Void
+data Type = Single BaseType
+          | Array RHS BaseType -- array size, base type
   deriving (Show, Eq)
 type TypeList = [(Name, Type)]
 -- Name, Args, Return argument name
@@ -111,6 +106,16 @@ data FnExpr = FnExpr Signature MExpr
   deriving (Show, Eq)
 data Fn = Fn Signature [Line]
   deriving (Show, Eq)
+
+-- Blocks
+-- TODO remove most of the previous types
+data InputType = ISingle BaseType | IArray E BaseType
+  deriving (Show, Eq)
+data InputRHS = IRM MExpr | IRE E
+  deriving (Show, Eq)
+data InputLine = IL InputType Name InputRHS
+  deriving (Show, Eq)
+type Program = [InputLine]
 
 -- Expression Simplification/Compilation --
 -- Simplification --
@@ -308,7 +313,8 @@ expandRefM (MMul m1 m2) = MMul (expandRefM m1) (expandRefM m2)
 expandRefM (MSum m1 m2) = MSum (expandRefM m1) (expandRefM m2)
 expandRefM m@(MLit _) = m
 simplM :: MExpr -> MExpr
-simplM (MMul (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat rs2 cs2 mfn2))) =
+simplM (MMul (MLit (Mat rs1 cs1 mfn1))
+             (MLit (Mat rs2 cs2 mfn2))) =
   simplM $ MLit $ Mat rs1 cs2 $ \i k -> ESum cs1 (\j -> mfn1 i j * mfn2 j k)
 simplM (MSum (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat _ _ mfn2))) =
   simplM $ MLit $ Mat rs1 cs1 $ \i j -> mfn1 i j + mfn2 i j
@@ -353,8 +359,29 @@ compileFn (FnExpr sig@(Signature name args (ret, retType)) mexpr) = do
   return $ Fn sig lines
 -- END / Functions --
 
+-- Blocks --
+compileType :: InputType -> NameMonad ([Line], Type)
+compileType (ISingle bt) = return ([], Single bt)
+compileType (IArray len bt) = do
+  (ls, rhs) <- compileExpr len
+  return (ls, Array rhs bt)
+compileLine :: InputLine -> NameMonad [Line]
+compileLine (IL tp' name (IRM mat)) = do
+  (ls, tp) <- compileType tp'
+  let decl = Decl name tp
+  computation <- compileM name $ simplifyM mat
+  return (ls ++ [decl] ++ computation)
+compileLine (IL tp' name (IRE expr)) = do
+  (ls, tp) <- compileType tp'
+  let decl = Decl name tp
+  lines <- compile' name expr
+  return (ls ++ [decl] ++ lines)
+compileBlock :: Program -> String
+compileBlock p = pp $ runName $ fmap concat . mapM compileLine $ p
+-- END / Blocks --
+
 -- Pretty Print Programs --
--- TODO use standard C syntax library?
+-- TODO use standard C syntax library!
 ppName :: Name -> String
 ppName = id
 ppLoc :: Loc -> String
@@ -369,11 +396,20 @@ ppRHS (ROp op) = ppOp op
 ppRHS (RAtom at) = ppAtom at
 ppRHS (RLoc loc) = ppLoc loc
 ppRHS (RDeref name) = "*("++ppName name++")"
+--data BaseType = Int | Float
+--data Type = Single BaseType | Array E BaseType | Void
+ppDecl :: Name -> Type -> String
+ppDecl name t =
+  case t of
+    Single Void -> "(void) " ++ ppName name
+    Single bt -> ppBaseType bt ++ " " ++ ppName name ++ ";\n"
+    Array len bt -> ppBaseType bt ++ " " ++ ppName name ++
+                    "[" ++ ppRHS len ++ "];\n"
 ppLine :: String -> Line -> String
 ppLine offset line =
   case line of
-    Decl name ->
-      offset ++ ppName name ++ ";\n"
+    Decl name tp ->
+      ppDecl name tp
     loc := rhs ->
       offset ++ ppLoc loc ++ " = " ++ ppRHS rhs ++ ";\n"
     loc :== rhs ->
@@ -388,10 +424,11 @@ ppLine offset line =
 ppBaseType :: BaseType -> String
 ppBaseType Int = "int"
 ppBaseType Float = "float"
+ppBaseType Void = "void"
 ppType :: Type -> String
 ppType (Single bt) = ppBaseType bt
-ppType (Array bt) = ppBaseType bt ++ "*"
-ppType Void = "void"
+-- TODO fix?
+ppType (Array _ bt) = ppBaseType bt ++ "*"
 ppArg :: (Name, Type) -> String
 ppArg (name, t) = ppType t ++ " " ++ ppName name
 ppSig :: Signature -> String -> String
@@ -417,10 +454,10 @@ i len = VLit $ Vec len (id)
 -- END / Notation --
 
 -- Test expressions --
-pp = putStr . concat . map (ppLine "")
-chk  = pp . snd . runName . compile . fullSimpl
-chkv = pp . snd . runName . either compile compileV . simplV
-chkm = pp . snd . runName . compileM' . simplifyM
+pp = concat . map (ppLine "")
+chk  = putStr . pp . snd . runName . compile . fullSimpl
+chkv = putStr . pp . snd . runName . either compile compileV . simplV
+chkm = putStr . pp . snd . runName . compileM' . simplifyM
 chkf = putStr . ppFn . runName . compileFn . simplFn
 e1, e2, e3 :: E
 e1 = fn "x" :+ fn "y"
@@ -453,12 +490,12 @@ mp2 = MLit $ Mat 2 2 (\i j -> i + j)
 mpn n = MLit $ Mat n n (\i j -> i + j)
 mpn' n = MLit $ Mat n n (\i j -> "x" :! (i * "c" + j))
 
-fn1 = FnExpr (Signature
-                "multiply"
-                [("x", Array Float), ("y", Array Float),
-                 ("k", Single Int), ("m", Single Int), ("n", Single Int)]
-                ("z", Array Float))
-             (MRef "x" "k" "m" * MRef "y" "m" "n")
+--fn1 = FnExpr (Signature
+--                "multiply"
+--                [("x", Array Float), ("y", Array Float),
+--                 ("k", Single Int), ("m", Single Int), ("n", Single Int)]
+--                ("z", Array Float))
+--             (MRef "x" "k" "m" * MRef "y" "m" "n")
 -- END / Test expressions --
 
 -- STUFF --
