@@ -8,10 +8,17 @@ import Control.Monad.Free
 pattern dim ::: fn = Free (EMLit (Mat Float dim fn))
 pattern rs :* cs = Dim rs cs
 
+m1 = (2 :* 2 ::: \_ _ -> 1)
+
 p1 =
   [ "x" := 2
+  , "z" := ("x" + "x") * "x"
   , "y" := 2 :* 2 ::: \i j -> i + j
   ]
+
+pn = [ "z" := m1 - m1 ]
+pn' = [ "z" := m1 + m1 ]
+pm = [ "z" := -2 ]
 
 p2 =
   [ "x" := 1 :* 2 ::: \_ _ -> 1

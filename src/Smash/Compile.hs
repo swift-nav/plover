@@ -15,6 +15,7 @@ infixl 6 :+, :*
 data E
   = ELit Atom
   | E :+ E
+  -- | ENeg E
   | E :* E
   | E :! E
   | ESum E (E -> E)
@@ -49,6 +50,7 @@ data MExpr
   = MLit Mat
   | MRef Name E E
   | MMul MExpr MExpr
+  | MNeg MExpr
   | MSum MExpr MExpr
   deriving (Show, Eq)
 
@@ -82,13 +84,12 @@ data RHS
   | RExpr E
   deriving (Show, Eq)
 infix 4 :=
-infix 4 :==
 -- Syntax
 data Line
   = Loc := RHS  -- Simple assignment
-  | Loc :== RHS -- With type decl
   | Each Name Atom Atom [Line]
-  | Decl Name Type
+  | Decl Type Name
+  | DeclAssign Type Name RHS
   deriving (Show, Eq)
 
 -- Functions
@@ -157,22 +158,32 @@ binOp (e1 :+ e2) = Just (e1, e2)
 binOp (e1 :* e2) = Just (e1, e2)
 binOp (e1 :! e2) = Just (e1, e2)
 binOp _ = Nothing
+--compile :: E -> NameMonad (Atom, [Line])
+--compile e = do
+--  n <- freshName
+--  lines <- compile' n e
+--  return (R n, lines)
 compile :: E -> NameMonad (Atom, [Line])
 compile e = do
   n <- freshName
-  lines <- compile' n e
-  return (R n, lines)
+  case e of
+    ESum _ _ -> do
+      lines <- compile' n e
+      return (R n, lines)
+    _ -> return (R n, [fn n := RExpr e])
 compile' :: Name -> E -> NameMonad [Line]
 compile' n e = do
   case e of
     ESum _ _ -> do
-      let decl = fn n :== RAtom (I 0)
+      let decl = DeclAssign (Single Int) n (RAtom (I 0))
       lines <- compileSum n e
       return $ decl : lines
     _ -> do
       (lines, rhs) <- compileExpr e
-      return $ lines ++ [fn n :== rhs]
+      return $ lines ++ [fn n := rhs]
 compileExpr :: E -> NameMonad ([Line], RHS)
+compileExpr e = return ([], RExpr e)
+-- TODO delete?
 compileExpr (ELit b@(I n)) = return ([], RAtom b)
 compileExpr (ELit b@(R n)) = return ([], RAtom b)
 compileExpr e | Just (e1, e2) <- binOp e = do
@@ -311,15 +322,22 @@ expandRefM :: MExpr -> MExpr
 expandRefM (MRef name rows cols) = MLit (Mat rows cols (\i j -> fn name :! (i * cols) + j))
 expandRefM (MMul m1 m2) = MMul (expandRefM m1) (expandRefM m2)
 expandRefM (MSum m1 m2) = MSum (expandRefM m1) (expandRefM m2)
+expandRefM (MNeg m) = MNeg (expandRefM m)
 expandRefM m@(MLit _) = m
+
 simplM :: MExpr -> MExpr
 simplM (MMul (MLit (Mat rs1 cs1 mfn1))
              (MLit (Mat rs2 cs2 mfn2))) =
   simplM $ MLit $ Mat rs1 cs2 $ \i k -> ESum cs1 (\j -> mfn1 i j * mfn2 j k)
 simplM (MSum (MLit (Mat rs1 cs1 mfn1)) (MLit (Mat _ _ mfn2))) =
   simplM $ MLit $ Mat rs1 cs1 $ \i j -> mfn1 i j + mfn2 i j
+simplM (MSum m1 m2) = simplM $ MSum (simplM m1) (simplM m2)
+--simplM (MMul m1 m2) = simplM $ MMul (simplM m1) (simplM m2)
+simplM (MNeg (MLit (Mat rs cs fn))) =
+  simplM $ MLit $ Mat rs cs $ \i j -> - (fn i j)
 simplM (MLit (Mat rs cs mfn)) = MLit $ Mat (fullSimpl rs) (fullSimpl cs) (\i j -> fullSimpl (mfn i j))
 simplM m = m
+
 idMView width name r c = ELIndex (fn name) (r * width + c)
 concretizeM :: Name -> MExpr -> NameMonad [(MatLocView, Mat)]
 concretizeM name (MLit m@(Mat _ cs _)) = return [(idMView cs name, m)]
@@ -368,20 +386,21 @@ compileType (IArray len bt) = do
 compileLine :: InputLine -> NameMonad [Line]
 compileLine (IL tp' name (IRM mat)) = do
   (ls, tp) <- compileType tp'
-  let decl = Decl name tp
+  let decl = Decl tp name
   computation <- compileM name $ simplifyM mat
   return (ls ++ [decl] ++ computation)
 compileLine (IL tp' name (IRE expr)) = do
   (ls, tp) <- compileType tp'
-  let decl = Decl name tp
+  let decl = Decl tp name
   lines <- compile' name expr
   return (ls ++ [decl] ++ lines)
+  --return (ls ++ [] ++ lines)
 compileBlock :: Program -> String
 compileBlock p = pp $ runName $ fmap concat . mapM compileLine $ p
 -- END / Blocks --
 
 -- Pretty Print Programs --
--- TODO use standard C syntax library!
+-- TODO use standard C syntax library?
 ppName :: Name -> String
 ppName = id
 ppLoc :: Loc -> String
@@ -396,8 +415,19 @@ ppRHS (ROp op) = ppOp op
 ppRHS (RAtom at) = ppAtom at
 ppRHS (RLoc loc) = ppLoc loc
 ppRHS (RDeref name) = "*("++ppName name++")"
---data BaseType = Int | Float
---data Type = Single BaseType | Array E BaseType | Void
+ppRHS (RExpr e) = ppExpr e
+-- ESum case doesn't need to be handled
+wrap :: String -> String
+wrap s = s
+wrap s = "(" ++ s ++ ")"
+ppExpr :: E -> String
+ppExpr (ELit at) = ppAtom at
+ppExpr (ELit a1 :+ ELit a2) = (ppAtom a1) ++ " + "  ++ (ppAtom a2)
+ppExpr (ELit a1 :* ELit a2) = (ppAtom a1) ++ " * "  ++ (ppAtom a2)
+ppExpr (e1 :+ e2) = wrap (ppExpr e1) ++ " + "  ++ wrap (ppExpr e2)
+ppExpr (e1 :* e2) = wrap (ppExpr e1) ++ " * "  ++ wrap (ppExpr e2)
+ppExpr (e1 :! e2) = (ppExpr e1) ++ "["  ++ (ppExpr e2) ++ "]"
+--ppExpr (ENeg e) = "-" ++ wrap (ppExpr e)
 ppDecl :: Name -> Type -> String
 ppDecl name t =
   case t of
@@ -408,12 +438,12 @@ ppDecl name t =
 ppLine :: String -> Line -> String
 ppLine offset line =
   case line of
-    Decl name tp ->
+    Decl tp name ->
       ppDecl name tp
     loc := rhs ->
       offset ++ ppLoc loc ++ " = " ++ ppRHS rhs ++ ";\n"
-    loc :== rhs ->
-      offset ++ "float " ++ ppLoc loc ++ " = " ++ ppRHS rhs ++ ";\n"
+    DeclAssign tp name rhs ->
+      offset ++ ppType tp ++ " " ++ ppName name ++ " = " ++ ppRHS rhs ++ ";\n"
     Each name lower upper block ->
       offset ++ "for(" ++
          "int " ++ ppName name ++ " = " ++ ppAtom lower ++ "; " ++ 
@@ -521,34 +551,13 @@ eScale 0 e = 0
 eScale 1 e = e
 eScale n e = fromIntegral n * e
 
--- TODO remove references to Simplify in favor of new library
---eExpr :: Simplify.Expr E E Int
---eExpr = Simplify.Expr
---  { Simplify.isSum = isSum
---  , Simplify.isMul = isMul
---  , Simplify.isAtom = isAtom
---  , Simplify.isPrim = isPrim
---  , Simplify.zero = 0
---  , Simplify.one = 1
---  }
---  where
---   isSum (e1 :+ e2) = Just [e1, e2]
---   isSum _ = Nothing
---   isMul (e1 :* e2) = Just [e1, e2]
---   isMul _ = Nothing
---   isAtom e@(ELit (R n)) = Just e
---   isAtom e@(_ :! _) = Just e
---   isAtom e@(ESum _ _) = Just e
---   isAtom _ = Nothing
---   isPrim (ELit (I n)) = Just n
---   isPrim _ = Nothing
 instance Num E where
   x * y = x :* y
   x + y = x :+ y
   fromInteger x = ELit . I $ (fromInteger x)
   abs = undefined
   signum = undefined
-  negate = undefined
+  negate x = ELit (I (-1)) * x
 instance Num VExpr where
   x * y = VProd x y
   x + y = VPlus x y
@@ -562,7 +571,7 @@ instance Num MExpr where
   fromInteger x = MLit $ Mat 1 1 (\_ _ -> fromInteger x)
   abs = undefined
   signum = undefined
-  negate = undefined
+  negate = MNeg
 class Named a where
   fn :: Name -> a
 instance Named ELoc where

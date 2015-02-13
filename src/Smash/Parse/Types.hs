@@ -14,24 +14,35 @@ import qualified Data.Traversable as T (Traversable)
 
 type Variable = String
 
-data Loc 
-  = LName Variable
-  | LVoid
-  deriving (Show, Eq, Ord)
+type RHS = ExprU
+type LHS = ExprU
+
+--data Loc 
+--  = LName Variable
+--  | LRef Loc RHS
+--  deriving (Show, Eq, Ord)
 
 data Line
-  = LStore Loc RHS
-  -- TODO handle this
-  | LDecl Variable BaseType
+  = LStore LHS RHS
+  | Return RHS
+  | Call Variable [RHS]
+
+  | If RHS [Line] [Line]
+  -- Output that gets value
+  -- Variable
+  -- Upper bound
+  -- body function
+  -- Last line should be `Return`
+  | For LHS Variable RHS ([Line])
   deriving (Show, Eq, Ord)
+
+pattern Loc l = Free (ERef l)
 
 data TypedLine a = TLine a Line [(Variable, a)]
   deriving (Show, Eq, Ord)
 
-data RHS = RHSExpr ExprU
---         | RHSBlock [Variable] [Line] ExprU
-         | RHSVoid -- TODO remove?
-  deriving (Show, Eq, Ord)
+--data RHS = RHSExpr ExprU
+--  deriving (Show, Eq, Ord)
 
 -- TODO
 --data Program' a
@@ -49,12 +60,9 @@ deriving instance Ord False
 fromFix :: Functor f => Free f False -> Free f a
 fromFix = fmap (const undefined)
 
-infix 4 :=, :>
-pattern l := r = LStore (LName l) (RHSExpr r)
---pattern B ps body ret = RHSBlock ps body ret
-pattern l :> rhsb = LStore (LName l) rhsb
+infix 4 :=
+pattern l := r = LStore (Loc l) (r)
 
-type View2 a = a -> a -> a
 data Dim' a = Dim
   { dimRows :: a
   , dimColumns :: a
@@ -72,26 +80,24 @@ deriving instance Ord Mat
 data Expr' a
   = ERef Variable
   | EIntLit Int
-  | EMLit Mat
   | EMul a a
   | ESum a a
---  | ECall Variable [a]
+  | ENeg a
+  | EMLit Mat
   | Void
+  -- Array index, struct membership?
+  | a :! a
+  | a :> a
+  | a :< a
+
   deriving (Show, Eq, Ord, Functor, Foldable, T.Traversable)
+
 type Expr = Expr' Name
 type FExpr a = Free Expr' a
 type ExprU = FExpr False
 type CExpr = FExpr False
 
---pattern name :$ args = Free (ECall name args)
-
--- Parameters, body, definition context
---data Block = Block [Variable] [Line] ExprU Context
---  deriving (Show, Eq, Ord)
-
---type BlockContext = M.Map Variable Block
 type TypeContext = M.Map Variable Name
---type Context = (BlockContext, TypeContext)
 type Context = TypeContext
 
 data BaseType = Int | Float | VoidType
@@ -130,7 +136,7 @@ instance Show (a -> b) where
   show _ = "<fn>"
 -- TODO is this desirable?
 instance Eq (a -> b) where
-  _ == _ = True
+  _ == _ = False
 instance Ord (a -> b) where
   compare _ _ = GT -- ???
 
@@ -140,6 +146,6 @@ instance Num (Free Expr' a) where
   x * y = Free (EMul x y)
   x + y = Free (ESum x y)
   fromInteger x = Free (EIntLit $ fromInteger x)
-  abs = undefined
-  signum = undefined
-  negate = undefined
+  --abs = undefined
+  --signum = undefined
+  negate = Free . ENeg

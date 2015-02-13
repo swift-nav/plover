@@ -39,24 +39,15 @@ newVar = store UVar
 -- Unification errors for the given line are passed over,
 -- so context may be erroneous as well, but parsing can still continue.
 parseLine :: Context -> Line -> OuterM (Context, Either UError (TypedLine Name))
-parseLine c l@(LStore LVoid (RHSExpr expr)) = do
-  mtype <- runEitherT $ typeExpr c expr
-  return $ (c, do
-    tp <- mtype
-    return (TLine tp l (M.toList c)))
-
---parseLine c (LStore LVoid (RHSBlock _ _ _)) =
---  return $ (c, Left $ UError [] "parseLine. cannot create anonymous block")
-
 parseLine context l@(var := expr) = do
   -- Type the RHS, check context for LHS, bind RHS to LHS, return type ref
   mtype <- runEitherT $ do
-    rhs <- typeExpr context expr
-    lhs <- lift $ case M.lookup var context of
-      Nothing -> newVar
-      Just n -> return n
-    unifyBind lhs rhs
-    return lhs
+             rhs <- typeExpr context expr
+             lhs <- lift $ case M.lookup var context of
+               Nothing -> newVar
+               Just n -> return n
+             unifyBind lhs rhs
+             return lhs
   -- Check result, update context if valid
   case mtype of
     Left err -> return (context, Left err)
@@ -64,10 +55,17 @@ parseLine context l@(var := expr) = do
       let context' = M.insert var typeName context
       return (context', Right $ TLine typeName l (M.toList context'))
 
---parseLine c@(blocks, context) l@(var :> (B args lines ret)) = do
---  lineType <- store (UType (TLit FnType))
---  return ((M.insert var (Block args lines ret c) blocks, context),
---          Right $ TLine lineType l)
+--parseLine c0 (For loc var upperBound body) = do
+--  (c1, mline)   <- parseLine  c0 (var := 0)
+--  (c2, mresult) <- parseLines c1 body
+
+-- TODO delete
+--parseLine c l@(LStore LVoid (RHSExpr expr)) = do
+--  mtype <- runEitherT $ typeExpr c expr
+--  return $ (c, do
+--    tp <- mtype
+--    return (TLine tp l (M.toList c)))
+
 
 parseLines :: Context -> [Line]
            -> OuterM (Context, [Either UError (TypedLine Name)])
@@ -80,7 +78,6 @@ parseLines c lines = do
     return (c', line' : lines)
 
 typeExpr :: Context -> ExprU -> InnerM Name
---typeExpr _ (Pure name) = return name
 typeExpr context (Free expr) =
   case expr of
     ERef var -> lift $
@@ -101,10 +98,7 @@ typeExpr context (Free expr) =
       sumName <- lift $ store (USum t1 t2)
       propagate sumName
       return sumName
---    ECall name args -> do
---      let block = fromJust (M.lookup name blocks)
---      argTypes <- mapM (typeExpr context) args
---      applyBlock block argTypes
+    ENeg e -> typeExpr context e
 
 refine :: Name -> UValue -> InnerM ()
 refine name val = do
@@ -164,24 +158,6 @@ unifySum (UType (TMatrix _ _)) sum n1 n2 = do
 unifySum (UType (TLit bt)) sum n1 n2 =
   mapM_ (unifyLit bt) [sum, n1, n2]
 
--- Matrix Unification Utilities
-unifyMatrixProduct :: Name -> Name -> Name -> InnerM ()
-unifyMatrixProduct prod t1 t2 = do
-  unifyInner t1 t2
-  unifyRows t1 prod
-  unifyCols t2 prod
-
-unifyMatrixSum :: Name -> Name -> Name -> InnerM ()
-unifyMatrixSum sum n1 n2 = do
-  unifyMatrixDim n1 n2
-  unifyMatrixDim n1 sum
-
-unifyMatrixDim :: Name -> Name -> InnerM ()
-unifyMatrixDim n1 n2 = do
-  unifyRows n1 n2
-  unifyCols n1 n2
-  unifyBaseType n1 n2
-
 -- Core Unification Functions
 type Bindings = [(Name, Name)]
 
@@ -211,13 +187,11 @@ unifyOne n1 (UProduct _ _) n2 _ = do
   return [(n1, n2)]
 unifyOne n1 (USum _ _) n2 _ = do
   return [(n1, n2)]
-
 unifyOne n1 (UType e1) n2 (UType e2) = do
   assert (tagEq e1 e2) [n1, n2] $
     "unifyOne. expr types don't match: " ++ show e1 ++ ", " ++ show e2
   bs <- unifyMany [n1, n2] (children e1) (children e2)
   return $ (n1, n2) : bs
-
 unifyOne n1 (UExpr e1) n2 (UExpr e2) = do
   assert (tagEq e1 e2) [n1, n2] $
     "unifyOne. expr values don't match: " ++ show e1 ++ ", " ++ show e2
@@ -298,6 +272,23 @@ unifyCols n1 n2 = do
   c2 <- getDim dimColumns n2
   unifyBind c1 c2
 
+unifyMatrixProduct :: Name -> Name -> Name -> InnerM ()
+unifyMatrixProduct prod t1 t2 = do
+  unifyInner t1 t2
+  unifyRows t1 prod
+  unifyCols t2 prod
+
+unifyMatrixSum :: Name -> Name -> Name -> InnerM ()
+unifyMatrixSum sum n1 n2 = do
+  unifyMatrixDim n1 n2
+  unifyMatrixDim n1 sum
+
+unifyMatrixDim :: Name -> Name -> InnerM ()
+unifyMatrixDim n1 n2 = do
+  unifyRows n1 n2
+  unifyCols n1 n2
+  unifyBaseType n1 n2
+
 -- Unification Utilities
 assert :: Bool -> [Name] -> String -> InnerM ()
 assert True _ _ = return ()
@@ -321,10 +312,13 @@ storeMat c (Mat bt (Dim rows cols) _) = do
 
 
 -- Convert between trees and flat named trees
+--
+-- Flattening is easy
 storeExpr :: ExprU -> M Name
 storeExpr e = iterM (\f -> T.sequence f >>= (store . UExpr))
                     (fromFix e)
 
+-- Rebuilding
 buildExpr :: Name -> InnerM CExpr
 buildExpr n = do
   val <- lift $ get n 
@@ -341,7 +335,6 @@ buildBaseType n = do
     UType (TLit bt) -> return bt
     _ -> left $ UError [n] "buildBaseType. not resolved."
 
--- TODO ugh
 buildType :: Name -> InnerM CType
 buildType n = do
   val <- lift $ get n 
