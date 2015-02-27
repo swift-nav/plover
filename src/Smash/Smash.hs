@@ -3,6 +3,8 @@
 module Smash.Smash where
 import Smash.Parse.Tests
 import Smash.Parse.Types as Types
+import qualified Smash.Parse.Types2 as T2
+import qualified Smash.Parse.Types3 as T
 import qualified Smash.Parse as P
 import qualified Smash.Compile as C
 

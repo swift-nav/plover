@@ -45,9 +45,10 @@ data TypedLine a = TLine a Line [(Variable, a)]
 --  deriving (Show, Eq, Ord)
 
 -- TODO
+-- Free monad:
 --data Program' a
 --  = PLine Line a
---  | Done
+--  | Done 
 data False
 deriving instance Show False
 deriving instance Eq False
