@@ -1,6 +1,5 @@
+--
 -- ISSUES
---  - Flatten vs. No Flatten
---    * just retypecheck?
 --  - compute size of imperatively defined thing
 --    * require initially tree-like program with single-assignment
 --    * step through to get sizes -> context + declarations
@@ -9,21 +8,8 @@
 --      * could allow decls in initial syntax
 --
 --  - what is a type (size)
---    * dimension list + coarse size
---      * would be enough for matrix multiply, loop definitions, compile
+--    * dimension list
 --
---  - do I need type checking
---    - should I annotate terms directly with types?
---      * no? just keep context with (name -> type) (or size?)
---  - choose a monad
---    * context monad? EitherT (State name counter + context)
---  - why do I need explicit lambdas
---    - how to handle names
---      * could just use debruijn?
---      * could use \i -> e as long as (size e) and (type e) don't depend on i?
---
---  - how to insert declarations
---    * OK
 
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
@@ -31,9 +17,10 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs, DataKinds, TypeOperators #-}
+{-# LANGUAGE TypeFamilies #-}
 module Smash.Parse.Types3 where
 import Data.Foldable (Foldable)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence)
+import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM, traverse)
 import Control.Applicative ((<$>))
 import Control.Monad
 import Control.Monad.Free
@@ -41,6 +28,9 @@ import Control.Monad.Trans.Either
 import Control.Monad.State
 import qualified Data.Map.Strict as M
 import Data.String
+import Debug.Trace (trace)
+
+import qualified Language.C.Syntax as C
 
 type Tag = String
 type Variable = String
@@ -65,43 +55,36 @@ data Expr a
   | Sum a a
   | Mul a a
   | Negate a
+
+  -- Only needed for output
+  | Deref a
  deriving (Show, Eq, Ord, Functor, Foldable, T.Traversable)
 
-type FExpr a = Free Expr a
+data Line
+  -- All instances of CExpr should be arithmetic only
+  = Each Variable CExpr Line
+  | Block [Line]
+  | Store CExpr CExpr
+  | Decl Type Variable
+  deriving (Show, Eq, Ord)
+
 type CExpr = Free Expr Void
 
---TODO delete
---data Nat = O | S Nat
--- deriving (Show, Eq, Ord)
---data E m where
---  ELit :: Int -> E O
---  ERef :: Variable -> E m
---  ESum :: E m -> E m -> E m
---  EMul :: E m -> E m -> E m
---  ELam :: E O -> (E O -> E n) -> E (S n)
---
---instance Show (E m) where
---  show (ELit i) = show i
---  show (ERef v) = "&" ++ v
---  show (EMul a b) = show a ++ " * " ++ show b
---
---e0 = ELit 0
---e1 = ELam (ELit 2) (\i -> ELam (ELit 3) (\j -> ESum i j))
---
---size :: E m -> E O
---size (ELam bound body) = EMul bound (size (body e0))
---size (ELit _) = ELit 1
---size (ESum a b) = size a  -- assert = size b
---size x = error (show x)
-
+-- Type Utilities --
 data Type = ExprType [CExpr] | Void
   deriving (Show, Eq, Ord)
+
 typeAppend :: Type -> Type -> Type
 typeAppend (ExprType l1) (ExprType l2) = ExprType (l1 ++ l2)
 
 typeSize :: Type -> CExpr
 typeSize (ExprType l) = product l
 
+numType :: Type
+numType = ExprType []
+-- --
+
+-- Typechecking/Compilation Monad --
 type MState = (Int, [(Variable, Type)])
 initialState :: MState
 initialState = (0, [])
@@ -134,13 +117,9 @@ withBinding var t m = do
   a <- m
   modify $ \(c, _) -> (c, env0)
   return a
+-- --
 
-numType :: Type
-numType = ExprType []
-
-sep :: (Show a, Show b) => a -> b -> String
-sep s1 s2 = show s1 ++ ", " ++ show s2
-
+-- Typecheck, Compile --
 typeCheck :: CExpr -> M Type
 typeCheck ((R var) := b) = do
   t <- typeCheck b
@@ -177,24 +156,130 @@ typeCheck (a :! b) = do
   ExprType [] <- typeCheck b
   ExprType (_ : as) <- typeCheck a
   return $ ExprType as
-typeCheck x = error (show x)
+typeCheck (Free (Sigma body)) = typeCheck body
+typeCheck x = error ("typeCheck: " ++ show x)
 
-pp :: CExpr -> IO ()
-pp = putStrLn . ppExpr ""
+size :: CExpr -> M CExpr
+size x = typeSize <$> typeCheck x
 
-ppExpr :: String -> CExpr -> String
-ppExpr pre expr =
-  let pe = ppExpr pre in
-  case expr of
-    a :> b -> unlines [pre ++ pe a, pre ++ pe b]
-    a := b -> undefined
+compileMMul :: CExpr -> [CExpr] -> CExpr -> [CExpr] -> M CExpr
 
+compileMMul x [r1, c1] y [r2, c2] = do
+  i <- freshName
+  inner <- freshName
+  j <- freshName
+  return $
+    Lam i r1 $ Lam j c2 $ Free $ Sigma $ 
+      Lam inner c1 (body x (R i) (R inner) * body y (R inner) (R j))
+ where
+   body (Lam i r (Lam j c body)) v1 v2 = 
+     subst j v2 (subst i v1 body)
+   body (R x) v1 v2 = ((R x) :! v1) :! v2
+
+compile :: CExpr -> M CExpr
+compile expr = do
+  _ <- typeCheck expr
+  fixM compileStep expr
+
+compileStep :: CExpr -> M CExpr
+compileStep (a := (Lam var r body)) = do
+  offset <- withBinding var numType $ size body
+  lhs <- compileStep (a + R var * offset)
+  rhs <- compileStep body
+  return $ Lam var r (lhs := rhs)
+
+compileStep (a := u :# v) = do
+  fst <- compileStep $ a := u
+  offset <- size u
+  snd <- compileStep $ (a + offset) := v
+  return $ fst :> snd
+
+compileStep (a := Free (Sigma (Lam var r body))) = do
+  body' <- compileStep (a := (DR a) + body)
+  return $
+    (a := 0) :>
+    (Lam var r $ body')
+
+compileStep e@(x :* y) = do
+  tx <- typeCheck x
+  ty <- typeCheck y
+  case (tx, ty) of
+    (ExprType [r1, c1], ExprType [r2, c2]) ->
+      compileMMul x [r1, c1] y [r2, c2]
+    _ -> return e
+
+--compileStep (a := (Lam i1 r1 (Lam j1 c1 body1))
+--               :* (Lam i2 r2 (Lam j2 c2 body2))) = do
+
+compileStep (a := (u :> v)) = do
+  return $
+    u :>
+    a := v
+compileStep (a := x) = do
+  x' <- compileStep x
+  return $ a := x'
+
+compileStep (Lam var r body) = do
+  body' <- withBinding var numType $ compileStep body
+  return $ Lam var r body'
+
+compileStep (a :> b) = do
+  a' <- compileStep a
+  b' <- compileStep b
+  return (a' :> b')
+
+compileStep x = return x
+
+subst :: Variable -> CExpr -> CExpr -> CExpr
+subst var val (R v) | v == var = val
+-- iterM passes in an unwrapped expr (:: Expr CExpr),
+-- so we fmap subst and then rewrap it with Free
+subst var val expr = iterM (Free . fmap (subst var val)) expr
+
+
+fromFix :: Functor f => Free f Void -> Free f a
+fromFix = fmap (const undefined)
+
+-- Printing output --
+flatten :: CExpr -> Line
+flatten (Lam var bound body) = Each var bound (flatten body)
+flatten (n := val) = Store n val
+flatten (a :> b) = mergeBlocks (flatten a) (flatten b)
+flatten x = error $ "flatten: " ++ show x
+mergeBlocks (Block ls1) (Block ls2) = Block (ls1 ++ ls2)
+mergeBlocks (Block ls) x = Block (ls ++ [x])
+mergeBlocks x (Block ls) = Block (x : ls)
+mergeBlocks x y = Block [x, y]
+mergeBlocks x y = error $ "mergeBlocks: " ++ sep x y
+
+indent off = "  " ++ off
+
+ppLine off (Block ls) = concat $ map (ppLine off) ls
+ppLine off (Each var expr body) = 
+  off ++ "for (" ++ ppVar var ++ "; " ++ ppExpr expr ++ ") {\n"
+  ++ ppLine (indent off) body
+  ++ off ++ "}\n"
+ppLine off (Store x e) = off ++ ppExpr (Free $ Deref x) ++ " = " ++ ppExpr e ++ ";\n"
+ppLine off x = off ++ show x ++ "\n"
+
+ppVar = id
+ppExpr (a :+ b) = ppExpr a ++ " + " ++ ppExpr b
+ppExpr (a :* b) = ppExpr a ++ " * " ++ ppExpr b
+ppExpr (R v) = ppVar v
+ppExpr (Free (IntLit i)) = show i
+ppExpr (a :! b) = ppExpr a ++ "[" ++ ppExpr b ++ "]"
+ppExpr (DR x) = "*(" ++ ppExpr x ++ ")"
+ppExpr e = show e
+
+-- --
+
+-- Testing --
 
 main = 
   let (mexpr, _) = runState (runEitherT m) initialState in
   case mexpr of
     Left err -> putStrLn err
-    Right expr -> print expr
+    Right expr -> putStrLn . ppLine "" $ (flatten expr)
 
  where
    p1 :: CExpr
@@ -205,60 +290,10 @@ main =
    m :: M CExpr
    m = compile p1
 
+st0 = subst "x" (R "y") (R "x")
+st1 = subst "x" (R "y") (R "x" + R "z")
 
-fixpoint :: (Eq a, Monad m) => (a -> m a) -> a -> m a
-fixpoint f x = do
-  x' <- f x
-  if x == x' then return x else fixpoint f x'
-
-compile :: CExpr -> M CExpr
-compile expr = do
-  _ <- typeCheck expr
-  fixpoint compileStep expr
-
-size :: CExpr -> M CExpr
-size x = typeSize <$> typeCheck x
-
-compileStep :: CExpr -> M CExpr
-compileStep (a := (Lam var r body)) = do
-  offset <- withBinding var numType $ size body
-  lhs <- compileStep (a + R var * offset)
-  rhs <- compileStep body
-  compileStep $ Lam var r (lhs := rhs)
-
-compileStep (a := u :# v) = do
-  fst <- compileStep $ a := u
-  offset <- size u
-  snd <- compileStep $ (a + offset) := v
-  return $ fst :> snd
-
-compileStep (a := Free (Sigma (Lam var r body))) = do
-  body' <- compileStep (a := a + body)
-  return $
-    (a := 0) :>
-    (Lam var r $ body')
-
-compileStep (a := (Lam i1 r1 (Lam j1 c1 body1))
-               :* (Lam i2 r2 (Lam j2 c2 body2))) = do
-  var <- freshName
-  return $
-    Lam i1 r1 $ Lam j2 c2 $ Free $ Sigma $ 
-      Lam (var) c1 ((sub body1 j1 (R var)) * (sub body2 i2 (R var)))
-
-compileStep (a :> b) = do
-  a' <- compileStep a
-  b' <- compileStep b
-  return (a' :> b')
-
-compileStep x = return x
-
-sub :: CExpr -> Variable -> CExpr -> CExpr
--- TODO!!
-sub e var val = e
-
---size :: FExpr a -> FExpr a
---size = undefined
-
+-- --
 
 -- Syntax
 infix  4 :=
@@ -270,15 +305,26 @@ pattern a :+ b = Free (Sum a b)
 pattern a :* b = Free (Mul a b)
 pattern Lam a b c = Free (Abs a b c)
 pattern R a = Free (Ref a)
+pattern DR a = Free (Deref a)
 pattern a :! b = Free (App a b)
 pattern a :> b = Free (Seq a b)
 
-instance IsString (FExpr a) where
+-- Stuff --
+fixM :: (Eq a, Monad m) => (a -> m a) -> a -> m a
+fixM f x = do
+  x' <- f x
+  if x == x' then return x else fixM f x'
+
+sep :: (Show a, Show b) => a -> b -> String
+sep s1 s2 = show s1 ++ ", " ++ show s2
+
+instance IsString (Free Expr a) where
   fromString = Free . Ref
-instance Num (FExpr a) where
+instance Num (Free Expr a) where
   x * y = Free (Mul x y)
   x + y = Free (Sum x y)
   fromInteger x = Free (IntLit $ fromInteger x)
   --abs = undefined
   --signum = undefined
   negate = Free . Negate
+-- --
