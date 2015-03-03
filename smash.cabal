@@ -46,7 +46,8 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Smash.Smash, Smash.Parse, Smash.Compile, Smash.Simplify
+  exposed-modules:     Smash.Parse.PVT,
+                       Smash.Smash, Smash.Parse, Smash.Compile, Smash.Simplify
                        
 
   -- Other library packages from which modules are imported.
@@ -54,8 +55,8 @@ library
                        containers, free, either, transformers,
                        name, condition, mtl,
                        language-c-quote
-  other-extensions:
-    OverloadedStrings
+
+  other-extensions:    OverloadedStrings
 
   -- Directories containing source files.
   hs-source-dirs:      src/
