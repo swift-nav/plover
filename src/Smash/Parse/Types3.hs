@@ -1,6 +1,7 @@
 -- TODO
 --   - flatten arithmetic
 --     * check for multiline operations, only flatten them
+--   - gcc it
 --   - check :# arithmetic
 --   - functions
 --     - parameter lists
@@ -10,7 +11,8 @@
 --   - loop hoisting
 --   - binding: names for context, indices for vectors?
 --   - low level optimization?
---     * a + -(b) -> a - b
+--     *       a + -(b)  -->  a - b
+--     * float x; x = y  -->  float x = y;
 --     * use Functor instance to simplify
 --
 -- ISSUES
@@ -223,7 +225,7 @@ compileMMul x [r1, c1] y [r2, c2] = do
       vec'' <- (vecBody vec' v2)
       return vec''
 
--- TODO cleanup
+-- TODO cleanup remove case check
 vecBody :: CExpr -> CExpr -> M CExpr
 vecBody (Lam i r body) index = return $ subst i index body
 vecBody (R v) index = return $ (R v) :! index
