@@ -37,10 +37,11 @@ pvt = seqList $ [
  ]
 
 -- Tests Expressions --
-l0 = Lam "i" 1 (Lam "j" 1 ("i" + "j"))
-e0, e1, e2 :: CExpr
-e0 = "x" := Lam "i" 1 (Lam "j" 1 ("i" + "j"))
-e1 = "a" := Lam "i" 1 ("x" := 2 :> "x")
+l0 = Lam "i" 2 (Lam "j" 2 ("i" + "j"))
+e, e0, e1, e2 :: CExpr
+e = "x" := Lam "i" 1 2
+e0 = "x" := Lam "i" 2 (Lam "j" 2 ("i" + "j"))
+e1 = "a" := Lam "i" 1 (("x" := 2) :> "x")
 e2 = "x" := Lam "i" 1 1 + Lam "i" 1 1
 e3 = "x" := Sig (Lam "i" 3 "i")
 
@@ -48,7 +49,28 @@ e4 = seqList [
   "x" := Lam "i" 3 1,
   "y" := Lam "i" 3 1,
   "z" := "x" * "x" + "y",
-  "n" := norm "z"
+  "n" := norm "z",
+  -- currently this is an issue
+  "xy" := "x" :# "y"
+ ]
+
+e5 = "x" := Lam "i" 1 (2 * 3)
+
+e6 = seqList [
+  "x" := Lam "i" 1 (2 * 3),
+  "y" := normalize "x"
+ ]
+
+e7 = seqList [
+  "v" := Lam "i" 1 1,
+  "x" := norm "v"
+  ]
+
+e8 = "x" := l0 * l0
+e9 = "x" := l0 * l0 * l0
+e10 = seqList [
+  "x" := Lam "i" 2 (Lam "j" 2 1),
+  "y" := "x" * "x" * "x"
  ]
 
 p1 :: CExpr
