@@ -37,6 +37,7 @@
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs, DataKinds, TypeOperators #-}
@@ -53,6 +54,7 @@ import Control.Monad.Free
 import Control.Monad.Trans.Either
 import Control.Monad.State
 import Data.String
+
 
 import Debug.Trace (trace)
 
@@ -88,8 +90,9 @@ data Expr a
   | Deref a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
+
 data Line
-  -- All instances of CExpr should be arithmetic only
+  -- All instances of CExpr should be numeric arithmetic only
   = Each Variable CExpr Line
   | Block [Line]
   | Store CExpr CExpr
@@ -276,23 +279,24 @@ flatOp op x y = do
 -- TODO is this confluent? how could we prove it?
 -- it is sensitive to order of rewrite rules:
 --   some rules shadow others
-compile :: CExpr -> SM CExpr
+compile :: CExpr -> M CExpr
 -- Iterate compileStep to convergence
 compile expr = fixM step expr
   where
     sep = "\n------------\n"
     -- TODO doesn't quite work
     debugFlag = False
-    printStep = 
-      if debugFlag
-      then trace (sep ++ ppLine Lax "" (flatten expr) ++ sep)
-      else id
+    --printStep = 
+    --  if debugFlag
+    --  then trace (sep ++ ppLine Lax "" (flatten expr) ++ sep)
+    --  else id
 
-    step expr = printStep $ do
-      mval <- runEitherT (compileStep expr)
-      case mval of
-        Left err -> trace ((err ++ "\n" ++ show expr)) $ return expr
-        Right expr' -> return expr'
+    step expr = id $ do
+      mval <- (compileStep expr)
+      return mval
+      --case mval of
+      --  Left err -> trace ((err ++ "\n" ++ show expr)) $ return expr
+      --  Right expr' -> return expr'
 
 
 -- Each case has a symbolic explanation
@@ -316,8 +320,9 @@ compileStep e@(Declare t var) = do
 -- TODO check this interaction with [ ]
 compileStep (a :< u :# v) = do
   offset <- typeSize <$> typeCheck u
-  --return $ (a :< u) :> ((DR $ a + offset) :< v)
+  -- TODO (a + offset) will always be wrapped by an index operation?
   return $ (a :< u) :> ((a + offset) :< v)
+  --return $ (a :< u) :> ((DR $ a + offset) :< v)
 
 -- Sequence assignment
 -- a :< (u; v)  --> u; (a :< v)
@@ -478,14 +483,19 @@ compileStep x = return x
 
 
 -- Printing output --
-flatten :: CExpr -> Line
-flatten (Declare t var) = LineDecl t var
-flatten (Lam var bound body) = Each var bound (flatten body)
-flatten (R a :< val) = Store (R a) val
-flatten (n :< val) = Store (n) val
-flatten (a :> b) = mergeBlocks (flatten a) (flatten b)
-flatten (n := val) = Store n val
-flatten x = error $ "flatten: " ++ show x
+flatten :: CExpr -> Either Error Line
+flatten (Declare t var) = return $ LineDecl t var
+flatten (Lam var bound body) = do
+  body' <- flatten body
+  return $ Each var bound (body')
+flatten (R a :< val) = return $ Store (R a) val
+flatten (n :< val) = return $ Store (n) val
+flatten (a :> b) = do
+  a' <- flatten a
+  b' <- flatten b
+  return $ mergeBlocks a' b'
+flatten (n := val) = return $ Store n val
+flatten x = Left $ "flatten: " ++ show x
 
 mergeBlocks :: Line -> Line -> Line
 mergeBlocks (Block ls1) (Block ls2) = Block (ls1 ++ ls2)
@@ -556,13 +566,25 @@ seqList es = foldr1 (:>) es
 
 runM m = runState (runEitherT m) initialState
 runS m = runState m initialState
-compileMain :: CExpr -> String
-compileMain = ppMain . flatten . fst . runS . compile
-main = putStrLn . compileMain
+compileMain :: CExpr -> Either Error String
+compileMain expr = do
+  expr' <- fst . runM . compile $ expr
+  program <- flatten expr'
+  return (ppMain program)
+
+printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
+main e = 
+  case compileMain e of
+    Left err -> printFailure err
+    Right str -> putStrLn str
+
 writeMain expr =
-  let p = compileMain expr in
-  do putStrLn p
-     writeFile "p3_out.c" p
+  let mp = compileMain expr in
+  case mp of
+    Left err -> printFailure err
+    Right p -> do
+      putStrLn p
+      writeFile "p3_out.c" p
 
 -- Syntax
 infix  4 :=, :<
