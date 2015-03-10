@@ -12,7 +12,7 @@ main = defaultMain tests
 foo = do
   assert $ 1 == 2
 
-gccCase expr = testCase "(valid expr)" $ do
+gccCase (label, expr) = testCase label $ do
   merror <- testWithGcc expr
   case merror of
     Just err -> assertFailure (show err)

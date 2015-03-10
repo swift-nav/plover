@@ -1,8 +1,11 @@
 -- TODO
 --   high:
+--   - inverse/transpose
+--   - dense matrix
+--   - finish PVT
 --   - functions
---     - parameter lists
---     - externs
+--     [ ] parameter lists
+--     [x] externs
 --   - check all rule interactions
 --   - BinOp Expr case
 --   - delete old compiler
@@ -10,15 +13,17 @@
 --   medium:
 --   - binding: names for context, indices for vectors?
 --   - do initial typecheck to check for Void
---   - rewrite compileStep using visit?
+--   - rewrite compile using visit?
 --
 --   low:
 --   - throw error if value re-assigned?
 --   - loop hoisting
---   - low level optimization?
+--   - low level simplification?
 --     *       a + -(b)  -->  a - b
 --     * float x; x = y  -->  float x = y;
 --     * use Functor instance to simplify
+--   - before we do any advanced optimization, make it easy to view the rules
+--     that were applied to produce a result
 --
 --  - compile notes
 --    * require initially tree-like program with single-assignment
@@ -55,9 +60,9 @@ import Control.Monad.Trans.Either
 import Control.Monad.State
 import Data.String
 
-
 import Debug.Trace (trace)
 
+type Tag = String
 type Variable = String
 
 data Void
@@ -68,7 +73,7 @@ deriving instance Ord Void
 data Expr a
   = Abs Variable a a
   | Ref Variable
-  | App a a
+  | Index a a
   | Concat a a
   | Sigma a
 
@@ -80,16 +85,22 @@ data Expr a
 
   | IntLit Int
 
+  | Extern Variable FnType
+  -- TODO FunctionDecl
+  | App a [a]
+
   -- TODO generalize this? like (BinOp OpType a a), OpType = String?
   | Sum a a
   | Mul a a
   | Div a a
   | Negate a
 
+  | Unary Tag a
+  | Binary Tag a a
+
   -- Only needed for output
   | Deref a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
-
 
 data Line
   -- All instances of CExpr should be numeric arithmetic only
@@ -97,16 +108,16 @@ data Line
   | Block [Line]
   | Store CExpr CExpr
   | LineDecl Type Variable
+  | EmptyLine
   deriving (Show, Eq, Ord)
 
 type CExpr = Free Expr Void
 
 -- Type Utilities --
-data Type = ExprType [CExpr] | Void
+data FnType = FT [Type] Type
   deriving (Show, Eq, Ord)
-
-typeAppend :: Type -> Type -> Type
-typeAppend (ExprType l1) (ExprType l2) = ExprType (l1 ++ l2)
+data Type = ExprType [CExpr] | Void | FnType FnType
+  deriving (Show, Eq, Ord)
 
 typeSize :: Type -> CExpr
 typeSize (ExprType l) = product l
@@ -166,20 +177,24 @@ typeCheck (a :> b) = do
   typeCheck a
   typeCheck b
 typeCheck e@(a :# b) = do
-  ExprType (a0 : as) <- typeCheck a
-  ExprType (b0 : bs) <- typeCheck b
-  assert (as == bs) $ "expr concat mismatch: " ++ show e ++ " !! " ++ sep as bs
-  return $ ExprType ((a0 + b0) : as)
+  ta <- typeCheck a
+  tb <- typeCheck b
+  case (ta, tb) of
+    (ExprType (a0 : as), ExprType (b0 : bs)) -> do
+      assert (as == bs) $ "expr concat mismatch: " ++ show e ++ " !! " ++ sep as bs
+      return $ ExprType ((a0 + b0) : as)
+    _ -> error $ "typeCheck :#. " ++ sep ta tb ++ "\n" ++ sep a b
 typeCheck e@(a :+ b) = do
   typeA <- typeCheck a
   typeB <- typeCheck b
   case (typeA, typeB) of
-    _ | typeA == typeB -> return typeA
     -- TODO check lengths
+    -- These are for pointer offsets
     (ExprType (_ : _), ExprType []) -> return typeA
     (ExprType [], ExprType (_ : _)) -> return typeB
-  --assert (typeA == typeB) $ "sum mismatch: " ++ show e
-  --return typeA
+    _ -> do
+      assert (typeA == typeB) $ "vector sum mismatch: " ++ show e
+      return typeA
 typeCheck e@(a :/ b) = do
   typeA <- typeCheck a
   typeB <- typeCheck b
@@ -197,6 +212,12 @@ typeCheck e@(a :* b) = do
     (ExprType [a0], ExprType [b0]) -> do
       assert (a0 == b0) $ "vector product mismatch: " ++ show e
       return $ ExprType [a0]
+    (ExprType [a0, a1], ExprType [b0]) -> do
+      assert (a1 == b0) $ "matrix/vector product mismatch:\n" ++ sep a1 b0 ++ "\n" ++ sep a b
+      return $ ExprType [a0]
+    (ExprType [a1], ExprType [b0, b1]) -> do
+      assert (a1 == b0) $ "vector/matrix product mismatch: " ++ show e
+      return $ ExprType [b1]
     _ -> error ("product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
 typeCheck (Lam var bound body) = do
   -- withBinding discards any inner bindings
@@ -215,6 +236,15 @@ typeCheck (Free (Sigma body)) = do
   ExprType (_ : as) <- typeCheck body
   return $ ExprType as
 typeCheck (Neg x) = typeCheck x
+typeCheck (Free (Unary "transpose" m)) = do
+  ExprType [rs, cs] <- typeCheck m
+  return $ ExprType [cs, rs]
+typeCheck e@(Free (Extern var t)) = extend var (FnType t) >> return Void
+typeCheck e@(Free (App f args)) = do
+  FnType (FT params out) <- typeCheck f
+  argTypes <- mapM typeCheck args
+  assert (params == argTypes) $ "typeCheck. Application argument mismatch: " ++ show e
+  return out
 typeCheck x = error ("typeCheck: " ++ ppExpr Lax x)
 
 -- Compilation Utilities --
@@ -239,8 +269,8 @@ subst var val v = visit fix v
     fix (R v) | v == var = val
     fix v = v
 
-compileMMul :: CExpr -> [CExpr] -> CExpr -> [CExpr] -> M CExpr
-compileMMul x [r1, c1] y [r2, c2] = do
+compileMMMul :: CExpr -> (CExpr, CExpr) -> CExpr -> (CExpr, CExpr) -> M CExpr
+compileMMMul x (r1, c1) y (r2, c2) = do
   i <- freshName
   inner <- freshName
   j <- freshName
@@ -252,15 +282,17 @@ compileMMul x [r1, c1] y [r2, c2] = do
   where
     body vec v1 v2 = return ((vec :! v1) :! v2)
 
+compileMVMul :: CExpr -> (CExpr, CExpr) -> CExpr -> CExpr -> M CExpr
+compileMVMul x (r1, c1) y rows = do
+  i <- freshName
+  inner <- freshName
+  return $
+    Lam i rows $ Free $ Sigma $
+      Lam inner c1 (((x :! (R i)) :! (R inner)) * (y :! (R inner)))
+
 -- TODO remove
 infix 7 !!!
 (!!!) x y = return $ x :! y
-
--- TODO remove basicVal
-basicVal (R _) = True
-basicVal (Free (IntLit _)) = True
-basicVal (a :! v) = basicVal a
-basicVal _ = False
 
 compoundVal (R _) = False
 compoundVal (Free (IntLit _)) = False
@@ -279,25 +311,28 @@ flatOp op x y = do
 -- TODO is this confluent? how could we prove it?
 -- it is sensitive to order of rewrite rules:
 --   some rules shadow others
-compile :: CExpr -> M CExpr
+compile :: CExpr -> M [CExpr]
 -- Iterate compileStep to convergence
-compile expr = fixM step expr
+compile expr =
+  if debugFlag
+  then iterateM step expr
+  else do
+    expr' <- fixM step expr
+    return [expr']
   where
     sep = "\n------------\n"
-    -- TODO doesn't quite work
     debugFlag = False
-    --printStep = 
-    --  if debugFlag
-    --  then trace (sep ++ ppLine Lax "" (flatten expr) ++ sep)
-    --  else id
 
-    step expr = id $ do
-      mval <- (compileStep expr)
-      return mval
-      --case mval of
-      --  Left err -> trace ((err ++ "\n" ++ show expr)) $ return expr
-      --  Right expr' -> return expr'
-
+    step expr =
+     let
+        printStep =
+          if debugFlag
+          then
+            case flatten expr of
+              Right e' -> trace (sep ++ ppLine Lax "" e' ++ sep)
+              Left _ -> id
+          else id
+     in printStep $ compileStep expr
 
 -- Each case has a symbolic explanation
 compileStep :: CExpr -> M CExpr
@@ -314,6 +349,15 @@ compileStep e@((R var) := b) = do
 compileStep e@(Declare t var) = do
   extend var t
   return e
+compileStep e@(Free (Extern var t)) = do
+  extend var (FnType t)
+  return e
+
+compileStep e@(Free (Unary "transpose" m)) = do
+  ExprType [rows, cols] <- typeCheck m
+  i <- freshName
+  j <- freshName
+  return $ Lam i cols $ Lam j rows $ ((m :! (R j)) :! (R i))
 
 -- Juxtaposition
 -- a :< u # v  -->  (a :< u); (a + size u :< v)
@@ -331,7 +375,6 @@ compileStep (a :< (u :> v)) = do
     u :>
     a :< v
 
-
 -- Arithmetic: +, *, /  --
 -- TODO combine these
 compileStep e@(x :+ y) = do
@@ -340,7 +383,7 @@ compileStep e@(x :+ y) = do
   case (tx, ty) of
     -- pointwise add
     (ExprType (len1 : _), ExprType (len2 : _)) -> do
-      assert (len1 == len2) $ "length mismatch: " ++ show e
+      assert (len1 == len2) $ "sum length mismatch: " ++ show e
       i <- freshName
       return $ Lam i len1 (x :! (R i) + y :! (R i))
     -- numberic add
@@ -358,6 +401,7 @@ compileStep e@(x :+ y) = do
     --_ -> return e
     _ -> error $ "compileStep. +. " ++ show e
     --(ExprType [], ExprType []) -> return e
+
 compileStep e@(x :* y) = do
   tx <- typeCheck x
   ty <- typeCheck y
@@ -365,10 +409,15 @@ compileStep e@(x :* y) = do
     -- Matrix product
     -- m × n  -->  Vec i (Vec j (∑ (Vec k (m i k * n k j))))
     (ExprType [r1, c1], ExprType [r2, c2]) ->
-      compileMMul x [r1, c1] y [r2, c2]
+      compileMMMul x (r1, c1) y (r2, c2)
+    -- matrix/vector vector/matrix products
+    (ExprType [r1, c1], ExprType [r2]) ->
+      compileMVMul x (r1, c1) y r2
+    --(ExprType [c1], ExprType [r2, c2]) ->
+    --  compileMMMul x (r1, c1) y (r2, c2)
     -- pointwise multiply
     (ExprType (len1 : _), ExprType (len2 : _)) -> do
-      assert (len1 == len2) $ "length mismatch: " ++ show e
+      assert (len1 == len2) $ "product length mismatch: " ++ show e
       i <- freshName
       return $ Lam i len1 (x :! (R i) :* y :! (R i))
     (ExprType [], v@(ExprType (len : _))) -> scale x y len
@@ -424,6 +473,7 @@ compileStep (a :< (Lam var r body)) = do
   lhs <- withBinding var numType $ a !!! R var
   rhs <- withBinding var numType $ compileStep body
   return $ Lam var r (lhs :< rhs)
+  --return $ Lam var r (lhs :< body)
 
 -- Vector assignment, reduction on RHS
 compileStep (a :< b) = do
@@ -441,10 +491,19 @@ compileStep (a :< b) = do
 compileStep e@(Neg x) = do
   tx <- typeCheck x
   case tx of
-    ExprType [] -> return e
+    ExprType [] | compoundVal x -> do
+      a <- freshName
+      return $ (R a := x) :> (Neg (R a))
+    ExprType [] -> do
+      x' <- compileStep x
+      return $ Neg x'
     ExprType (len : _) -> do
       i <- freshName
       return $ Lam i len (- (x :! (R i)))
+
+-- Reduces function args and lifts compound ones
+compileStep e@(Free (App f args)) = do
+  compileFunctionArgs f args
 
 -- Reduction of an application
 compileStep ((Lam var b body) :! ind) =
@@ -481,6 +540,17 @@ compileStep (a :> b) = do
 -- x  -->  x
 compileStep x = return x
 
+compileFunctionArgs f args = do
+  (cont, fn, rargs) <- foldM step (id, f, []) args
+  return $ cont (Free $ App fn (reverse rargs))
+  where
+    --step :: (CExpr -> CExpr, CExpr, [CExpr]) -> CExpr -> M (...)
+    step (cont, fn, args) arg =
+      if compoundVal arg
+      then do
+        n <- freshName
+        return (\e -> (R n := arg) :> e, fn, (R n) : args)
+      else return (cont, fn, arg : args)
 
 -- Printing output --
 flatten :: CExpr -> Either Error Line
@@ -495,6 +565,7 @@ flatten (a :> b) = do
   b' <- flatten b
   return $ mergeBlocks a' b'
 flatten (n := val) = return $ Store n val
+flatten (Free (Extern _ _)) = return EmptyLine
 flatten x = Left $ "flatten: " ++ show x
 
 mergeBlocks :: Line -> Line -> Line
@@ -509,9 +580,12 @@ ppMain :: Line -> String
 ppMain line = wrapMain (ppLine Strict "  " line)
   where
     wrapMain body =
+      "#include \"extern_defs.c\"\n\n" ++
       "int main() {\n" ++ body ++ "}\n"
 
 data StrictGen = Strict | Lax
+ppLine :: StrictGen -> String -> Line -> String
+ppLine _ _ EmptyLine = ""
 ppLine strict off (Block ls) = concat $ map (ppLine strict off) ls
 ppLine strict off (Each var expr body) = 
   let vs = ppVar var in
@@ -541,8 +615,10 @@ ppType strict t = printArrayType t
     printVecType (ExprType []) = ("float", "")
     printVecType (ExprType es) = ("float", "[" ++ intercalate " * " (map (ppExpr strict) es) ++ "]")
     printArrayType (ExprType es) = ("float", concatMap printOne es)
+    printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
 wrapp s = "(" ++ s ++ ")"
+ppExpr :: StrictGen -> CExpr -> String
 ppExpr strict e =
   let pe = ppExpr strict in
   case e of
@@ -554,6 +630,7 @@ ppExpr strict e =
     (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
     (DR x) -> "(*(" ++ pe x ++ "))"
     (Free (Negate x)) -> "-(" ++ pe x ++ ")"
+    (Free (App a args)) -> pe a ++ wrapp (intercalate ", " (map pe args))
     (a :< b) -> error "ppExpr.  :<"
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e
@@ -566,13 +643,17 @@ seqList es = foldr1 (:>) es
 
 runM m = runState (runEitherT m) initialState
 runS m = runState m initialState
+
+fixExpr = fst . runM . compile
+
 compileMain :: CExpr -> Either Error String
 compileMain expr = do
-  expr' <- fst . runM . compile $ expr
+  expr' : _ <- fst . runM . compile $ expr
   program <- flatten expr'
   return (ppMain program)
 
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
+
 main e = 
   case compileMain e of
     Left err -> printFailure err
@@ -588,8 +669,10 @@ writeMain expr =
 
 -- Syntax
 infix  4 :=, :<
+infix  5 :$
 infixl 1 :>
-infix  6 :+, :*, :#
+infixl  6 :+, :*
+infixr 6 :#
 infix 7 :!
 pattern a :< b = Free (Assign a b)
 pattern a := b = Free (Init a b)
@@ -603,14 +686,23 @@ pattern DR a = Free (Deref a)
 pattern Sig x = Free (Sigma x)
 pattern Neg x = Free (Negate x)
 pattern Declare t x = Free (Decl t x)
-pattern a :! b = Free (App a b)
+pattern a :! b = Free (Index a b)
 pattern a :> b = Free (Seq a b)
+pattern a :$ b = Free (App a [b])
+
 
 -- Stuff --
 fixM :: (Eq a, Monad m) => (a -> m a) -> a -> m a
 fixM f x = do
   x' <- f x
   if x == x' then return x else fixM f x'
+
+iterateM :: (Eq a, Monad m) => (a -> m a) -> a -> m [a]
+iterateM f x = scan [] x
+  where
+    scan xs x = do
+      x' <- f x
+      if x == x' then return (x : xs) else scan (x : xs) x'
 
 sep :: (Show a, Show b) => a -> b -> String
 sep s1 s2 = show s1 ++ ", " ++ show s2

@@ -52,8 +52,8 @@ library
 
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.7 && <4.8, mtl >=2.1 && <2.2,
-                       containers, free, either, transformers,
-                       name, condition, mtl,
+                       containers, free, either, transformers, mtl,
+                       --name, condition,
                        smallcheck, tasty,
                        process
 
@@ -72,7 +72,8 @@ test-suite test-rewrites
   main-is:             Main.hs
   hs-source-dirs:      test, src
   build-depends:       base >=4.7 && <4.8, mtl >=2.1 && <2.2,
-                       containers, free, either, transformers,
-                       name, condition, mtl, process,
+                       containers, free, either, transformers, mtl,
+                       name, condition,
+                       process,
                        smallcheck, QuickCheck, HUnit,
                        tasty, tasty-hunit, tasty-quickcheck, tasty-smallcheck
