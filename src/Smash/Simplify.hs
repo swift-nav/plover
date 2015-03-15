@@ -74,8 +74,10 @@ addTerm (Term coefficient map) p =
 
 (.>) = flip (.)
 
-simplify :: (Ord expr, Num expr, Num num) => (expr -> Expr expr num) -> (num -> expr -> expr) -> expr -> expr
-simplify makeExpr scale = makeExpr .> reduce term1 .> foldr addTerm poly0 .> rebuild scale
+simplify :: (Ord expr, Num expr, Num num)
+         => (num -> expr -> expr) -> Expr expr num -> expr
+         -- => (expr -> Expr expr num) -> (num -> expr -> expr) -> expr -> expr
+simplify scale = reduce term1 .> foldr addTerm poly0 .> rebuild scale
 
 -- Test expressions
 data TE = TE :+ TE | TE :* TE | Lit Int | Var String
@@ -88,7 +90,7 @@ instance Num TE where
   signum = undefined
   negate = undefined
 
-chkte = simplify teconvert scale 
+chkte = (simplify scale . teconvert)
  where
   scale n e | e == fromIntegral 1 = Lit n
   scale 1 e = e

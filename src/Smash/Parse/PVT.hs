@@ -6,6 +6,7 @@ import Smash.Parse.Types3
 import System.Process
 import Control.Applicative ((<$>))
 import Control.Monad.Free
+import Control.Arrow (second)
 
 norm :: CExpr -> CExpr
 norm x = "sqrt" :$ (Sig (x * x))
@@ -15,7 +16,7 @@ normalize x = x / norm x
 
 -- TODO
 transpose m = Free (Unary "transpose" m)
-inverse = id
+inverse m = Free (Unary "inverse" m)
 
 s x = Lam "i" 1 x
 
@@ -26,33 +27,62 @@ rot_small x =
   s (s (- x) :# s 1 :# s 0) :#
   s (s 0     :# s 0 :# s 1)
 
-decls :: CExpr
-decls = seqList $ [
-  Free (Extern "sqrt" (FT [numType] numType)),
-  "nav_meas" := Lam "j" 4 (Lam "x" 3 0),
-  "pseudo" := Lam "j" 4 0,
-  "sat_pos" := Lam "j" 4 (Lam "x" 3 0),
-  "gps_omega_e_dot" := 1,
-  "rx_state" := (Lam "x" 3 0)
+exts = seqList [
+  Free (Extern "sqrt" (FT [] [numType] numType)),
+  Free (Extern "inverse" (FT [TV "n"]
+                             [ExprType [TV "n", TV "n"], ExprType [TV "n", TV "n"]]
+                             (ExprType [TV "n", TV "n"]))),
+  Free (Extern "randf" (FT [] [] numType)),
+  Free (Extern "printFloat" (FT [] [numType] Void))
  ]
 
+decls :: CExpr
+decls = seqList [
+  exts,
+  Declare numType "gps_omega_e_dot"
+  -- "gps_omega_e_dot" := 1
+
+  --"sat_pos" := Lam "j" 4 (Lam "x" 3 0),
+  --"pseudo" := Lam "j" 4 0,
+  --"rx_state" := (Lam "x" 3 0)
+ ]
 
 loop :: CExpr -> CExpr
 loop j = seqList $ [
   "tau" := norm ("rx_state" - "sat_pos" :! j),
   "we_tau" := "gps_omega_e_dot" * "tau",
-  "xk_new" := rot_small "we_tau" * ("nav_meas" :! j),
+  "rot" := rot_small "we_tau",
+  "xk_new" := "rot" * ("sat_pos" :! j),
+  --"xk_new" := rot_small "we_tau" * ("sat_pos" :! j),
   "xk_new" - "rx_state"
  ]
+
+pvtSig = FD
+ { fd_params =
+    [("sat_pos", ExprType [4, 3])
+    ,("pseudo", ExprType [4])
+    ,("rx_state", ExprType [3])
+    ,("correction", ExprType [4])]
+ , fd_output = Void
+ }
+
+testPVT = do
+  test <- generateTestArguments "pvt" pvtSig
+  n <- freshName
+  let printer = Lam n 4 ("printFloat" :$ ("correction" :! R n))
+  return $ pvt :> wrapMain (test :> printer)
 
 pvt :: CExpr
 pvt = seqList $ [
   decls,
-  "los" := Lam "j" 4 (loop "j"),
-  "G" := Lam "j" 4 (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
-  "omp" := "pseudo" - Lam "j" 4 (norm ("los" :! "j"))
-  --"X" := inverse (transpose "G" * "G") * transpose "G",
-  --"correction" := "X" * "omp"
+  Free (FunctionDecl "pvt" pvtSig $ seqList [
+    -- TODO this doesn't have to be 4
+    "los" := Lam "j" 4 (loop "j"),
+    "G" := Lam "j" 4 (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
+    "omp" := "pseudo" - Lam "j" 4 (norm ("los" :! "j")),
+    "X" := inverse ((transpose "G" * "G") * transpose "G"),
+    "correction" :< "X" * "omp"
+  ])
  ]
 
 -- Tests Expressions --
@@ -110,8 +140,7 @@ p2 = seqList [
   "y" := transpose "x" * "x"
  ]
 p3 = seqList [
-  Free (Extern "inverse" (FT [numType] numType)),
-  "y" := "inverse" :$ 2
+  "y" := 1 / 2
  ]
 p4 = seqList [
   "x" := l2,
@@ -119,12 +148,44 @@ p4 = seqList [
   "z" := "x" * "y"
  ]
 p5 = seqList [
-  Free (Extern "sqrt" (FT [numType] numType)),
+  Free (Extern "sqrt" (FT [] [numType] numType)),
   "y" := "sqrt" :$ 2
  ]
 p6 = seqList [
   "x" := l1,
   "x2" := normalize "x"
+ ]
+p7 = seqList [
+  "x" := 1 + 1 + 1,
+  "y" := 3,
+  "z" := "x" * "y"
+ ]
+p8 = "x" := rot_small 22
+
+p9 = seqList [
+  exts,
+  "z" := (s (s 1)),
+  "x_inv" := s (s 1),
+  Free $ App "inverse" ["z", "x_inv"]
+ ]
+
+p10 = seqList [
+  exts,
+  "z" := (s (s 1)),
+  "x" := inverse "z"
+ ]
+
+p11 = seqList [
+  exts,
+  "r" := rot_small 2,
+  "x" := inverse "r"
+ ]
+
+p12 = seqList [
+  exts,
+  Free (FunctionDecl "foo" (FD [("x", numType), ("y", numType)] numType) $ seqList [
+    "z" := "x" * "y",
+    Ret "z"])
  ]
 
 st0 = subst "x" (R "y") (R "x")
@@ -134,12 +195,8 @@ b1 = 2 * 3
 b2 = "x" := "y"
 
 -- Test cases
-externs = seqList [
-  Free (Extern "sqrt" (FT [numType] numType)),
-  Free (Extern "inverse" (FT [numType] numType))
- ]
 good_cases :: [(String, CExpr)]
-good_cases = [
+good_cases = map (second wrapMain) [
   ("e", e),
   ("e0", e0),
   ("e1", e1),
@@ -161,10 +218,18 @@ good_cases = [
   ("p4", p4),
   ("p5", p5),
   ("p6", p6),
-  ("pvt", pvt)]
+  ("p9", p9),
+  ("p10", p10),
+  ("p11", p11)] ++
+
+  [
+   --("p12", p12),
+   ("pvt", pvt)]
 
 bad_cases :: [CExpr]
 bad_cases = [b1, b2]
+
+wrapMain = Free . FunctionDecl "main" (FD [] IntType)
 
 testAll = do
   putStrLn "should pass:"
@@ -175,7 +240,11 @@ testAll = do
   mapM_ print l2
 
 data TestingError = CompileError String | GCCError String
-  deriving (Show, Eq)
+  deriving (Eq)
+
+instance Show TestingError where
+  show (GCCError str) = "gcc error:\n" ++ str
+  show (CompileError str) = "rewrite compiler error:\n" ++ str
 
 execGcc :: FilePath -> IO (Maybe String)
 execGcc fp =  do
@@ -184,13 +253,11 @@ execGcc fp =  do
     "" -> return Nothing
     _ -> return $ Just out
 
-main' e = main (externs :> e)
-
 -- See test/Main.hs for primary tests
 testWithGcc :: CExpr -> IO (Maybe TestingError)
 testWithGcc expr =
-  let expr' = externs :> expr in
-  case compileMain expr' of
+  let expr' = exts :> expr in
+  case compileMain False (return expr') of
     Left err -> return $ Just (CompileError err)
     Right p -> do
       let fp = "compiler_output.c"
@@ -199,3 +266,22 @@ testWithGcc expr =
       case code of
         Nothing -> return $ Nothing
         Just output -> return $ Just (GCCError output)
+
+
+generateTestArguments :: Variable -> FnDecl CExpr -> M CExpr
+generateTestArguments fnName (FD params output) = do
+  es <- mapM pValue params
+  let decls = seqList es
+      call = Free (App (R fnName) (map (R . fst) params))
+  return (decls :> call)
+  
+  where
+    pValue (var, ExprType ds) = do
+      rhs <- vec ds
+      return $ R var := rhs
+    vec [] = return $ Free $ App "randf" []
+    vec (d : ds) = do
+      n <- freshName
+      body <- vec ds
+      return $ Lam n d body
+

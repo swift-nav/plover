@@ -73,7 +73,7 @@ test-suite test-rewrites
   hs-source-dirs:      test, src
   build-depends:       base >=4.7 && <4.8, mtl >=2.1 && <2.2,
                        containers, free, either, transformers, mtl,
-                       name, condition,
+                       --name, condition,
                        process,
                        smallcheck, QuickCheck, HUnit,
                        tasty, tasty-hunit, tasty-quickcheck, tasty-smallcheck
