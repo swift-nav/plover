@@ -1,0 +1,47 @@
+-- TODO
+--   high:
+--   - finish PVT
+--   - rename stuff
+--   - check all rule interactions
+--
+--   - better main template
+--     - comment block
+--     - includes
+--     - function decl list
+--
+--
+--   medium:
+--   - binding: names for context, indices for vectors?
+--   - do initial typecheck to check for Void
+--   - rewrite compile using visit?
+--     - first figure out why visit is slow
+--   - BinOp Expr case
+--
+--   - evaluator
+--   - test gcc outputs
+--   - documentation
+--   - control inversion problem
+--
+--   low:
+--   - throw error if value re-assigned?
+--   - loop hoisting
+--   - low level simplification?
+--     *       a + -(b)  -->  a - b
+--     * float x; x = y  -->  float x = y;
+--     * use Functor instance to simplify
+--   - before we do any advanced optimization, make it easy to view the rules
+--     that were applied to produce a result
+--
+--  - compile notes
+--    * require initially tree-like program with single-assignment
+--    * do initial typecheck 
+--    * iterate compiler transform
+--      * inserts decls
+--      * vectorizes assignments
+--      * flattens arithmetic when needed
+--
+--  - what is a type?
+--    * currently, a dimension list or Void
+--    - will need to add annotations of some kind (for matrix types)
+--      * could use property model
+--      * may need to add more complex type environment
