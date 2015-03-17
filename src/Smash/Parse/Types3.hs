@@ -6,13 +6,20 @@
 --     [x] parameter lists
 --     [x] externs
 --   - check all rule interactions
---   - BinOp Expr case
 --   - delete old compiler
+--
+--   - better main template
+--     - comment block
+--     - includes
+--     - function decl list
+--
 --
 --   medium:
 --   - binding: names for context, indices for vectors?
 --   - do initial typecheck to check for Void
 --   - rewrite compile using visit?
+--     - first figure out why visit is slow
+--   - BinOp Expr case
 --
 --   - evaluator
 --   - test gcc outputs
@@ -131,7 +138,7 @@ data Expr a
   | IntLit Int
 
   | FunctionDecl Variable (FnDecl a) a
-  | Extern Variable (FnType a)
+  | Extern Variable (Type' a)
   | App a [a]
   | AppImpl a [a] [a]
 
@@ -383,7 +390,7 @@ typeCheck e@(Free (FunctionDecl var (FD params output) body)) = do
   extend var (FnType (FT [] (map snd params) output))
   return Void
 typeCheck e@(Free (Extern var t)) = do
-  extend var (FnType t)
+  extend var t
   return Void
 typeCheck e@(Free (App f args)) = do
   FnType (FT implicits params out) <- typeCheck f
@@ -453,9 +460,6 @@ compileMVMul x (r1, c1) y rows = do
     Lam i rows $ Free $ Sigma $
       Lam inner c1 (((x :! (R i)) :! (R inner)) * (y :! (R inner)))
 
--- TODO remove
-infix 7 !!!
-(!!!) x y = return $ x :! y
 
 compoundVal (R _) = False
 compoundVal (Free (IntLit _)) = False
@@ -514,7 +518,7 @@ compileStep _ e@(Declare t var) = do
   extend var t
   return e
 compileStep Top e@(Free (Extern var t)) = do
-  extend var (FnType t)
+  extend var t
   return e
 
 compileStep Top e@(Free (FunctionDecl var t@(FD params _) body)) = do
@@ -654,7 +658,7 @@ compileStep _ (a :< (Sig vec)) = do
 -- Vector assignment
 -- a :< Vec i b_i  -->  Vec (a + i :< b_i)
 compileStep ctxt (a :< (Lam var r body)) = do
-  lhs <- withBinding var numType $ a !!! R var
+  let lhs = a :! (R var)
   rhs <- withBinding var numType $ compileStep RHS body
   return $ Lam var r (lhs :< rhs)
   --return $ Lam var r (lhs :< body)
@@ -665,7 +669,6 @@ compileStep ctxt (a :< b) = do
   case bt of
     ExprType (len : _) -> do
       i <- freshName
-      --lhs <- withBinding i numType $ a !!! (R i)
       let lhs = (a :! (R i))
       return $ Lam i len (lhs :< b :! (R i))
     _ -> do
@@ -875,8 +878,6 @@ seqList es = foldr1 (:>) es
 runM m = runState (runEitherT m) initialState
 runS m = runState m initialState
 
-fixExpr = fst . runM . compile
-
 compileMain :: Bool -> M CExpr -> Either Error String
 compileMain reduce expr = do
   expr' : _ <- fst . runM $ compile =<< expr
@@ -900,7 +901,7 @@ writeMain expr =
     Left err -> printFailure err
     Right p -> do
       putStrLn p
-      writeFile "compiler_output.c" p
+      writeFile "testing/compiler_output.c" p
 
 -- Syntax
 infix  4 :=, :<
@@ -927,6 +928,7 @@ pattern a :! b = Free (Index a b)
 pattern a :> b = Free (Seq a b)
 pattern a :$ b = Free (App a [b])
 pattern TV v = Free (TVar v)
+pattern Ext v t = Free (Extern v t)
 
 -- Stuff --
 fixM :: (Eq a, Monad m) => (a -> m a) -> a -> m a

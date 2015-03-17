@@ -20,7 +20,7 @@ inverse m = Free (Unary "inverse" m)
 
 s x = Lam "i" 1 x
 
--- TODO need dense matrix notation
+-- TODO better dense matrix notation
 rot_small :: CExpr -> CExpr
 rot_small x =
   s (s 1     :# s x :# s 0) :#
@@ -28,29 +28,27 @@ rot_small x =
   s (s 0     :# s 0 :# s 1)
 
 exts = seqList [
-  Free (Extern "sqrt" (FT [] [numType] numType)),
-  Free (Extern "inverse" (FT [TV "n"]
+  Ext "sqrt" (FnType $ FT [] [numType] numType),
+  Ext "inverse" (FnType $ FT [TV "n"]
                              [ExprType [TV "n", TV "n"], ExprType [TV "n", TV "n"]]
-                             (ExprType [TV "n", TV "n"]))),
-  Free (Extern "randf" (FT [] [] numType)),
-  Free (Extern "printFloat" (FT [] [numType] Void))
+                             (ExprType [TV "n", TV "n"])),
+  Ext "randf" (FnType $ FT [] [] numType),
+  Ext "printFloat" (FnType $ FT [] [numType] Void),
+  Ext "pvt2" (FnType $ FT [] (map snd . fd_params $ pvtSig) Void)
  ]
 
 decls :: CExpr
 decls = seqList [
   exts,
-  Declare numType "gps_omega_e_dot"
-  -- "gps_omega_e_dot" := 1
-
-  --"sat_pos" := Lam "j" 4 (Lam "x" 3 0),
-  --"pseudo" := Lam "j" 4 0,
-  --"rx_state" := (Lam "x" 3 0)
+  Ext "GPS_OMEGAE_DOT" numType ,
+  Ext "GPS_C" numType 
  ]
 
 loop :: CExpr -> CExpr
 loop j = seqList $ [
-  "tau" := norm ("rx_state" - "sat_pos" :! j),
-  "we_tau" := "gps_omega_e_dot" * "tau",
+  "tau" := norm ("rx_state" - "sat_pos" :! j) / "GPS_C",
+  "we_tau" := "GPS_OMEGAE_DOT" * "tau",
+  -- TODO rewrite bug forces this onto its own line
   "rot" := rot_small "we_tau",
   "xk_new" := "rot" * ("sat_pos" :! j),
   --"xk_new" := rot_small "we_tau" * ("sat_pos" :! j),
@@ -66,12 +64,6 @@ pvtSig = FD
  , fd_output = Void
  }
 
-testPVT = do
-  test <- generateTestArguments "pvt" pvtSig
-  n <- freshName
-  let printer = Lam n 4 ("printFloat" :$ ("correction" :! R n))
-  return $ pvt :> wrapMain (test :> printer)
-
 pvt :: CExpr
 pvt = seqList $ [
   decls,
@@ -85,7 +77,20 @@ pvt = seqList $ [
   ])
  ]
 
--- Tests Expressions --
+
+testFunction var sig output tp = do
+  test <- generateTestArguments var sig
+  printer <- generatePrinter output tp
+  return $ wrapMain (test :> printer)
+
+testPVT = do
+  test1 <- generateTestArguments "pvt" pvtSig
+  let test2 = Free (App (R "pvt2") (map (R . fst) (fd_params pvtSig)))
+  n <- freshName
+  let printer = Lam n 4 ("printFloat" :$ ("correction" :! R n))
+  return $ pvt :> wrapMain (test1 :> printer :> test2 :> printer)
+
+-- Compilation Test Expressions --
 l1 = Lam "i" 2 1
 l2 = Lam "i" 2 (Lam "j" 2 ("i" + "j"))
 e, e0, e1, e2 :: CExpr
@@ -148,7 +153,7 @@ p4 = seqList [
   "z" := "x" * "y"
  ]
 p5 = seqList [
-  Free (Extern "sqrt" (FT [] [numType] numType)),
+  Free (Extern "sqrt" (FnType $ FT [] [numType] numType)),
   "y" := "sqrt" :$ 2
  ]
 p6 = seqList [
@@ -180,7 +185,6 @@ p11 = seqList [
   "r" := rot_small 2,
   "x" := inverse "r"
  ]
-
 p12 = seqList [
   exts,
   Free (FunctionDecl "foo" (FD [("x", numType), ("y", numType)] numType) $ seqList [
@@ -188,15 +192,20 @@ p12 = seqList [
     Ret "z"])
  ]
 
-st0 = subst "x" (R "y") (R "x")
-st1 = subst "x" (R "y") (R "x" + R "z")
-
+-- Test cases that fail
 b1 = 2 * 3
 b2 = "x" := "y"
 
+-- Functional test cases
+f1 = seqList [
+  "x" := l2,
+  "y" := inverse "x"
+ ]
+
+
 -- Test cases
-good_cases :: [(String, CExpr)]
-good_cases = map (second wrapMain) [
+good_cases :: [(String, M CExpr)]
+good_cases = map (second (return . wrapMain)) [
   ("e", e),
   ("e0", e0),
   ("e1", e1),
@@ -222,22 +231,12 @@ good_cases = map (second wrapMain) [
   ("p10", p10),
   ("p11", p11)] ++
 
-  [
-   --("p12", p12),
-   ("pvt", pvt)]
+  [("pvt", testPVT)]
 
 bad_cases :: [CExpr]
 bad_cases = [b1, b2]
 
 wrapMain = Free . FunctionDecl "main" (FD [] IntType)
-
-testAll = do
-  putStrLn "should pass:"
-  l1 <- mapM (testWithGcc . snd) good_cases
-  print l1
-  putStrLn "should fail:"
-  l2 <- mapM testWithGcc bad_cases
-  mapM_ print l2
 
 data TestingError = CompileError String | GCCError String
   deriving (Eq)
@@ -254,19 +253,20 @@ execGcc fp =  do
     _ -> return $ Just out
 
 -- See test/Main.hs for primary tests
-testWithGcc :: CExpr -> IO (Maybe TestingError)
+testWithGcc :: M CExpr -> IO (Maybe TestingError)
 testWithGcc expr =
-  let expr' = exts :> expr in
-  case compileMain False (return expr') of
+  let expr' = do e <- expr
+                 return (exts :> e)
+  in
+  case compileMain False expr' of
     Left err -> return $ Just (CompileError err)
     Right p -> do
-      let fp = "compiler_output.c"
+      let fp = "testing/compiler_output.c"
       writeFile fp p
       code <- execGcc fp
       case code of
         Nothing -> return $ Nothing
         Just output -> return $ Just (GCCError output)
-
 
 generateTestArguments :: Variable -> FnDecl CExpr -> M CExpr
 generateTestArguments fnName (FD params output) = do
@@ -285,3 +285,9 @@ generateTestArguments fnName (FD params output) = do
       body <- vec ds
       return $ Lam n d body
 
+generatePrinter :: Variable -> Type -> M CExpr
+generatePrinter var (ExprType ds) = do
+  names <- mapM (\_ -> freshName) ds
+  let body = foldl (:!) (R var) (map R names)
+  let e = foldr (uncurry Lam) body (zip names ds)
+  return e
