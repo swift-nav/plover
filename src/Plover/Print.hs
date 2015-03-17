@@ -104,6 +104,7 @@ ppTypeDecl strict t = printArrayType t
     printVecType (ExprType []) = (ppNumber, "")
     printVecType (ExprType es) = (ppNumber, "[" ++ intercalate " * " (map (ppExpr strict) es) ++ "]")
     printArrayType (ExprType es) = (ppNumber, concatMap printOne es)
+    printArrayType StringType = ("char *", "")
     printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
 wrapp s = "(" ++ s ++ ")"
@@ -115,10 +116,11 @@ ppExpr strict e =
     (a :* b) -> wrapp $ pe a ++ " * " ++ pe b
     (a :/ b) -> wrapp $ pe a ++ " / " ++ pe b
     (R v) -> ppVar v
-    (Free (IntLit i)) -> show i
+    (Lit i) -> show i
+    (Str s) -> show s
     (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
     (DR x) -> "(*(" ++ pe x ++ "))"
-    (Free (Negate x)) -> "-(" ++ pe x ++ ")"
+    (Neg x) -> "-(" ++ pe x ++ ")"
     (Free (App a args)) -> pe a ++ wrapp (intercalate ", " (map pe args))
     (Free (AppImpl a impls args)) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
     (a :< b) -> error "ppExpr.  :<"

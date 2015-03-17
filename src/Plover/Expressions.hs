@@ -8,14 +8,6 @@ import Control.Arrow (second)
 
 import Plover.Types
 import Plover.Macros
---import Plover.Compile
-
--- TODO better dense matrix notation
-rot_small :: CExpr -> CExpr
-rot_small x =
-  s (s 1     :# s x :# s 0) :#
-  s (s (- x) :# s 1 :# s 0) :#
-  s (s 0     :# s 0 :# s 1)
 
 -- Simple Test Expressions --
 l1 = Lam "i" 2 1
@@ -134,7 +126,7 @@ f1 = seqList [
 decls :: CExpr
 decls = seqList [
   externs,
-  Ext "GPS_OMEGAE_DOT" numType ,
+  Ext "GPS_OMEGAE_DOT" numType,
   Ext "GPS_C" numType 
  ]
 
@@ -150,13 +142,13 @@ loop j = seqList $ [
  ]
 
 pvtSig = FD
- { fd_params =
-    [("sat_pos", ExprType [4, 3])
-    ,("pseudo", ExprType [4])
-    ,("rx_state", ExprType [3])
-    ,("correction", ExprType [4])]
- , fd_output = Void
- }
+  { fd_params =
+      [("sat_pos", ExprType [4, 3])
+      ,("pseudo", ExprType [4])
+      ,("rx_state", ExprType [3])
+      ,("correction", ExprType [4])]
+  , fd_output = Void
+  }
 
 pvt :: CExpr
 pvt = seqList $ [
@@ -167,7 +159,7 @@ pvt = seqList $ [
     "los" := Lam "j" 4 (loop "j"),
     "G" := Lam "j" 4 (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
     "omp" := "pseudo" - Lam "j" 4 (norm ("los" :! "j")),
-    "X" := inverse ((transpose "G" * "G") * transpose "G"),
+    "X" := inverse (transpose "G" * "G") * transpose "G",
     "correction" :< "X" * "omp"
   ])
  ]
@@ -176,9 +168,17 @@ testPVT = do
   test1 <- generateTestArguments "pvt" pvtSig
   let test2 = Free (App (R "pvt2") (map (R . fst) (fd_params pvtSig)))
   n <- freshName
-  let printer = Lam n 4 ("printFloat" :$ ("correction" :! R n))
-  return $ pvt :> wrapMain (test1 :> printer :> test2 :> printer)
-
+  let printer = Lam n 4 ("printNumber" :$ ("correction" :! R n))
+  return $ pvt :> (wrapMain $ seqList $
+    [ 
+      test1
+    , newline "t1:"
+    , printer
+    , test2
+    , newline "t2:"
+    , printer
+    , newline ""
+    ])
 
 -- Test cases
 good_cases :: [(String, M CExpr)]

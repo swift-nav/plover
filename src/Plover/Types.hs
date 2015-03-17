@@ -39,6 +39,7 @@ data Expr a
   | Return a
 
   | IntLit Int
+  | StrLit String
 
   | FunctionDecl Variable (FnDecl a) a
   | Extern Variable (Type' a)
@@ -95,12 +96,16 @@ data Type' a =
   | FnType (FnType a)
   | Dimension a
   | IntType
+  | StringType
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type Type = Type' CExpr
 
 numType :: Type
 numType = ExprType []
+
+stringType :: Type
+stringType = StringType
 
 -- Typechecking/Compilation Monad --
 type TypeEnv = (Int, [(Variable, Type)])
@@ -149,6 +154,7 @@ pattern a :> b = Free (Seq a b)
 pattern a :$ b = Free (App a [b])
 pattern TV v = Free (TVar v)
 pattern Ext v t = Free (Extern v t)
+pattern Str s = Free (StrLit s)
 
 instance IsString (Free Expr a) where
   fromString = Free . Ref

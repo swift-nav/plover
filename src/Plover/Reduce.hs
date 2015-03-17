@@ -22,7 +22,7 @@ import qualified Smash.Simplify as S
 import Plover.Types
 import Plover.Generics
 import Plover.Print
-import Plover.Macros (seqList)
+import Plover.Macros (seqList, generatePrinter, newline)
 
 reduceArith = mvisit toExpr step
   where
@@ -51,6 +51,9 @@ reduceArith = mvisit toExpr step
 
 typeSize :: Type -> CExpr
 typeSize (ExprType l) = product l
+
+topTypeSize :: Type -> CExpr
+topTypeSize (ExprType (l :_)) = l
 
 -- Type Checking
 varType :: Variable -> M Type
@@ -110,6 +113,8 @@ unifyT :: Bindings -> Type -> Type -> M Bindings
 unifyT bs (ExprType d1) (ExprType d2) =
   unifyMany bs (map Dimension d1) (map Dimension d2)
 unifyT bs Void Void = return bs
+unifyT bs StringType StringType = return bs
+unifyT bs IntType IntType = return bs
 unifyT bs (FnType (FT _ params1 out1)) (FnType (FT _ params2 out2)) = do
   bs' <- unifyT bs out1 out2
   unifyMany bs' params1 params2
@@ -233,6 +238,7 @@ typeCheck e@(Free (App f args)) = do
   return $ out'
 -- TODO be smarter
 typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
+typeCheck (Str _) = return stringType
 typeCheck x = error ("typeCheck: " ++ ppExpr Lax x)
 
 
@@ -330,8 +336,22 @@ compileStep :: Context -> CExpr -> M CExpr
 compileStep _ e@((R var) := b) = do
   t <- typeCheck b
   _ <- typeCheck e
-  return $
-    (Declare t var) :> ((R var) :< b)
+  -- TODO remove
+  let debugFlag = False
+  let notGenVar ('v' : 'a' : 'r' : _) = False
+      notGenVar _ = True
+  post <- case t of
+            ExprType _ | debugFlag && notGenVar var ->
+              do 
+                let pname = "printf" :$ Str (var ++ "\n")
+                p <- generatePrinter var t
+                return [pname, p, newline ""]
+            _ -> return []
+
+  return $ seqList $
+    [ Declare t var
+    , (R var) :< b
+    ] ++ post
 
 -- Keep type environment "current" while compiling
 compileStep _ e@(Declare t var) = do
@@ -364,7 +384,7 @@ compileStep _ e@(Free (Unary "inverse" m)) = do
 -- a :< u # v  -->  (a :< u); (a + size u :< v)
 -- TODO check this interaction with [ ]
 compileStep _ (a :< u :# v) = do
-  offset <- typeSize <$> typeCheck u
+  offset <- topTypeSize <$> typeCheck u
   -- TODO (a + offset) will always be wrapped by an index operation?
   return $ (a :< u) :> ((a + offset) :< v)
   --return $ (a :< u) :> ((DR $ a + offset) :< v)

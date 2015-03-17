@@ -46,8 +46,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Plover.Compile
-
+  exposed-modules:     Plover.Main
 
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.7 && <4.8, mtl >=2.1 && <2.2,

@@ -17,9 +17,18 @@ normalize x = x / norm x
 transpose m = Free (Unary "transpose" m)
 inverse m = Free (Unary "inverse" m)
 
-wrapMain = Free . FunctionDecl "main" (FD [] IntType)
+-- TODO better dense matrix notation
+rot_small :: CExpr -> CExpr
+rot_small x =
+  s (s 1     :# s x :# s 0) :#
+  s (s (- x) :# s 1 :# s 0) :#
+  s (s 0     :# s 0 :# s 1)
 
 s x = Lam "i" 1 x
+
+newline s = "printf" :$ (Str $ "\n" ++ s ++ "\n")
+
+wrapMain = Free . FunctionDecl "main" (FD [] IntType)
 
 generateTestArguments :: Variable -> FnDecl CExpr -> M CExpr
 generateTestArguments fnName (FD params output) = do
@@ -41,7 +50,7 @@ generateTestArguments fnName (FD params output) = do
 generatePrinter :: Variable -> Type -> M CExpr
 generatePrinter var (ExprType ds) = do
   names <- mapM (\_ -> freshName) ds
-  let body = foldl (:!) (R var) (map R names)
+  let body = ("printNumber" :$ foldl (:!) (R var) (map R names))
   let e = foldr (uncurry Lam) body (zip names ds)
   return e
 
@@ -58,5 +67,6 @@ externs = seqList [
                              [ExprType [TV "n", TV "n"], ExprType [TV "n", TV "n"]]
                              (ExprType [TV "n", TV "n"])),
   Ext "randf" (FnType $ FT [] [] numType),
-  Ext "printFloat" (FnType $ FT [] [numType] Void)
+  Ext "printNumber" (FnType $ FT [] [numType] Void),
+  Ext "printf" (FnType $ FT [] [stringType] Void)
  ]
