@@ -2,7 +2,7 @@
 -- see http://haskell.org/cabal/users-guide/
 
 -- The name of the package.
-name:                Smash
+name:                Plover
 
 -- The package version.  See the Haskell package versioning policy (PVP) 
 -- for standards guiding when and how versions should be incremented.
@@ -46,14 +46,12 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Smash.Parse.PVT
-                       -- Smash.Smash, Smash.Parse, Smash.Compile, Smash.Simplify
-                       
+  exposed-modules:     Plover.Compile
+
 
   -- Other library packages from which modules are imported.
   build-depends:       base >=4.7 && <4.8, mtl >=2.1 && <2.2,
                        containers, free, either, transformers, mtl,
-                       --name, condition,
                        smallcheck, tasty,
                        process
 
@@ -73,7 +71,6 @@ test-suite test-rewrites
   hs-source-dirs:      test, src
   build-depends:       base >=4.7 && <4.8, mtl >=2.1 && <2.2,
                        containers, free, either, transformers, mtl,
-                       --name, condition,
                        process,
                        smallcheck, QuickCheck, HUnit,
                        tasty, tasty-hunit, tasty-quickcheck, tasty-smallcheck

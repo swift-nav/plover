@@ -1,67 +1,8 @@
--- TODO
---   high:
---   - finish PVT
---   - rename stuff
---   - functions
---     [x] parameter lists
---     [x] externs
---   - check all rule interactions
---   - delete old compiler
---
---   - better main template
---     - comment block
---     - includes
---     - function decl list
---
---
---   medium:
---   - binding: names for context, indices for vectors?
---   - do initial typecheck to check for Void
---   - rewrite compile using visit?
---     - first figure out why visit is slow
---   - BinOp Expr case
---
---   - evaluator
---   - test gcc outputs
---   - documentation
---   - control inversion problem
---
---   low:
---   - throw error if value re-assigned?
---   - loop hoisting
---   - low level simplification?
---     *       a + -(b)  -->  a - b
---     * float x; x = y  -->  float x = y;
---     * use Functor instance to simplify
---   - before we do any advanced optimization, make it easy to view the rules
---     that were applied to produce a result
---
---  - compile notes
---    * require initially tree-like program with single-assignment
---    * do initial typecheck 
---    * iterate compiler transform
---      * inserts decls
---      * vectorizes assignments
---      * flattens arithmetic when needed
---
---  - what is a type?
---    * currently, a dimension list or Void
---    - will need to add annotations of some kind (for matrix types)
---      * could use property model
---      * may need to add more complex type environment
-
-{-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
-{-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs, DataKinds, TypeOperators #-}
-{-# LANGUAGE TypeFamilies #-}
-
-module Smash.Parse.Types3 where
-
-import qualified Smash.Simplify as S
+module Plover.Reduce
+    ( compile, reduceArith
+    ) where
 
 import Data.List (intercalate)
 import Data.Monoid hiding (Sum)
@@ -77,13 +18,11 @@ import Data.Function (on)
 
 import Debug.Trace (trace)
 
-type Tag = String
-type Variable = String
-
-data Void
-deriving instance Show Void
-deriving instance Eq Void
-deriving instance Ord Void
+import qualified Smash.Simplify as S
+import Plover.Types
+import Plover.Generics
+import Plover.Print
+import Plover.Macros (seqList)
 
 reduceArith = mvisit toExpr step
   where
@@ -110,107 +49,10 @@ reduceArith = mvisit toExpr step
     --toExpr e@(a :! b) = return $ S.Atom e
     toExpr x = Nothing
 
-reduceAssignments x = visit findAssignments x
-  where
---step :: CExpr -> CExpr
-    --step e | Just e' <- toExpr e = S.simplify scale e'
-    --step e = e
-
-    findAssignments (a :< b) =
-      (reduceArith a) :< (reduceArith b)
-    findAssignments (Declare (ExprType ts) x) = Declare (ExprType (map reduceArith ts)) x
-    findAssignments x = x
-
-data Expr a
-  = Abs Variable a a
-  | Ref Variable
-  | Index a a
-  | Concat a a
-  | Sigma a
-
-  -- TODO is including Type ok?
-  | Decl (Type' a) Variable
-  | Init a a
-  | Assign a a
-  | Seq a a
-  | Return a
-
-  | IntLit Int
-
-  | FunctionDecl Variable (FnDecl a) a
-  | Extern Variable (Type' a)
-  | App a [a]
-  | AppImpl a [a] [a]
-
-  -- TODO generalize this? like (BinOp OpType a a), OpType = String?
-  | Sum a a
-  | Mul a a
-  | Div a a
-  | Negate a
-
-  | Unary Tag a
-  | Binary Tag a a
-
-  | Deref a
-
-  -- Used to define parametric functions
-  | TVar Variable
-
-
- deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
-
-data Line
-  -- All instances of CExpr should be numeric arithmetic only
-  = Each Variable CExpr Line
-  | Block [Line]
-  | Store CExpr CExpr
-  | LineDecl Type Variable
-  | LineExpr CExpr
-  | EmptyLine
-  | Function Variable (FnDecl CExpr) Line
-  | LineReturn CExpr
-  deriving (Show, Eq, Ord)
-
-type CExpr = Free Expr Void
-
--- Type Utilities --
-data FnType a = FT 
-  { implicits :: [a]
-  , explicits :: [Type' a]
-  , outputType :: (Type' a)
-  }
-  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
-data FnDecl a = FD
-  { fd_params :: [(Variable, Type' a)]
-  , fd_output :: Type' a
-  }
-  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
--- a should be CExpr
-data Type' a =
-  ExprType [a]
-  | Void
-  | FnType (FnType a)
-  | Dimension a
-  | IntType
-  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
-
-type Type = Type' CExpr
-
 typeSize :: Type -> CExpr
 typeSize (ExprType l) = product l
 
-numType :: Type
-numType = ExprType []
--- --
-
--- Typechecking/Compilation Monad --
-type MState = (Int, [(Variable, Type)])
-initialState :: MState
-initialState = (0, [])
-type Error = String
-type SM = State MState
-type M = EitherT Error SM
-
+-- Type Checking
 varType :: Variable -> M Type
 varType var = do
   (_, env) <- get
@@ -220,17 +62,8 @@ varType var = do
     --Nothing -> return numType
     Just t -> return t
 
-extend :: Variable -> Type -> M ()
-extend var t = modify $ \(c, env) -> (c, (var, t) : env)
-
 assert :: Bool -> Error -> M ()
 assert cond msg = if cond then return () else left msg
-
-freshName :: M Variable
-freshName = do
-  (c, env) <- get
-  put (c+1, env)
-  return ("var" ++ show c)
 
 withBinding :: Variable -> Type -> M a -> M a
 withBinding var t m = do
@@ -402,31 +235,8 @@ typeCheck e@(Free (App f args)) = do
 typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
 typeCheck x = error ("typeCheck: " ++ ppExpr Lax x)
 
--- Compilation Utilities --
--- Generic fold
-iterMon :: (Monoid m, Functor f) => (f m -> m) -> Free f m -> m
-iterMon _ (Pure m) = m
-iterMon fn (Free f) = fn $ fmap (iterMon fn) f
 
--- Generic map
-unwrap :: Functor f => Free f a -> Free f (Free f a)
-unwrap (Free f) = Free $ fmap unwrap f
-unwrap (Pure a) = Pure (Pure a)
-
--- TODO why is this so slow?
-visit :: (Functor f) => (Free f a -> Free f a) -> Free f a -> Free f a
----- iterM passes in an unwrapped expr (:: Expr CExpr),
----- so we fmap subst and then rewrap it with Free
-visit f = f . iter (Free . fmap (visit f)) . unwrap
-
-mvisit f g x =
-  case f x of
-    Nothing -> iterM (Free . fmap (mvisit f g)) x
-    Just x' -> g x'
-
-fromFix :: (Functor f) => Free f Void -> Free f a
-fromFix = fmap undefined
-
+-- Compilation Utils --
 -- TODO capture
 subst :: Variable -> CExpr -> CExpr -> CExpr
 subst var val v = visit fix v
@@ -460,6 +270,18 @@ compileMVMul x (r1, c1) y rows = do
     Lam i rows $ Free $ Sigma $
       Lam inner c1 (((x :! (R i)) :! (R inner)) * (y :! (R inner)))
 
+compileFunctionArgs f args = do
+  (cont, fn, rargs) <- foldM step (id, f, []) args
+  implicits <- getImplicits f args
+  return $ cont (Free $ AppImpl fn implicits (reverse rargs))
+  where
+    --step :: (CExpr -> CExpr, CExpr, [CExpr]) -> CExpr -> M (...)
+    step (cont, fn, args) arg =
+      if compoundVal arg
+      then do
+        n <- freshName
+        return (\e -> (R n := arg) :> e, fn, (R n) : args)
+      else return (cont, fn, arg : args)
 
 compoundVal (R _) = False
 compoundVal (Free (IntLit _)) = False
@@ -469,11 +291,7 @@ compoundVal (a :* b) = compoundVal a || compoundVal b
 compoundVal (a :/ b) = compoundVal a || compoundVal b
 compoundVal _ = True
 
-
--- Compile --
--- TODO is this confluent? how could we prove it?
--- it is sensitive to order of rewrite rules:
---   some rules shadow others
+-- Term Reduction --
 compile :: CExpr -> M [CExpr]
 -- Iterate compileStep to convergence
 compile expr =
@@ -499,9 +317,11 @@ compile expr =
           else id
      in printStep $ compileStep Top expr
 
+-- TODO remove dependence on context?
 data Context = Top | LHS | RHS
   deriving (Show)
 
+-- TODO is this confluent? how could we prove it?
 -- Each case has a symbolic explanation
 compileStep :: Context -> CExpr -> M CExpr
 
@@ -736,224 +556,3 @@ compileStep ctxt (a :> b) = do
 -- x  -->  x
 compileStep _ x = return x
 
--- TODO getImplicits (App fn args)
---  -> AppImpl fn implicits
---  -> wrap with cont . App _ (reverse rargs)
-compileFunctionArgs f args = do
-  (cont, fn, rargs) <- foldM step (id, f, []) args
-  implicits <- getImplicits f args
-  return $ cont (Free $ AppImpl fn implicits (reverse rargs))
-  where
-    --step :: (CExpr -> CExpr, CExpr, [CExpr]) -> CExpr -> M (...)
-    step (cont, fn, args) arg =
-      if compoundVal arg
-      then do
-        n <- freshName
-        return (\e -> (R n := arg) :> e, fn, (R n) : args)
-      else return (cont, fn, arg : args)
-
--- Printing output --
-flatten :: CExpr -> Either Error Line
-flatten (Declare t var) = return $ LineDecl t var
-flatten (Lam var bound body) = do
-  body' <- flatten body
-  return $ Each var bound (body')
-flatten (R a :< val) = return $ Store (R a) val
-flatten (n :< val) = return $ Store (n) val
-flatten (a :> b) = do
-  a' <- flatten a
-  b' <- flatten b
-  return $ mergeBlocks a' b'
-flatten (n := val) = return $ Store n val
-flatten (Free (Extern _ _)) = return EmptyLine
-flatten e@(Free (App _ _)) = return $ LineExpr e
-flatten e@(Free (AppImpl _ _ _)) = return $ LineExpr e
-flatten e@(Free (FunctionDecl name fd body)) = do
-  body' <- flatten body
-  return $ Function name fd body'
-flatten (Ret x) = return (LineReturn x)
-flatten x = Left $ "flatten: " ++ show x
-
-mergeBlocks :: Line -> Line -> Line
-mergeBlocks (Block ls1) (Block ls2) = Block (ls1 ++ ls2)
-mergeBlocks (Block ls) x = Block (ls ++ [x])
-mergeBlocks x (Block ls) = Block (x : ls)
-mergeBlocks x y = Block [x, y]
-
-indent off = "  " ++ off
-
--- Expects input to have a main function; adds includes
-ppMain :: Line -> String
-ppMain line = wrapMain (ppLine Strict "" line)
-  where
-    wrapMain body =
-      "#include \"extern_defs.c\"\n\n"
-      ++ body
-      -- ++ "int main() {\n" ++ body ++ "}\n"
-
--- Lax: printing will procede even if a term is not fully reduced, using its "Show" method
--- Strict: requires that the term is fully reduced by compile
-data StrictGen = Strict | Lax
-ppLine :: StrictGen -> String -> Line -> String
-ppLine _ _ EmptyLine = ""
-ppLine strict off (Block ls) = concat $ map (ppLine strict off) ls
-ppLine strict off (Each var expr body) = 
-  let vs = ppVar var in
-  off ++ "for (int " ++ vs ++ " = 0; " ++
-  vs ++ " < " ++ ppExpr strict expr ++ "; " ++
-  vs ++ "++) {\n"
-    ++ ppLine strict (indent off) body
-  ++ off ++ "}\n"
-ppLine strict off (Store x e) =
-  off ++ ppExpr strict (x) ++ " = " ++
-  ppExpr strict e ++ lineEnd
-ppLine strict off (LineExpr e) =
-  off ++ ppExpr strict e ++ lineEnd
-ppLine strict off (LineDecl t var) = 
-  let (pre, post) = ppTypeDecl strict t in
-  off ++ pre ++ " " ++ ppVar var ++ post ++ lineEnd
-ppLine strict off (Function name (FD params out) body) =
-  off ++ ppType out ++ " " ++ name ++
-    wrapp (intercalate ", " (map (ppParam strict) params)) ++ "\n" ++
-  off ++ "{\n" ++
-    ppLine strict (indent off) body ++
-  off ++ "}\n"
-ppLine strict off (LineReturn x) =
-  off ++ "return " ++ ppExpr strict x ++ lineEnd
-
-ppLine Strict _ x = error ("ppLine. incomplete reduction: " ++ show x)
-ppLine Lax off x = off ++ show x ++ "\n"
-
-lineEnd = ";\n"
-
-ppParam strict (var, t) =
-  let (pre, post) = ppTypeDecl strict t in
-  pre ++ " " ++ ppVar var ++ post 
-
-ppVar = id
-ppNumber = "double"
--- TODO generalize
-ppType :: Type -> String
-ppType (ExprType []) = ppNumber
-ppType (ExprType _) = ppNumber ++ " *"
-ppType (Dimension _) = "int"
-ppType IntType = "int"
-ppType Void = "void"
-
-ppTypeDecl :: StrictGen -> Type -> (String, String)
-ppTypeDecl _ (Void) = ("void", "")
--- TODO general base type
-ppTypeDecl strict t = printArrayType t
-  where
-    printVecType (ExprType []) = (ppNumber, "")
-    printVecType (ExprType es) = (ppNumber, "[" ++ intercalate " * " (map (ppExpr strict) es) ++ "]")
-    printArrayType (ExprType es) = (ppNumber, concatMap printOne es)
-    printArrayType e = error $ "printArrayType: " ++ show e
-    printOne e = "[" ++ ppExpr strict e ++ "]"
-wrapp s = "(" ++ s ++ ")"
-ppExpr :: StrictGen -> CExpr -> String
-ppExpr strict e =
-  let pe = ppExpr strict in
-  case e of
-    (a :+ b) -> wrapp $ pe a ++ " + " ++ pe b
-    (a :* b) -> wrapp $ pe a ++ " * " ++ pe b
-    (a :/ b) -> wrapp $ pe a ++ " / " ++ pe b
-    (R v) -> ppVar v
-    (Free (IntLit i)) -> show i
-    (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
-    (DR x) -> "(*(" ++ pe x ++ "))"
-    (Free (Negate x)) -> "-(" ++ pe x ++ ")"
-    (Free (App a args)) -> pe a ++ wrapp (intercalate ", " (map pe args))
-    (Free (AppImpl a impls args)) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
-    (a :< b) -> error "ppExpr.  :<"
-    e -> case strict of
-           Strict -> error $ "ppExpr. " ++ show e
-           Lax -> show e
--- --
-
--- Testing --
-seqList :: [CExpr] -> CExpr
-seqList es = foldr1 (:>) es
-
-runM m = runState (runEitherT m) initialState
-runS m = runState m initialState
-
-compileMain :: Bool -> M CExpr -> Either Error String
-compileMain reduce expr = do
-  expr' : _ <- fst . runM $ compile =<< expr
-  let expr'' = (if reduce then reduceArith else id) expr'
-  program <- flatten $ expr''
-  return (ppMain program)
-
-printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
-
--- TODO handle numeric simplification better
-main' m = 
-  case compileMain False m of
-    Left err -> printFailure err
-    Right str -> putStrLn str
-
-main = main' . return
-
-writeMain expr =
-  let mp = compileMain False expr in
-  case mp of
-    Left err -> printFailure err
-    Right p -> do
-      putStrLn p
-      writeFile "testing/compiler_output.c" p
-
--- Syntax
-infix  4 :=, :<
-infix  5 :$
-infixl 1 :>
-infixl  6 :+, :*
-infixr 6 :#
-infix 7 :!
-pattern a :< b = Free (Assign a b)
-pattern a := b = Free (Init a b)
-pattern a :# b = Free (Concat a b)
-pattern a :+ b = Free (Sum a b)
-pattern a :* b = Free (Mul a b)
-pattern a :/ b = Free (Div a b)
-pattern Lit a = Free (IntLit a)
-pattern Lam a b c = Free (Abs a b c)
-pattern R a = Free (Ref a)
-pattern DR a = Free (Deref a)
-pattern Sig x = Free (Sigma x)
-pattern Neg x = Free (Negate x)
-pattern Declare t x = Free (Decl t x)
-pattern Ret x = Free (Return x)
-pattern a :! b = Free (Index a b)
-pattern a :> b = Free (Seq a b)
-pattern a :$ b = Free (App a [b])
-pattern TV v = Free (TVar v)
-pattern Ext v t = Free (Extern v t)
-
--- Stuff --
-fixM :: (Eq a, Monad m) => (a -> m a) -> a -> m a
-fixM f x = do
-  x' <- f x
-  if x == x' then return x else fixM f x'
-
-iterateM :: (Eq a, Monad m) => (a -> m a) -> a -> m [a]
-iterateM f x = scan [] x
-  where
-    scan xs x = do
-      x' <- f x
-      if x == x' then return (x : xs) else scan (x : xs) x'
-
-sep :: (Show a, Show b) => a -> b -> String
-sep s1 s2 = show s1 ++ ", " ++ show s2
-
-instance IsString (Free Expr a) where
-  fromString = Free . Ref
-instance Num (Free Expr a) where
-  x * y = Free (Mul x y)
-  x + y = Free (Sum x y)
-  fromInteger x = Free (IntLit $ fromInteger x)
-  abs = undefined
-  signum = undefined
-  negate = Free . Negate
-instance Fractional (Free Expr a) where
-  x / y = Free (Div x y)
