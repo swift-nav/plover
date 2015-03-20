@@ -1,10 +1,12 @@
 TODO
   high:
-  - finish PVT
-  - rename stuff
-  - check all rule interactions
+  - loop lifting
+  - add output check for pvt/pvt2
+  - block matrix syntax
 
   - performance testing?
+  - rename stuff
+  - check rule interactions
 
   - better main template
     - comment block
@@ -29,6 +31,7 @@ TODO
   - low level simplification?
     *       a + -(b)  -->  a - b
     * float x; x = y  -->  float x = y;
+    * var0 = var1; c  -->  subst (var1/var0) c
     * use Functor instance to simplify
   - before we do any advanced optimization, make it easy to view the rules
     that were applied to produce a result
@@ -42,7 +45,8 @@ TODO
      * flattens arithmetic when needed
 
  - what is a type?
-   * currently, a dimension list or Void
+   * currently, a dimension list or Void or primitive type
    - will need to add annotations of some kind (for matrix types)
      * could use property model
      * may need to add more complex type environment
+

@@ -13,12 +13,17 @@ import Plover.Macros (externs)
 runM :: M a -> (Either Error a, TypeEnv)
 runM m = runState (runEitherT m) initialState
 
-compileMain :: Bool -> M CExpr -> Either Error String
-compileMain reduce expr = do
-  expr' : _ <- fst . runM $ compile =<< expr
+wrapExterns :: M CExpr -> M CExpr
+wrapExterns e = do
+  e' <- e
+  return (externs :> e')
+
+compileProgram :: Bool -> M CExpr -> Either Error String
+compileProgram reduce expr = do
+  expr' : _ <- fst . runM $ compile =<< wrapExterns expr
   let expr'' = (if reduce then reduceArith else id) expr'
   program <- flatten $ expr''
-  return (ppMain program)
+  return $ ppProgram $ Block [Include "extern_defs.c", program]
 
 printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
@@ -26,21 +31,21 @@ printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
 -- TODO handle numeric simplification better
 main' :: M CExpr -> IO ()
 main' m = 
-  case compileMain False m of
+  case compileProgram False m of
     Left err -> printFailure err
     Right str -> putStrLn str
 
 main :: CExpr -> IO ()
 main = main' . return
 
-writeMain :: M CExpr -> IO ()
-writeMain expr =
-  let mp = compileMain False expr in
+writeProgram :: FilePath -> M CExpr -> IO ()
+writeProgram fn expr =
+  let mp = compileProgram False expr in
   case mp of
     Left err -> printFailure err
     Right p -> do
       putStrLn p
-      writeFile "testing/compiler_output.c" p
+      writeFile fn p
 
 data TestingError = CompileError String | GCCError String
   deriving (Eq)
@@ -51,7 +56,7 @@ instance Show TestingError where
 
 execGcc :: FilePath -> IO (Maybe String)
 execGcc fp =  do
-  out <- readProcess "gcc" [fp] ""
+  out <- readProcess "gcc" [fp, "-w"] ""
   case out of
     "" -> return Nothing
     _ -> return $ Just out
@@ -59,10 +64,7 @@ execGcc fp =  do
 -- See test/Main.hs for primary tests
 testWithGcc :: M CExpr -> IO (Maybe TestingError)
 testWithGcc expr =
-  let expr' = do e <- expr
-                 return (externs :> e)
-  in
-  case compileMain False expr' of
+  case compileProgram False expr of
     Left err -> return $ Just (CompileError err)
     Right p -> do
       let fp = "testing/compiler_output.c"

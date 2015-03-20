@@ -39,19 +39,15 @@ mergeBlocks x y = Block [x, y]
 indent off = "  " ++ off
 
 -- Expects input to have a main function; adds includes
-ppMain :: Line -> String
-ppMain line = wrapMain (ppLine Strict "" line)
-  where
-    wrapMain body =
-      "#include \"extern_defs.c\"\n\n"
-      ++ body
-      -- ++ "int main() {\n" ++ body ++ "}\n"
+ppProgram :: Line -> String
+ppProgram line = ppLine Strict "" line
 
 -- Lax: printing will procede even if a term is not fully reduced, using its "Show" method
 -- Strict: requires that the term is fully reduced by compile
 data StrictGen = Strict | Lax
 ppLine :: StrictGen -> String -> Line -> String
 ppLine _ _ EmptyLine = ""
+ppLine _ off (Include str) = off ++ "#include \"" ++ str ++ "\"\n"
 ppLine strict off (Block ls) = concat $ map (ppLine strict off) ls
 ppLine strict off (Each var expr body) = 
   let vs = ppVar var in

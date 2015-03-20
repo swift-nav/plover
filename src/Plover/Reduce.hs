@@ -1,8 +1,10 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
-    ( compile, reduceArith
-    ) where
+   -- TODO
+   -- ( compile, reduceArith
+   -- )
+    where
 
 import Data.List (intercalate)
 import Data.Monoid hiding (Sum)
@@ -260,13 +262,21 @@ compileMMMul x (r1, c1) y (r2, c2) = do
   i <- freshName
   inner <- freshName
   j <- freshName
-  xb <- body x (R i) (R inner)
-  yb <- body y (R inner) (R j)
+  x' <- flattenTerm x
+  y' <- flattenTerm y
+  xb <- body x' (R i) (R inner)
+  yb <- body y' (R inner) (R j)
   return $
     Lam i r1 $ Lam j c2 $ Free $ Sigma $ 
       Lam inner c1 (xb * yb)
   where
     body vec v1 v2 = return ((vec :! v1) :! v2)
+
+flattenTerm :: CExpr -> M CExpr
+flattenTerm e | not (compoundVal e) = return e
+flattenTerm e = do
+  n <- freshName
+  return $ (R n := e :> R n)
 
 compileMVMul :: CExpr -> (CExpr, CExpr) -> CExpr -> CExpr -> M CExpr
 compileMVMul x (r1, c1) y rows = do
@@ -291,10 +301,13 @@ compileFunctionArgs f args = do
 
 compoundVal (R _) = False
 compoundVal (Free (IntLit _)) = False
+compoundVal (Free (StrLit _)) = False
 compoundVal (a :! b) = compoundVal a || compoundVal b
 compoundVal (a :+ b) = compoundVal a || compoundVal b
 compoundVal (a :* b) = compoundVal a || compoundVal b
 compoundVal (a :/ b) = compoundVal a || compoundVal b
+-- TODO ok?
+compoundVal (a :> b) = compoundVal b
 compoundVal _ = True
 
 -- Term Reduction --
@@ -380,22 +393,6 @@ compileStep _ e@(Free (Unary "inverse" m)) = do
     Free $ App "inverse" [m, R inv],
     R inv]
 
--- Juxtaposition
--- a :< u # v  -->  (a :< u); (a + size u :< v)
--- TODO check this interaction with [ ]
-compileStep _ (a :< u :# v) = do
-  offset <- topTypeSize <$> typeCheck u
-  -- TODO (a + offset) will always be wrapped by an index operation?
-  return $ (a :< u) :> ((a + offset) :< v)
-  --return $ (a :< u) :> ((DR $ a + offset) :< v)
-
--- Sequence assignment
--- a :< (u; v)  --> u; (a :< v)
-compileStep _ (a :< (u :> v)) = do
-  return $
-    u :>
-    a :< v
-
 -- Arithmetic: +, *, /  --
 -- TODO combine these
 compileStep ctxt e@(x :+ y) = do
@@ -422,6 +419,9 @@ compileStep ctxt e@(x :+ y) = do
     _ -> return e
     --_ -> error $ "compileStep. +.\n" ++ sep tx ty ++ "\n" ++ show e
     --(ExprType [], ExprType []) -> return e
+
+compileStep _ ((a :> b) :* c) = return $ a :> (b :* c)
+compileStep _ (c :* (a :> b)) = return $ a :> (c :* b)
 
 compileStep ctxt e@(x :* y) = do
   tx <- typeCheck x
@@ -485,6 +485,22 @@ compileStep ctxt e@(x :/ y) = do
       return $ x' / y'
     p -> error ("compileStep: " ++ show p ++ "\n" ++ show x ++ "\n" ++ show y)
 
+-- Juxtaposition
+-- a :< u # v  -->  (a :< u); (a + size u :< v)
+-- TODO check this interaction with [ ]
+compileStep _ (a :< u :# v) = do
+  offset <- topTypeSize <$> typeCheck u
+  -- TODO (a + offset) will always be wrapped by an index operation?
+  return $ (a :< u) :> ((a + offset) :< v)
+  --return $ (a :< u) :> ((DR $ a + offset) :< v)
+
+-- Sequence assignment
+-- a :< (u; v)  --> u; (a :< v)
+compileStep _ (a :< (u :> v)) = do
+  return $
+    u :>
+    a :< v
+
 -- Summation
 -- a :< ∑ (Vec i y_i)  -->  (a :< 0); (Vec i (a :< a + y_i))
 compileStep _ (a :< (Sig vec)) = do
@@ -502,6 +518,14 @@ compileStep ctxt (a :< (Lam var r body)) = do
   rhs <- withBinding var numType $ compileStep RHS body
   return $ Lam var r (lhs :< rhs)
   --return $ Lam var r (lhs :< body)
+
+compileStep _ (a :< (b :* c)) | compoundVal b = do
+  n <- freshName
+  return $ (R n := b) :> (a :< R n :* c)
+
+compileStep _ (a :< (b :* c)) | compoundVal c = do
+  n <- freshName
+  return $ (R n := c) :> (a :< b :* R n)
 
 -- Vector assignment, reduction on RHS
 compileStep ctxt (a :< b) = do

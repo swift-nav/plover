@@ -10,9 +10,11 @@ import Plover.Types
 import Plover.Macros
 
 -- Simple Test Expressions --
+l1, l2 :: CExpr
 l1 = Lam "i" 2 1
 l2 = Lam "i" 2 (Lam "j" 2 ("i" + "j"))
-e, e0, e1, e2 :: CExpr
+
+e, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12 :: CExpr
 e = "x" := Lam "i" 1 2
 e0 = "x" := Lam "i" 2 (Lam "j" 2 ("i" + "j"))
 e1 = "a" := Lam "i" 1 (("x" := 2) :> "x")
@@ -52,7 +54,7 @@ e12 = seqList [
   "y" := (- "x")
  ]
 
-p1 :: CExpr
+p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12 :: CExpr
 p1 = seqList [
   ("x" := Lam "i" 1 (Lam "j" 2 (("temp" := "i" + "j") :> "temp"))),
   ("y" := Lam "i" 2 (Lam "j" 3 ("i" + "j"))),
@@ -85,7 +87,6 @@ p7 = seqList [
   "z" := "x" * "y"
  ]
 p8 = "x" := rot_small 22
-
 p9 = seqList [
   externs,
   "z" := (s (s 1)),
@@ -112,6 +113,7 @@ p12 = seqList [
  ]
 
 -- Test cases that fail
+b1, b2 :: CExpr
 b1 = 2 * 3
 b2 = "x" := "y"
 

@@ -73,6 +73,7 @@ data Line
   | EmptyLine
   | Function Variable (FnDecl CExpr) Line
   | LineReturn CExpr
+  | Include String
   deriving (Show, Eq, Ord)
 
 type CExpr = Free Expr Void
@@ -148,6 +149,7 @@ pattern DR a = Free (Deref a)
 pattern Sig x = Free (Sigma x)
 pattern Neg x = Free (Negate x)
 pattern Declare t x = Free (Decl t x)
+pattern FnDeclare a b c = Free (FunctionDecl a b c)
 pattern Ret x = Free (Return x)
 pattern a :! b = Free (Index a b)
 pattern a :> b = Free (Seq a b)
