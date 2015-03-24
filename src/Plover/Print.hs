@@ -36,6 +36,7 @@ mergeBlocks (Block ls) x = Block (ls ++ [x])
 mergeBlocks x (Block ls) = Block (x : ls)
 mergeBlocks x y = Block [x, y]
 
+indent :: String -> String
 indent off = "  " ++ off
 
 -- Expects input to have a main function; adds includes
@@ -123,6 +124,4 @@ ppExpr strict e =
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e
            Lax -> show e
-
--- --
 

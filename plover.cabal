@@ -46,9 +46,9 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Plover.Macros, Plover.Types, Plover.Reduce, Plover.Compile
+  exposed-modules:     Plover, Plover.Main, Plover.Macros, Plover.Types, Plover.Reduce, Plover.Compile
 
-  other-modules:       Plover.Print, Plover.Generics, Plover.Expressions, Plover.Main,
+  other-modules:       Plover.Print, Plover.Generics, Plover.Expressions,
                        Smash.Simplify
 
   -- Other library packages from which modules are imported.

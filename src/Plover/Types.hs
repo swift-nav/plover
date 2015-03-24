@@ -4,8 +4,6 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs, DataKinds, TypeOperators #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Plover.Types where
 
@@ -24,6 +22,9 @@ deriving instance Ord Void
 type Tag = String
 type Variable = String
 
+-- Main program type
+-- Input programs are specified in this type, and the
+-- reduction compiler operates on this type.
 data Expr a
   = Abs Variable a a
   | Ref Variable
@@ -31,7 +32,6 @@ data Expr a
   | Concat a a
   | Sigma a
 
-  -- TODO is including Type ok?
   | Decl (Type' a) Variable
   | Init a a
   | Assign a a
@@ -46,7 +46,7 @@ data Expr a
   | App a [a]
   | AppImpl a [a] [a]
 
-  -- TODO generalize this? like (BinOp OpType a a), OpType = String?
+  -- TODO generalize these?
   | Sum a a
   | Mul a a
   | Div a a
@@ -60,9 +60,13 @@ data Expr a
   -- Used to define parametric functions
   | TVar Variable
 
-
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
+type CExpr = Free Expr Void
+
+-- Basic subset of C
+-- Output of reduction compiler is transformed into Line
+-- by Plover.Print.flatten
 data Line
   -- All instances of CExpr should be numeric arithmetic only
   = Each Variable CExpr Line
@@ -76,13 +80,11 @@ data Line
   | Include String
   deriving (Show, Eq, Ord)
 
-type CExpr = Free Expr Void
-
--- Type Utilities --
+-- Datatypes to represent Expr types
 data FnType a = FT 
   { implicits :: [a]
   , explicits :: [Type' a]
-  , outputType :: (Type' a)
+  , outputType :: Type' a
   }
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 data FnDecl a = FD
@@ -90,9 +92,9 @@ data FnDecl a = FD
   , fd_output :: Type' a
   }
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
--- a should be CExpr
-data Type' a =
-  ExprType [a]
+
+data Type' a
+  = ExprType [a]
   | Void
   | FnType (FnType a)
   | Dimension a

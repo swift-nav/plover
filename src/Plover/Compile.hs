@@ -1,4 +1,8 @@
-module Plover.Compile where
+module Plover.Compile 
+  ( writeProgram
+  , testWithGcc
+  , printExpr
+  ) where
 
 import Control.Monad.Trans.Either
 import Control.Monad.State
@@ -37,6 +41,15 @@ main' m =
 
 main :: CExpr -> IO ()
 main = main' . return
+
+printOutput mp =
+  case mp of
+    Left err -> printFailure err
+    Right p -> do
+      putStrLn p
+
+printExpr :: CExpr -> IO ()
+printExpr expr = printOutput (compileProgram False (return expr))
 
 writeProgram :: FilePath -> M CExpr -> IO ()
 writeProgram fn expr =

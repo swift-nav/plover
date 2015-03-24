@@ -1,4 +1,7 @@
-module Plover.Main where
+module Plover.Main 
+  ( module Plover.Expressions
+  , module Plover.Main
+  ) where
 
 import Plover.Types
 import Plover.Expressions
@@ -8,4 +11,4 @@ import Plover.Compile (writeProgram)
 import Plover.Expressions (testPVT)
 
 main :: IO ()
-main = writeProgram "testing/compiler_output.c" testPVT
+main = writeProgram "pvt_gen.c" testPVT

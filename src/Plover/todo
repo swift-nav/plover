@@ -1,7 +1,7 @@
 TODO
   high:
   - loop lifting
-  - add output check for pvt/pvt2
+  - add output testing for pvt/pvt2
   - block matrix syntax
 
   - performance testing?

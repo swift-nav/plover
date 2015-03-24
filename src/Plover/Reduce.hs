@@ -1,10 +1,11 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
+  
    -- TODO
-   -- ( compile, reduceArith
-   -- )
-    where
+  --( compile, reduceArith
+  --)
+  where
 
 import Data.List (intercalate)
 import Data.Monoid hiding (Sum)
@@ -90,8 +91,8 @@ typeEq (ExprType as) (ExprType bs) = and $ zipWith numericEquiv as bs
 
 -- Unify, for type variables
 type Bindings = [(Variable, CExpr)]
-unifyTypes :: Type -> Type -> M Bindings
-unifyTypes t1 t2 = unifyT [] t1 t2
+--unifyTypes :: Type -> Type -> M Bindings
+--unifyTypes t1 t2 = unifyT [] t1 t2
 
 walk :: Bindings -> CExpr -> CExpr
 walk bs (TV v) =
@@ -106,6 +107,8 @@ walk bs e = e
 
 unifyExpr :: Bindings -> CExpr -> CExpr -> M Bindings
 unifyExpr bs = unifyExpr' bs `on` walk bs
+
+unifyExpr' :: Bindings -> CExpr -> CExpr -> M Bindings
 unifyExpr' bs (TV v) x = return $ (v, x) : bs
 unifyExpr' bs x y = do
   assert (x `numericEquiv` y) $ "unifyExpr failure:\n" ++ sep x y
@@ -114,20 +117,20 @@ unifyExpr' bs x y = do
 unifyT :: Bindings -> Type -> Type -> M Bindings
 unifyT bs (ExprType d1) (ExprType d2) =
   unifyMany bs (map Dimension d1) (map Dimension d2)
-unifyT bs Void Void = return bs
-unifyT bs StringType StringType = return bs
-unifyT bs IntType IntType = return bs
 unifyT bs (FnType (FT _ params1 out1)) (FnType (FT _ params2 out2)) = do
   bs' <- unifyT bs out1 out2
   unifyMany bs' params1 params2
 unifyT bs (Dimension d1) (Dimension d2) = do
   unifyExpr bs d1 d2
+unifyT bs Void Void = return bs
+unifyT bs StringType StringType = return bs
+unifyT bs IntType IntType = return bs
 unifyT bs e1 e2 = left $ "unification failure:\n" ++ sep e1 e2
 
 unifyMany :: Bindings -> [Type] -> [Type] -> M Bindings
 unifyMany bs ts1 ts2 = do
   assert (length ts1 == length ts2) $ "unifyMany failure:\n" ++ sep ts1 ts2
-  foldM (\bs -> uncurry $ unifyT bs) bs $ zip ts1 ts2
+  foldM (uncurry . unifyT) bs $ zip ts1 ts2
 
 -- takes fn, args, returns fn applied to correct implict arguments
 getImplicits :: CExpr -> [CExpr] -> M [CExpr]
@@ -310,6 +313,13 @@ compoundVal (a :/ b) = compoundVal a || compoundVal b
 compoundVal (a :> b) = compoundVal b
 compoundVal _ = True
 
+
+simpleVal (Free (Unary _ _))  = False
+simpleVal (a :! b) = simpleVal a && simpleVal b
+simpleVal (a :+ b) = simpleVal a && simpleVal b
+simpleVal (a :* b) = simpleVal a && simpleVal b
+simpleVal _ = True
+
 -- Term Reduction --
 compile :: CExpr -> M [CExpr]
 -- Iterate compileStep to convergence
@@ -375,7 +385,7 @@ compileStep Top e@(Free (Extern var t)) = do
   return e
 
 compileStep Top e@(Free (FunctionDecl var t@(FD params _) body)) = do
-  _ <- mapM_ (uncurry extend) params
+  mapM_ (uncurry extend) params
   body' <- compileStep Top body
   return $ Free (FunctionDecl var t body')
 
@@ -531,7 +541,9 @@ compileStep _ (a :< (b :* c)) | compoundVal c = do
 compileStep ctxt (a :< b) = do
   bt <- typeCheck b
   case bt of
-    ExprType (len : _) -> do
+    -- Avoid repeatedly calling inverse
+    -- TODO generalize
+    ExprType (len : _) | simpleVal b -> do
       i <- freshName
       let lhs = (a :! (R i))
       return $ Lam i len (lhs :< b :! (R i))

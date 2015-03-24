@@ -174,10 +174,10 @@ testPVT = do
   return $ pvt :> (wrapMain $ seqList $
     [ 
       test1
-    , newline "t1:"
+    , newline "generated output:"
     , printer
     , test2
-    , newline "t2:"
+    , newline "reference output:"
     , printer
     , newline ""
     ])
