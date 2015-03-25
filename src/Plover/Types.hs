@@ -81,12 +81,13 @@ data Line
   deriving (Show, Eq, Ord)
 
 -- Datatypes to represent Expr types
-data FnType a = FT 
+data FnType a = FT
   { implicits :: [a]
   , explicits :: [Type' a]
   , outputType :: Type' a
   }
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
+
 data FnDecl a = FD
   { fd_params :: [(Variable, Type' a)]
   , fd_output :: Type' a

@@ -1,7 +1,4 @@
-module Plover.Main 
-  ( module Plover.Expressions
-  , module Plover.Main
-  ) where
+module Plover.Main where
 
 import Plover.Types
 import Plover.Expressions

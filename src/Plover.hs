@@ -3,11 +3,13 @@ module Plover
   , module Plover.Types
   , module Plover.Reduce
   , module Plover.Compile
-  , module Plover.Main
   ) where
 
 import Plover.Macros
 import Plover.Types
 import Plover.Reduce
 import Plover.Compile
+
+-- For cabal repl
 import Plover.Main
+import Plover.Expressions

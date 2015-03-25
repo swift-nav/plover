@@ -88,25 +88,21 @@ p7 = seqList [
  ]
 p8 = "x" := rot_small 22
 p9 = seqList [
-  externs,
   "z" := (s (s 1)),
   "x_inv" := s (s 1),
   Free $ App "inverse" ["z", "x_inv"]
  ]
 
 p10 = seqList [
-  externs,
   "z" := (s (s 1)),
   "x" := inverse "z"
  ]
 
 p11 = seqList [
-  externs,
   "r" := rot_small 2,
   "x" := inverse "r"
  ]
 p12 = seqList [
-  externs,
   Free (FunctionDecl "foo" (FD [("x", numType), ("y", numType)] numType) $ seqList [
     "z" := "x" * "y",
     Ret "z"])
@@ -127,7 +123,6 @@ f1 = seqList [
 -- The PVT Example --
 decls :: CExpr
 decls = seqList [
-  externs,
   Ext "GPS_OMEGAE_DOT" numType,
   Ext "GPS_C" numType 
  ]
