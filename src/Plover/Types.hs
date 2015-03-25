@@ -81,6 +81,7 @@ data Line
   deriving (Show, Eq, Ord)
 
 -- Datatypes to represent Expr types
+-- TODO combine these two types
 data FnType a = FT
   { implicits :: [a]
   , explicits :: [Type' a]

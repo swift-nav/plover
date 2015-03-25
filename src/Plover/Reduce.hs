@@ -1,10 +1,9 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
-  
    -- TODO
-  --( compile, reduceArith
-  --)
+  ( compile, reduceArith
+  )
   where
 
 import Data.List (intercalate)
@@ -27,6 +26,7 @@ import Plover.Generics
 import Plover.Print
 import Plover.Macros (seqList, generatePrinter, newline)
 
+-- Searches syntax tree for simple arithmetic expressions, simplifies them
 reduceArith = mvisit toExpr step
   where
     scale 1 x = x
@@ -52,11 +52,10 @@ reduceArith = mvisit toExpr step
     --toExpr e@(a :! b) = return $ S.Atom e
     toExpr x = Nothing
 
-typeSize :: Type -> CExpr
-typeSize (ExprType l) = product l
-
-topTypeSize :: Type -> CExpr
-topTypeSize (ExprType (l :_)) = l
+-- Attempts to simplify numeric expressions.
+-- Called by type checker
+numericEquiv :: CExpr -> CExpr -> Bool
+numericEquiv = (==) `on` reduceArith
 
 -- Type Checking
 varType :: Variable -> M Type
@@ -78,21 +77,14 @@ withBinding var t m = do
   a <- m
   modify $ \(c, _) -> (c, env0)
   return a
--- --
 
--- Attempts to simplify numeric expressions
-numericEquiv :: CExpr -> CExpr -> Bool
-numericEquiv = (==) `on` reduceArith
-
-typeEq :: Type -> Type -> Bool
-typeEq Void Void = True
-typeEq (ExprType as) (ExprType bs) = and $ zipWith numericEquiv as bs
--- TODO other case
+vectorTypeEq :: Type -> Type -> Bool
+vectorTypeEq Void Void = True
+vectorTypeEq (ExprType as) (ExprType bs) = and $ zipWith numericEquiv as bs
+-- TODO other cases
 
 -- Unify, for type variables
 type Bindings = [(Variable, CExpr)]
---unifyTypes :: Type -> Type -> M Bindings
---unifyTypes t1 t2 = unifyT [] t1 t2
 
 walk :: Bindings -> CExpr -> CExpr
 walk bs (TV v) =
@@ -101,9 +93,6 @@ walk bs (TV v) =
     Just (TV v') -> walk bs (TV v')
     Just val -> val
 walk bs e = e
-
---unifyStep :: Bindings -> Type -> Type -> M Bindings
---unifyStep bs = unifyT bs `on` walk bs
 
 unifyExpr :: Bindings -> CExpr -> CExpr -> M Bindings
 unifyExpr bs = unifyExpr' bs `on` walk bs
@@ -174,7 +163,7 @@ typeCheck e@(a :+ b) = do
     (ExprType (_ : _), ExprType []) -> return typeA
     (ExprType [], ExprType (_ : _)) -> return typeB
     _ -> do
-      assert (typeEq typeA typeB) $ "vector sum mismatch:\n" ++ sep typeA typeB ++ "\n" ++ sep a b
+      assert (vectorTypeEq typeA typeB) $ "vector sum mismatch:\n" ++ sep typeA typeB ++ "\n" ++ sep a b
       return typeA
 typeCheck e@(a :/ b) = do
   typeA <- typeCheck a
@@ -202,7 +191,6 @@ typeCheck e@(a :* b) = do
       return $ ExprType [b1]
     _ -> error ("product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
 typeCheck (Lam var bound body) = do
-  -- withBinding discards any inner bindings
   mt <- withBinding var numType (typeCheck body)
   case mt of
     ExprType btype -> 
@@ -228,20 +216,19 @@ typeCheck e@(Free (Unary "inverse" m)) = do
   ExprType [rs, cs] <- typeCheck m
   assert (rs `numericEquiv` cs) $ "typeCheck. inverse applied to non-square matrix: " ++ show e
   return $ ExprType [cs, rs]
--- TODO allow implicits?
 typeCheck e@(Free (FunctionDecl var (FD params output) body)) = do
   extend var (FnType (FT [] (map snd params) output))
   return Void
 typeCheck e@(Free (Extern var t)) = do
   extend var t
   return Void
+-- TODO 'reverse' next two cases
 typeCheck e@(Free (App f args)) = do
   FnType (FT implicits params out) <- typeCheck f
   argTypes <- mapM typeCheck args
   bindings <- unifyMany [] params argTypes
   let out' = foldl (\term (var, val) -> fmap (substTV var val) term) out bindings
   return $ out'
--- TODO be smarter
 typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
 typeCheck (Str _) = return stringType
 typeCheck x = error ("typeCheck: " ++ ppExpr Lax x)
@@ -309,7 +296,6 @@ compoundVal (a :! b) = compoundVal a || compoundVal b
 compoundVal (a :+ b) = compoundVal a || compoundVal b
 compoundVal (a :* b) = compoundVal a || compoundVal b
 compoundVal (a :/ b) = compoundVal a || compoundVal b
--- TODO ok?
 compoundVal (a :> b) = compoundVal b
 compoundVal _ = True
 
@@ -351,7 +337,6 @@ data Context = Top | LHS | RHS
   deriving (Show)
 
 -- TODO is this confluent? how could we prove it?
--- Each case has a symbolic explanation
 compileStep :: Context -> CExpr -> M CExpr
 
 -- Initialization -> Declaration; Assignment
@@ -411,7 +396,6 @@ compileStep ctxt e@(x :+ y) = do
   case (tx, ty) of
     -- pointwise add
     (ExprType (len1 : _), ExprType (len2 : _)) -> do
-      assert (len1 `numericEquiv` len2) $ "sum length mismatch: " ++ show e
       i <- freshName
       return $ Lam i len1 (x :! (R i) + y :! (R i))
     (_, _) | compoundVal x -> do
@@ -427,8 +411,6 @@ compileStep ctxt e@(x :+ y) = do
       return $ x' + y'
     -- TODO this handles adding ptr to int; does it allow anything else?
     _ -> return e
-    --_ -> error $ "compileStep. +.\n" ++ sep tx ty ++ "\n" ++ show e
-    --(ExprType [], ExprType []) -> return e
 
 compileStep _ ((a :> b) :* c) = return $ a :> (b :* c)
 compileStep _ (c :* (a :> b)) = return $ a :> (c :* b)
@@ -444,6 +426,7 @@ compileStep ctxt e@(x :* y) = do
     -- matrix/vector vector/matrix products
     (ExprType [r1, c1], ExprType [r2]) ->
       compileMVMul x (r1, c1) y r2
+    -- TODO
     --(ExprType [c1], ExprType [r2, c2]) ->
     --  compileMMMul x (r1, c1) y (r2, c2)
     -- pointwise multiply
@@ -453,12 +436,6 @@ compileStep ctxt e@(x :* y) = do
       return $ Lam i len1 (x :! (R i) :* y :! (R i))
     (ExprType [], v@(ExprType (len : _))) -> scale x y len
     (v@(ExprType (len : _)), ExprType []) -> scale y x len
-    --(ExprType [], ExprType []) | compoundVal x -> do
-    --  a <- freshName
-    --  return $ (R a := x) :> (R a :* y)
-    --(ExprType [], ExprType []) | compoundVal y -> do
-    --  b <- freshName
-    --  return $ (R b := y) :> (x :* R b)
     (_, _) | compoundVal x -> do
       a <- freshName
       return $ (R a := x) :> (R a :* y)
@@ -497,12 +474,10 @@ compileStep ctxt e@(x :/ y) = do
 
 -- Juxtaposition
 -- a :< u # v  -->  (a :< u); (a + size u :< v)
--- TODO check this interaction with [ ]
 compileStep _ (a :< u :# v) = do
-  offset <- topTypeSize <$> typeCheck u
+  ExprType (offset : _) <- typeCheck u
   -- TODO (a + offset) will always be wrapped by an index operation?
   return $ (a :< u) :> ((a + offset) :< v)
-  --return $ (a :< u) :> ((DR $ a + offset) :< v)
 
 -- Sequence assignment
 -- a :< (u; v)  --> u; (a :< v)
@@ -529,10 +504,10 @@ compileStep ctxt (a :< (Lam var r body)) = do
   return $ Lam var r (lhs :< rhs)
   --return $ Lam var r (lhs :< body)
 
+-- Lift compound values before (a :< Vector) wraps vector body in a loop
 compileStep _ (a :< (b :* c)) | compoundVal b = do
   n <- freshName
   return $ (R n := b) :> (a :< R n :* c)
-
 compileStep _ (a :< (b :* c)) | compoundVal c = do
   n <- freshName
   return $ (R n := c) :> (a :< b :* R n)

@@ -42,7 +42,9 @@ e7 = seqList [
  ]
 
 e8 = "x" := l2 * l2
+
 e9 = "x" := l2 * l2 * l2
+
 e10 = seqList [
   "x" := Lam "i" 2 (Lam "j" 2 1),
   "y" := "x" * "x" * "x"
@@ -131,7 +133,7 @@ loop :: CExpr -> CExpr
 loop j = seqList $ [
   "tau" := norm ("rx_state" - "sat_pos" :! j) / "GPS_C",
   "we_tau" := "GPS_OMEGAE_DOT" * "tau",
-  -- TODO rewrite bug forces this onto its own line
+  -- TODO rewrite issue forces this onto its own line
   "rot" := rot_small "we_tau",
   "xk_new" := "rot" * ("sat_pos" :! j),
   --"xk_new" := rot_small "we_tau" * ("sat_pos" :! j),
@@ -162,22 +164,26 @@ pvt = seqList $ [
  ]
 
 testPVT = do
+  -- Generate random arguments, call "pvt" defined above
   test1 <- generateTestArguments "pvt" pvtSig
+  -- Call the wrapped libswiftnav version
   let test2 = Free (App (R "pvt2") (map (R . fst) (fd_params pvtSig)))
   n <- freshName
   let printer = Lam n 4 ("printNumber" :$ ("correction" :! R n))
-  return $ pvt :> (wrapMain $ seqList $
-    [ 
-      test1
-    , newline "generated output:"
-    , printer
-    , test2
-    , newline "reference output:"
-    , printer
-    , newline ""
-    ])
+  -- Definition of pvt, then main that calls test code
+  return $
+    pvt
+    :> (wrapMain $ seqList $
+          [ test1
+          , newline "generated output:"
+          , printer
+          , test2
+          , newline "reference output:"
+          , printer
+          , newline ""
+          ])
 
--- Test cases
+-- Test cases.
 good_cases :: [(String, M CExpr)]
 good_cases = map (second (return . wrapMain)) [
   ("e", e),
@@ -209,4 +215,3 @@ good_cases = map (second (return . wrapMain)) [
 
 bad_cases :: [CExpr]
 bad_cases = [b1, b2]
-

@@ -5,9 +5,11 @@ import Control.Monad.Free
 
 import Plover.Types
 
+-- Sequence a list of CExprs
 seqList :: [CExpr] -> CExpr
 seqList es = foldr1 (:>) es
 
+-- Vector norm
 norm :: CExpr -> CExpr
 norm x = "sqrt" :$ (Sig (x * x))
 
@@ -24,11 +26,15 @@ rot_small x =
   s (s (- x) :# s 1 :# s 0) :#
   s (s 0     :# s 0 :# s 1)
 
+-- Make a length 1 vector to hold the argument
+s :: CExpr -> CExpr
 s x = Lam "i" 1 x
 
-newline s = "printf" :$ (Str $ "\n" ++ s ++ "\n")
-
+-- Wrap an expression in a main function
 wrapMain = Free . FunctionDecl "main" (FD [] IntType)
+
+-- Print a string with newlines
+newline s = "printf" :$ (Str $ "\n" ++ s ++ "\n")
 
 generateTestArguments :: Variable -> FnDecl CExpr -> M CExpr
 generateTestArguments fnName (FD params output) = do
@@ -61,12 +67,12 @@ testFunction var sig output tp = do
 
 -- The extern file declarations
 
-externs = seqList [
-  Ext "sqrt" (FnType $ FT [] [numType] numType),
-  Ext "inverse" (FnType $ FT [TV "n"]
-                             [ExprType [TV "n", TV "n"], ExprType [TV "n", TV "n"]]
-                             (ExprType [TV "n", TV "n"])),
-  Ext "randf" (FnType $ FT [] [] numType),
-  Ext "printNumber" (FnType $ FT [] [numType] Void),
-  Ext "printf" (FnType $ FT [] [stringType] Void)
+externs = seqList
+ [ Ext "sqrt"        (FnType $ FT [] [numType] numType)
+ , Ext "inverse"     (FnType $ FT [TV "n"]
+                                  [ExprType [TV "n", TV "n"], ExprType [TV "n", TV "n"]]
+                                  (ExprType [TV "n", TV "n"]))
+ , Ext "randf"       (FnType $ FT [] [] numType)
+ , Ext "printf"      (FnType $ FT [] [stringType] Void)
+ , Ext "printNumber" (FnType $ FT [] [numType] Void)
  ]
