@@ -41,7 +41,7 @@ data Expr a
   | IntLit Int
   | StrLit String
 
-  | FunctionDecl Variable (FnDecl a) a
+  | FunctionDecl Variable (FunctionType a) a
   | Extern Variable (Type' a)
   | App a [a]
   | AppImpl a [a] [a]
@@ -75,30 +75,28 @@ data Line
   | LineDecl Type Variable
   | LineExpr CExpr
   | EmptyLine
-  | Function Variable (FnDecl CExpr) Line
+  | Function Variable (FunctionType CExpr) Line
   | LineReturn CExpr
   | Include String
   deriving (Show, Eq, Ord)
 
--- Datatypes to represent Expr types
--- TODO combine these two types
-data FnType a = FT
-  { implicits :: [a]
-  , explicits :: [Type' a]
-  , outputType :: Type' a
+-- Represents the type of an Expr
+-- Separates implicit parameters, explicit parameters, output type
+data FunctionType a = FnT
+  { ft_imp :: [(Variable, Type' a)]
+  , ft_exp :: [(Variable, Type' a)]
+  , ft_out :: Type' a
   }
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
-data FnDecl a = FD
-  { fd_params :: [(Variable, Type' a)]
-  , fd_output :: Type' a
-  }
-  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
+-- Function without implicits or a dependent type
+fnT :: [Type' a] -> Type' a -> FunctionType a
+fnT params out = FnT [] (zip (repeat "") params) out
 
 data Type' a
   = ExprType [a]
   | Void
-  | FnType (FnType a)
+  | FnType (FunctionType a)
   | Dimension a
   | IntType
   | StringType
@@ -158,6 +156,7 @@ pattern Ret x = Free (Return x)
 pattern a :! b = Free (Index a b)
 pattern a :> b = Free (Seq a b)
 pattern a :$ b = Free (App a [b])
+pattern Call a = Free (App a [])
 pattern TV v = Free (TVar v)
 pattern Ext v t = Free (Extern v t)
 pattern Str s = Free (StrLit s)

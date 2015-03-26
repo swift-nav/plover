@@ -76,7 +76,7 @@ p4 = seqList [
   "z" := "x" * "y"
  ]
 p5 = seqList [
-  Free (Extern "sqrt" (FnType $ FT [] [numType] numType)),
+  Free (Extern "sqrt" (FnType $ fnT [numType] numType)),
   "y" := "sqrt" :$ 2
  ]
 p6 = seqList [
@@ -105,7 +105,7 @@ p11 = seqList [
   "x" := inverse "r"
  ]
 p12 = seqList [
-  Free (FunctionDecl "foo" (FD [("x", numType), ("y", numType)] numType) $ seqList [
+  Free (FunctionDecl "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
     "z" := "x" * "y",
     Ret "z"])
  ]
@@ -140,24 +140,25 @@ loop j = seqList $ [
   "xk_new" - "rx_state"
  ]
 
-pvtSig = FD
-  { fd_params =
-      [("sat_pos", ExprType [4, 3])
-      ,("pseudo", ExprType [4])
+pvtSig = FnT
+  { ft_imp = [("n_used", IntType)]
+  , ft_exp =
+      [("sat_pos", ExprType [R "n_used", 3])
+      ,("pseudo", ExprType [R "n_used"])
       ,("rx_state", ExprType [3])
       ,("correction", ExprType [4])]
-  , fd_output = Void
+  , ft_out = Void
   }
 
 pvt :: CExpr
 pvt = seqList $ [
   decls,
-  Ext "pvt2" (FnType $ FT [] (map snd . fd_params $ pvtSig) Void),
+  Ext "pvt2" (FnType $ pvtSig ),
   Free (FunctionDecl "pvt" pvtSig $ seqList [
     -- TODO this doesn't have to be 4
-    "los" := Lam "j" 4 (loop "j"),
-    "G" := Lam "j" 4 (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
-    "omp" := "pseudo" - Lam "j" 4 (norm ("los" :! "j")),
+    "los" := Lam "j" (R "n_used") (loop "j"),
+    "G" := Lam "j" (R "n_used") (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
+    "omp" := "pseudo" - Lam "j" (R "n_used") (norm ("los" :! "j")),
     "X" := inverse (transpose "G" * "G") * transpose "G",
     "correction" :< "X" * "omp"
   ])
@@ -166,15 +167,18 @@ pvt = seqList $ [
 testPVT = do
   -- Generate random arguments, call "pvt" defined above
   test1 <- generateTestArguments "pvt" pvtSig
+  -- Print n_used
+  let pnused = ("printInt" :$ "n_used")
   -- Call the wrapped libswiftnav version
-  let test2 = Free (App (R "pvt2") (map (R . fst) (fd_params pvtSig)))
+  let test2 = Free (App (R "pvt2") (map (R . fst) (ft_exp pvtSig)))
   n <- freshName
-  let printer = Lam n 4 ("printNumber" :$ ("correction" :! R n))
+  let printer = Lam n 4 ("printDouble" :$ ("correction" :! R n))
   -- Definition of pvt, then main that calls test code
   return $
     pvt
-    :> (wrapMain $ seqList $
+    :> (wrapMain $ seqList
           [ test1
+          , pnused
           , newline "generated output:"
           , printer
           , test2

@@ -65,17 +65,14 @@ ppLine strict off (LineExpr e) =
 ppLine strict off (LineDecl t var) = 
   let (pre, post) = ppTypeDecl strict t in
   off ++ pre ++ " " ++ ppVar var ++ post ++ lineEnd
-ppLine strict off (Function name (FD params out) body) =
+ppLine strict off (Function name (FnT ps1 ps2 out) body) =
   off ++ ppType out ++ " " ++ name ++
-    wrapp (intercalate ", " (map (ppParam strict) params)) ++ "\n" ++
+    wrapp (intercalate ", " (map (ppParam strict) (ps1 ++ ps2))) ++ "\n" ++
   off ++ "{\n" ++
     ppLine strict (indent off) body ++
   off ++ "}\n"
 ppLine strict off (LineReturn x) =
   off ++ "return " ++ ppExpr strict x ++ lineEnd
-
-ppLine Strict _ x = error ("ppLine. incomplete reduction: " ++ show x)
-ppLine Lax off x = off ++ show x ++ "\n"
 
 lineEnd = ";\n"
 
@@ -102,6 +99,7 @@ ppTypeDecl strict t = printArrayType t
     printVecType (ExprType es) = (ppNumber, "[" ++ intercalate " * " (map (ppExpr strict) es) ++ "]")
     printArrayType (ExprType es) = (ppNumber, concatMap printOne es)
     printArrayType StringType = ("char *", "")
+    printArrayType IntType = ("int", "")
     printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
 wrapp s = "(" ++ s ++ ")"

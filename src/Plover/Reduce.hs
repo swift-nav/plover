@@ -98,7 +98,7 @@ unifyExpr :: Bindings -> CExpr -> CExpr -> M Bindings
 unifyExpr bs = unifyExpr' bs `on` walk bs
 
 unifyExpr' :: Bindings -> CExpr -> CExpr -> M Bindings
-unifyExpr' bs (TV v) x = return $ (v, x) : bs
+unifyExpr' bs (R v) x = return $ (v, x) : bs
 unifyExpr' bs x y = do
   assert (x `numericEquiv` y) $ "unifyExpr failure:\n" ++ sep x y
   return bs
@@ -106,9 +106,9 @@ unifyExpr' bs x y = do
 unifyT :: Bindings -> Type -> Type -> M Bindings
 unifyT bs (ExprType d1) (ExprType d2) =
   unifyMany bs (map Dimension d1) (map Dimension d2)
-unifyT bs (FnType (FT _ params1 out1)) (FnType (FT _ params2 out2)) = do
+unifyT bs (FnType (FnT _ params1 out1)) (FnType (FnT _ params2 out2)) = do
   bs' <- unifyT bs out1 out2
-  unifyMany bs' params1 params2
+  unifyMany bs' (map snd params1) (map snd params2)
 unifyT bs (Dimension d1) (Dimension d2) = do
   unifyExpr bs d1 d2
 unifyT bs Void Void = return bs
@@ -124,13 +124,18 @@ unifyMany bs ts1 ts2 = do
 -- takes fn, args, returns fn applied to correct implict arguments
 getImplicits :: CExpr -> [CExpr] -> M [CExpr]
 getImplicits fn args = do
-  FnType (FT implicits params out) <- typeCheck fn
+  FnType (FnT implicits params out) <- typeCheck fn
   argTypes <- mapM typeCheck args
-  bindings <- unifyMany [] params argTypes
+  bindings <- unifyMany [] (map snd params) argTypes
   let 
-    fix t = foldl (\term (var, val) -> substTV var val term) t bindings
-    implicits' = map fix implicits
-  return implicits'
+    --fix t = foldl (\term (var, val) -> substTV var val term) t bindings
+    fix' (var, _) =
+      case lookup var bindings of
+        Nothing -> left $ "unresolved implicit argument: "
+          ++ show var ++ " function:\n" ++ show fn
+        Just x -> return x
+    implicits' = mapM fix' implicits
+  implicits'
 
 -- Typecheck --
 typeCheck :: CExpr -> M Type
@@ -216,17 +221,19 @@ typeCheck e@(Free (Unary "inverse" m)) = do
   ExprType [rs, cs] <- typeCheck m
   assert (rs `numericEquiv` cs) $ "typeCheck. inverse applied to non-square matrix: " ++ show e
   return $ ExprType [cs, rs]
-typeCheck e@(Free (FunctionDecl var (FD params output) body)) = do
-  extend var (FnType (FT [] (map snd params) output))
+--TODO delete
+--typeCheck e@(Free (FunctionDecl var (FD params output) body)) = do
+typeCheck e@(Free (FunctionDecl var t _)) = do
+  extend var (FnType t)
   return Void
 typeCheck e@(Free (Extern var t)) = do
   extend var t
   return Void
 -- TODO 'reverse' next two cases
 typeCheck e@(Free (App f args)) = do
-  FnType (FT implicits params out) <- typeCheck f
+  FnType (FnT implicits params out) <- typeCheck f
   argTypes <- mapM typeCheck args
-  bindings <- unifyMany [] params argTypes
+  bindings <- unifyMany [] (map snd params) argTypes
   let out' = foldl (\term (var, val) -> fmap (substTV var val) term) out bindings
   return $ out'
 typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
@@ -369,8 +376,9 @@ compileStep Top e@(Free (Extern var t)) = do
   extend var t
   return e
 
-compileStep Top e@(Free (FunctionDecl var t@(FD params _) body)) = do
-  mapM_ (uncurry extend) params
+compileStep Top e@(Free (FunctionDecl var t@(FnT implicits params _) body)) = do
+  -- TODO include implicits?
+  mapM_ (uncurry extend) (params)
   body' <- compileStep Top body
   return $ Free (FunctionDecl var t body')
 

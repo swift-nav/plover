@@ -31,23 +31,27 @@ s :: CExpr -> CExpr
 s x = Lam "i" 1 x
 
 -- Wrap an expression in a main function
-wrapMain = Free . FunctionDecl "main" (FD [] IntType)
+wrapMain = Free . FunctionDecl "main" (FnT [] [] IntType)
 
 -- Print a string with newlines
 newline s = "printf" :$ (Str $ "\n" ++ s ++ "\n")
 
-generateTestArguments :: Variable -> FnDecl CExpr -> M CExpr
-generateTestArguments fnName (FD params output) = do
+-- TODO handle implicits
+generateTestArguments :: Variable -> FunctionType CExpr -> M CExpr
+generateTestArguments fnName (FnT implicits params output) = do
+  is <- mapM pValue implicits
   es <- mapM pValue params
-  let decls = seqList es
+  let decls = seqList (is ++ es)
       call = Free (App (R fnName) (map (R . fst) params))
   return (decls :> call)
   
   where
+    pValue (var, IntType) =
+      return $ R var := (Call "randInt")
     pValue (var, ExprType ds) = do
       rhs <- vec ds
       return $ R var := rhs
-    vec [] = return $ Free $ App "randf" []
+    vec [] = return $ Call "randFloat"
     vec (d : ds) = do
       n <- freshName
       body <- vec ds
@@ -56,7 +60,7 @@ generateTestArguments fnName (FD params output) = do
 generatePrinter :: Variable -> Type -> M CExpr
 generatePrinter var (ExprType ds) = do
   names <- mapM (\_ -> freshName) ds
-  let body = ("printNumber" :$ foldl (:!) (R var) (map R names))
+  let body = ("printDouble" :$ foldl (:!) (R var) (map R names))
   let e = foldr (uncurry Lam) body (zip names ds)
   return e
 
@@ -68,11 +72,14 @@ testFunction var sig output tp = do
 -- The extern file declarations
 
 externs = seqList
- [ Ext "sqrt"        (FnType $ FT [] [numType] numType)
- , Ext "inverse"     (FnType $ FT [TV "n"]
-                                  [ExprType [TV "n", TV "n"], ExprType [TV "n", TV "n"]]
-                                  (ExprType [TV "n", TV "n"]))
- , Ext "randf"       (FnType $ FT [] [] numType)
- , Ext "printf"      (FnType $ FT [] [stringType] Void)
- , Ext "printNumber" (FnType $ FT [] [numType] Void)
+ [ Ext "sqrt"        (FnType $ fnT [numType] numType)
+ , Ext "inverse"     (FnType $ FnT [("n", IntType)]
+                                   [("input", ExprType [R "n", R "n"]),
+                                    ("output", ExprType [R "n", R "n"])]
+                                   Void)
+ , Ext "randFloat"       (FnType $ fnT [] numType)
+ , Ext "randInt"       (FnType $ fnT [] IntType)
+ , Ext "printf"      (FnType $ fnT [stringType] Void)
+ , Ext "printDouble" (FnType $ fnT [numType] Void)
+ , Ext "printInt" (FnType $ fnT [IntType] Void)
  ]
