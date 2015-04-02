@@ -21,10 +21,10 @@ flatten (a :> b) = do
   b' <- flatten b
   return $ mergeBlocks a' b'
 flatten (n := val) = return $ Store n val
-flatten (Free (Extern _ _)) = return EmptyLine
+flatten (Ext _ _) = return EmptyLine
 flatten e@(Free (App _ _)) = return $ LineExpr e
 flatten e@(Free (AppImpl _ _ _)) = return $ LineExpr e
-flatten e@(Free (FunctionDecl name fd body)) = do
+flatten e@(FnDef name fd body) = do
   body' <- flatten body
   return $ Function name fd body'
 flatten (Ret x) = return (LineReturn x)
@@ -73,6 +73,10 @@ ppLine strict off (Function name (FnT ps1 ps2 out) body) =
   off ++ "}\n"
 ppLine strict off (LineReturn x) =
   off ++ "return " ++ ppExpr strict x ++ lineEnd
+ppLine strict off (ForwardDecl name (FnT ps1 ps2 out)) =
+  off ++ ppType out ++ " " ++ name ++
+    wrapp (intercalate ", " (map (ppParam strict) (ps1 ++ ps2))) ++ lineEnd
+ppLine _ _ x = error $ "ppline. " ++ show x
 
 lineEnd = ";\n"
 

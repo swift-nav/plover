@@ -43,9 +43,10 @@ fixM f x = do
   x' <- f x
   if x == x' then return x else fixM f x'
 
-iterateM :: (Eq a, Monad m) => (a -> m a) -> a -> m [a]
-iterateM f x = scan [] x
+scanM :: (Eq a, Monad m) => (a -> m a) -> a -> m [a]
+scanM f x = scan [] x
   where
     scan xs x = do
       x' <- f x
-      if x == x' then return (x : xs) else scan (x : xs) x'
+      let l = x : xs
+      if x == x' then return l else scan l x'

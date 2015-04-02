@@ -41,7 +41,7 @@ data Expr a
   | IntLit Int
   | StrLit String
 
-  | FunctionDecl Variable (FunctionType a) a
+  | FunctionDef Variable (FunctionType a) a
   | Extern Variable (Type' a)
   | App a [a]
   | AppImpl a [a] [a]
@@ -56,10 +56,6 @@ data Expr a
   | Binary Tag a a
 
   | Deref a
-
-  -- Used to define parametric functions
-  | TVar Variable
-
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type CExpr = Free Expr Void
@@ -76,6 +72,7 @@ data Line
   | LineExpr CExpr
   | EmptyLine
   | Function Variable (FunctionType CExpr) Line
+  | ForwardDecl Variable (FunctionType CExpr)
   | LineReturn CExpr
   | Include String
   deriving (Show, Eq, Ord)
@@ -151,13 +148,12 @@ pattern DR a = Free (Deref a)
 pattern Sig x = Free (Sigma x)
 pattern Neg x = Free (Negate x)
 pattern Declare t x = Free (Decl t x)
-pattern FnDeclare a b c = Free (FunctionDecl a b c)
+pattern FnDef a b c = Free (FunctionDef a b c)
 pattern Ret x = Free (Return x)
 pattern a :! b = Free (Index a b)
 pattern a :> b = Free (Seq a b)
 pattern a :$ b = Free (App a [b])
 pattern Call a = Free (App a [])
-pattern TV v = Free (TVar v)
 pattern Ext v t = Free (Extern v t)
 pattern Str s = Free (StrLit s)
 

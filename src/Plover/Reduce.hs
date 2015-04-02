@@ -87,10 +87,11 @@ vectorTypeEq (ExprType as) (ExprType bs) = and $ zipWith numericEquiv as bs
 type Bindings = [(Variable, CExpr)]
 
 walk :: Bindings -> CExpr -> CExpr
-walk bs (TV v) =
+walk bs (R v) =
   case lookup v bs of
-    Nothing -> TV v
-    Just (TV v') -> walk bs (TV v')
+    Nothing -> R v
+    Just (R v') | v' == v -> R v
+    Just (R v') -> walk bs (R v')
     Just val -> val
 walk bs e = e
 
@@ -128,14 +129,12 @@ getImplicits fn args = do
   argTypes <- mapM typeCheck args
   bindings <- unifyMany [] (map snd params) argTypes
   let 
-    --fix t = foldl (\term (var, val) -> substTV var val term) t bindings
-    fix' (var, _) =
+    resolve var =
       case lookup var bindings of
         Nothing -> left $ "unresolved implicit argument: "
           ++ show var ++ " function:\n" ++ show fn
         Just x -> return x
-    implicits' = mapM fix' implicits
-  implicits'
+  mapM (resolve . fst) implicits
 
 -- Typecheck --
 typeCheck :: CExpr -> M Type
@@ -143,8 +142,17 @@ typeCheck ((R var) := b) = do
   t <- typeCheck b
   extend var t
   return Void
-typeCheck (a := b) = return Void
-typeCheck (a :< b) = return Void
+-- TODO this isn't checking what I want
+typeCheck (a := b) = do
+  tl <- typeCheck a
+  tr <- typeCheck b
+  unifyT [] tl tr
+  return Void
+typeCheck (a :< b) = do
+  tl <- typeCheck a
+  tr <- typeCheck b
+  unifyT [] tl tr
+  return Void
 typeCheck (Declare t var) = do
   extend var t
   return Void
@@ -221,9 +229,7 @@ typeCheck e@(Free (Unary "inverse" m)) = do
   ExprType [rs, cs] <- typeCheck m
   assert (rs `numericEquiv` cs) $ "typeCheck. inverse applied to non-square matrix: " ++ show e
   return $ ExprType [cs, rs]
---TODO delete
---typeCheck e@(Free (FunctionDecl var (FD params output) body)) = do
-typeCheck e@(Free (FunctionDecl var t _)) = do
+typeCheck e@(FnDef var t _) = do
   extend var (FnType t)
   return Void
 typeCheck e@(Free (Extern var t)) = do
@@ -234,7 +240,7 @@ typeCheck e@(Free (App f args)) = do
   FnType (FnT implicits params out) <- typeCheck f
   argTypes <- mapM typeCheck args
   bindings <- unifyMany [] (map snd params) argTypes
-  let out' = foldl (\term (var, val) -> fmap (substTV var val) term) out bindings
+  let out' = foldl (\term (var, val) -> fmap (subst var val) term) out bindings
   return $ out'
 typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
 typeCheck (Str _) = return stringType
@@ -247,11 +253,6 @@ subst :: Variable -> CExpr -> CExpr -> CExpr
 subst var val v = visit fix v
   where
     fix (R v) | v == var = val
-    fix v = v
-substTV :: Variable -> CExpr -> CExpr -> CExpr
-substTV var val v = visit fix v
-  where
-    fix (TV v) | v == var = val
     fix v = v
 
 compileMMMul :: CExpr -> (CExpr, CExpr) -> CExpr -> (CExpr, CExpr) -> M CExpr
@@ -314,16 +315,18 @@ simpleVal (a :* b) = simpleVal a && simpleVal b
 simpleVal _ = True
 
 -- Term Reduction --
-compile :: CExpr -> M [CExpr]
+compile :: CExpr -> M CExpr
 -- Iterate compileStep to convergence
-compile expr =
-  if debugFlag
-  then do
-    iterateM step expr
-  else do
-    _ <- typeCheck expr
-    expr' <- fixM step expr
-    return [expr']
+compile expr = do
+  _ <- typeCheck expr
+  head <$> scanM step expr
+  --if debugFlag
+  --then do
+  --  scanM step expr
+  --else do
+  --  _ <- typeCheck expr
+  --  expr' <- fixM step expr
+  --  return [expr']
   where
     sep = "\n------------\n"
     debugFlag = False
@@ -376,11 +379,11 @@ compileStep Top e@(Free (Extern var t)) = do
   extend var t
   return e
 
-compileStep Top e@(Free (FunctionDecl var t@(FnT implicits params _) body)) = do
+compileStep Top e@(FnDef var t@(FnT implicits params _) body) = do
   -- TODO include implicits?
   mapM_ (uncurry extend) (params)
   body' <- compileStep Top body
-  return $ Free (FunctionDecl var t body')
+  return $ (FnDef var t body')
 
 compileStep _ e@(Free (Unary "transpose" m)) = do
   ExprType [rows, cols] <- typeCheck m

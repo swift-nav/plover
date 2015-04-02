@@ -31,7 +31,7 @@ s :: CExpr -> CExpr
 s x = Lam "i" 1 x
 
 -- Wrap an expression in a main function
-wrapMain = Free . FunctionDecl "main" (FnT [] [] IntType)
+wrapMain = FnDef "main" (FnT [] [] IntType)
 
 -- Print a string with newlines
 newline s = "printf" :$ (Str $ "\n" ++ s ++ "\n")

@@ -1,5 +1,6 @@
 module Plover.Compile 
   ( writeProgram
+  , compileLib
   , testWithGcc
   , printExpr
   ) where
@@ -12,7 +13,7 @@ import System.Process
 import Plover.Types
 import Plover.Reduce
 import Plover.Print
-import Plover.Macros (externs)
+import Plover.Macros (externs, seqList)
 
 runM :: M a -> (Either Error a, TypeEnv)
 runM m = runState (runEitherT m) initialState
@@ -22,12 +23,15 @@ wrapExterns e = do
   e' <- e
   return (externs :> e')
 
+--compileExpr :: M CExpr -> Either Error String
+--compileLine :: CExpr -> Either Error String
+
 compileProgram :: Bool -> M CExpr -> Either Error String
 compileProgram reduce expr = do
-  expr' : _ <- fst . runM $ compile =<< wrapExterns expr
+  expr' <- fst . runM $ compile =<< wrapExterns expr
   let expr'' = (if reduce then reduceArith else id) expr'
-  program <- flatten $ expr''
-  return $ ppProgram $ Block [Include "extern_defs.c", program]
+  program <- flatten expr''
+  return $ ppProgram $ Block [Include "extern_defs.h", program]
 
 printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
@@ -87,3 +91,24 @@ testWithGcc expr =
         Nothing -> return $ Nothing
         Just output -> return $ Just (GCCError output)
 
+-- Generates .h and .c file
+generateLib :: [(Variable, FunctionType CExpr, CExpr)] -> ([Line], CExpr)
+generateLib fns =
+  let (decls, defs) = unzip $ map fix fns
+  in (decls, seqList defs)
+  where
+    fix (name, fntype, def) = (ForwardDecl name fntype, FnDef name fntype def)
+
+-- Adds .h, .c to given filename
+compileLib :: FilePath -> [(Variable, FunctionType CExpr, CExpr)] -> IO ()
+compileLib filename defs =
+  let (decls, defExpr) = generateLib defs
+      stuff = do
+        cout <- compileProgram False (return defExpr)
+        let hout = ppProgram (Block decls)
+        return (hout, cout)
+  in
+    case stuff of
+      Right (hout, cout) -> do
+        writeFile (filename ++ ".c") cout
+        writeFile (filename ++ ".h") hout

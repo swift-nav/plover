@@ -1,3 +1,5 @@
+-- TODO move pvt from this library into libswiftnav
+--   - generate header file
 -- Various expressions and testing utilities --
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Expressions where
@@ -105,9 +107,9 @@ p11 = seqList [
   "x" := inverse "r"
  ]
 p12 = seqList [
-  Free (FunctionDecl "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
+  FnDef "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
     "z" := "x" * "y",
-    Ret "z"])
+    Ret "z"]
  ]
 
 -- Test cases that fail
@@ -129,14 +131,14 @@ decls = seqList [
   Ext "GPS_C" numType 
  ]
 
-loop :: CExpr -> CExpr
-loop j = seqList $ [
-  "tau" := norm ("rx_state" - "sat_pos" :! j) / "GPS_C",
+losLoop :: CExpr
+losLoop = Lam "j" (R "n_used") $ seqList [
+  "tau" := norm ("rx_state" - "sat_pos" :! "j") / "GPS_C",
   "we_tau" := "GPS_OMEGAE_DOT" * "tau",
   -- TODO rewrite issue forces this onto its own line
   "rot" := rot_small "we_tau",
-  "xk_new" := "rot" * ("sat_pos" :! j),
-  --"xk_new" := rot_small "we_tau" * ("sat_pos" :! j),
+  "xk_new" := "rot" * ("sat_pos" :! "j"),
+  --"xk_new" := rot_small "we_tau" * ("sat_pos" :! "j"),
   "xk_new" - "rx_state"
  ]
 
@@ -146,23 +148,27 @@ pvtSig = FnT
       [("sat_pos", ExprType [R "n_used", 3])
       ,("pseudo", ExprType [R "n_used"])
       ,("rx_state", ExprType [3])
-      ,("correction", ExprType [4])]
+      ,("correction", ExprType [4])
+      ,("G", ExprType ["n_used", 4])
+      ,("X", ExprType [4, "n_used"])
+      ]
   , ft_out = Void
   }
 
-pvt :: CExpr
-pvt = seqList $ [
-  decls,
-  Ext "pvt2" (FnType $ pvtSig ),
-  Free (FunctionDecl "pvt" pvtSig $ seqList [
-    -- TODO this doesn't have to be 4
-    "los" := Lam "j" (R "n_used") (loop "j"),
-    "G" := Lam "j" (R "n_used") (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
+pvtBody = seqList [
+    decls,
+    "los" :=  losLoop,
+    "G" :< Lam "j" (R "n_used") (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
     "omp" := "pseudo" - Lam "j" (R "n_used") (norm ("los" :! "j")),
-    "X" := inverse (transpose "G" * "G") * transpose "G",
+    "X" :< inverse (transpose "G" * "G") * transpose "G",
     "correction" :< "X" * "omp"
-  ])
  ]
+
+pvtDef :: (Variable, FunctionType CExpr, CExpr)
+pvtDef = ("pvt", pvtSig, pvtBody)
+
+pvt :: CExpr
+pvt = FnDef "pvt" pvtSig $ pvtBody
 
 testPVT = do
   -- Generate random arguments, call "pvt" defined above
@@ -174,48 +180,50 @@ testPVT = do
   n <- freshName
   let printer = Lam n 4 ("printDouble" :$ ("correction" :! R n))
   -- Definition of pvt, then main that calls test code
-  return $
-    pvt
+  return
+    $ Ext "pvt2" (FnType $ pvtSig )
+    :> pvt
     :> (wrapMain $ seqList
-          [ test1
-          , pnused
-          , newline "generated output:"
-          , printer
-          , test2
-          , newline "reference output:"
-          , printer
-          , newline ""
-          ])
+         [ test1
+         , pnused
+         , newline "generated output:"
+         , printer
+         , test2
+         , newline "reference output:"
+         , printer
+         , newline ""
+         ])
 
 -- Test cases.
 good_cases :: [(String, M CExpr)]
-good_cases = map (second (return . wrapMain)) [
-  ("e", e),
-  ("e0", e0),
-  ("e1", e1),
-  ("e2", e2),
-  ("e3", e3),
-  ("e4", e4),
-  ("e5", e5),
-  ("e6", e6),
-  ("e7", e7),
-  ("e8", e8),
-  ("e9", e9),
-  ("e10", e10),
-  ("e11", e11),
-  ("e12", e12),
+good_cases = 
+  [("pvt", testPVT)] ++ 
+  map (second (return . wrapMain)) [
+    ("e", e),
+    ("e0", e0),
+    ("e1", e1),
+    ("e2", e2),
+    ("e3", e3),
+    ("e4", e4),
+    ("e5", e5),
+    ("e6", e6),
+    ("e7", e7),
+    ("e8", e8),
+    ("e9", e9),
+    ("e10", e10),
+    ("e11", e11),
+    ("e12", e12),
 
-  ("p1", p1),
-  ("p2", p2),
-  ("p3", p3),
-  ("p4", p4),
-  ("p5", p5),
-  ("p6", p6),
-  ("p9", p9),
-  ("p10", p10),
-  ("p11", p11)] ++
+    ("p1", p1),
+    ("p2", p2),
+    ("p3", p3),
+    ("p4", p4),
+    ("p5", p5),
+    ("p6", p6),
+    ("p9", p9),
+    ("p10", p10),
+    ("p11", p11)]
 
-  [("pvt", testPVT)]
 
 bad_cases :: [CExpr]
 bad_cases = [b1, b2]

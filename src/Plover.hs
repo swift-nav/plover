@@ -3,6 +3,8 @@ module Plover
   , module Plover.Types
   , module Plover.Reduce
   , module Plover.Compile
+  -- TODO remove
+  , module Plover.Main
   ) where
 
 import Plover.Macros
