@@ -3,6 +3,7 @@ module Plover.Compile
   , compileLib
   , testWithGcc
   , printExpr
+  , runM
   ) where
 
 import Control.Monad.Trans.Either
@@ -26,12 +27,11 @@ wrapExterns e = do
 --compileExpr :: M CExpr -> Either Error String
 --compileLine :: CExpr -> Either Error String
 
-compileProgram :: Bool -> M CExpr -> Either Error String
-compileProgram reduce expr = do
+compileProgram :: [String] -> M CExpr -> Either Error String
+compileProgram includes expr = do
   expr' <- fst . runM $ compile =<< wrapExterns expr
-  let expr'' = (if reduce then reduceArith else id) expr'
-  program <- flatten expr''
-  return $ ppProgram $ Block [Include "extern_defs.h", program]
+  program <- flatten expr'
+  return $ ppProgram $ Block (map Include includes ++ [program])
 
 printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
@@ -39,7 +39,7 @@ printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
 -- TODO handle numeric simplification better
 main' :: M CExpr -> IO ()
 main' m = 
-  case compileProgram False m of
+  case compileProgram [] m of
     Left err -> printFailure err
     Right str -> putStrLn str
 
@@ -53,11 +53,11 @@ printOutput mp =
       putStrLn p
 
 printExpr :: CExpr -> IO ()
-printExpr expr = printOutput (compileProgram False (return expr))
+printExpr expr = printOutput (compileProgram [] (return expr))
 
-writeProgram :: FilePath -> M CExpr -> IO ()
-writeProgram fn expr =
-  let mp = compileProgram False expr in
+writeProgram :: FilePath -> [String] -> M CExpr -> IO ()
+writeProgram fn includes expr =
+  let mp = compileProgram includes expr in
   case mp of
     Left err -> printFailure err
     Right p -> do
@@ -81,7 +81,7 @@ execGcc fp =  do
 -- See test/Main.hs for primary tests
 testWithGcc :: M CExpr -> IO (Maybe TestingError)
 testWithGcc expr =
-  case compileProgram False expr of
+  case compileProgram ["extern_defs.c"] expr of
     Left err -> return $ Just (CompileError err)
     Right p -> do
       let fp = "testing/compiler_output.c"
@@ -100,11 +100,11 @@ generateLib fns =
     fix (name, fntype, def) = (ForwardDecl name fntype, FnDef name fntype def)
 
 -- Adds .h, .c to given filename
-compileLib :: FilePath -> [(Variable, FunctionType CExpr, CExpr)] -> IO ()
-compileLib filename defs =
+compileLib :: FilePath -> [String] -> [(Variable, FunctionType CExpr, CExpr)] -> IO ()
+compileLib filename includes defs =
   let (decls, defExpr) = generateLib defs
       stuff = do
-        cout <- compileProgram False (return defExpr)
+        cout <- compileProgram includes (return defExpr)
         let hout = ppProgram (Block decls)
         return (hout, cout)
   in

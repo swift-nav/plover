@@ -20,7 +20,7 @@ flatten (a :> b) = do
   a' <- flatten a
   b' <- flatten b
   return $ mergeBlocks a' b'
-flatten (n := val) = return $ Store n val
+flatten (n := val) = return $ Store (R n) val
 flatten (Ext _ _) = return EmptyLine
 flatten e@(Free (App _ _)) = return $ LineExpr e
 flatten e@(Free (AppImpl _ _ _)) = return $ LineExpr e

@@ -1,8 +1,8 @@
-{-# LANGUAGE PatternSynonyms #-}
+{-#s LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
    -- TODO
-  ( compile, reduceArith
+  ( compile, reduceArith, typeCheck
   )
   where
 
@@ -58,22 +58,29 @@ numericEquiv :: CExpr -> CExpr -> Bool
 numericEquiv = (==) `on` reduceArith
 
 -- Type Checking
+isDefined :: Variable -> M Bool
+isDefined var = do
+  (_, env) <- get
+  case lookup var env of
+    Nothing -> return False
+    Just _ -> return True
+
 varType :: Variable -> M Type
 varType var = do
   (_, env) <- get
   case lookup var env of
     -- TODO infer types?
-    Nothing -> left $ "undefined var: " ++ var ++ "\n" ++ show env
+    Nothing -> left $ "undefined var: " ++ var ++ "\n" ++ unlines (map show env)
     --Nothing -> return numType
     Just t -> return t
 
 assert :: Bool -> Error -> M ()
 assert cond msg = if cond then return () else left msg
 
-withBinding :: Variable -> Type -> M a -> M a
-withBinding var t m = do
+withBindings :: [(Variable, Type)] -> M a -> M a
+withBindings bindings m = do
   (_, env0) <- get
-  extend var t
+  mapM_ (uncurry extend) bindings
   a <- m
   modify $ \(c, _) -> (c, env0)
   return a
@@ -95,39 +102,42 @@ walk bs (R v) =
     Just val -> val
 walk bs e = e
 
-unifyExpr :: Bindings -> CExpr -> CExpr -> M Bindings
-unifyExpr bs = unifyExpr' bs `on` walk bs
+-- Whether to treat R's as variables to be bound or as function arguments
+data UnifyMethod = Extend | Universal
 
-unifyExpr' :: Bindings -> CExpr -> CExpr -> M Bindings
-unifyExpr' bs (R v) x = return $ (v, x) : bs
-unifyExpr' bs x y = do
+unifyExpr :: UnifyMethod -> Bindings -> CExpr -> CExpr -> M Bindings
+unifyExpr u bs = unifyExpr' u bs `on` walk bs
+
+unifyExpr' :: UnifyMethod -> Bindings -> CExpr -> CExpr -> M Bindings
+unifyExpr' Extend bs (R v) x = return $ (v, x) : bs
+unifyExpr' _ bs x y = do
   assert (x `numericEquiv` y) $ "unifyExpr failure:\n" ++ sep x y
   return bs
 
-unifyT :: Bindings -> Type -> Type -> M Bindings
-unifyT bs (ExprType d1) (ExprType d2) =
-  unifyMany bs (map Dimension d1) (map Dimension d2)
-unifyT bs (FnType (FnT _ params1 out1)) (FnType (FnT _ params2 out2)) = do
-  bs' <- unifyT bs out1 out2
-  unifyMany bs' (map snd params1) (map snd params2)
-unifyT bs (Dimension d1) (Dimension d2) = do
-  unifyExpr bs d1 d2
-unifyT bs Void Void = return bs
-unifyT bs StringType StringType = return bs
-unifyT bs IntType IntType = return bs
-unifyT bs e1 e2 = left $ "unification failure:\n" ++ sep e1 e2
+unifyT :: UnifyMethod -> Bindings -> Type -> Type -> M Bindings
+unifyT u bs (ExprType d1) (ExprType d2) =
+  unifyMany u bs (map Dimension d1) (map Dimension d2)
+unifyT u bs (FnType (FnT _ params1 out1)) (FnType (FnT _ params2 out2)) = do
+  bs' <- unifyT u bs out1 out2
+  unifyMany u bs' (map snd params1) (map snd params2)
+unifyT u bs (Dimension d1) (Dimension d2) = do
+  unifyExpr u bs d1 d2
+unifyT _ bs Void Void = return bs
+unifyT _ bs StringType StringType = return bs
+unifyT _ bs IntType IntType = return bs
+unifyT _ bs e1 e2 = left $ "unification failure:\n" ++ sep e1 e2
 
-unifyMany :: Bindings -> [Type] -> [Type] -> M Bindings
-unifyMany bs ts1 ts2 = do
+unifyMany :: UnifyMethod -> Bindings -> [Type] -> [Type] -> M Bindings
+unifyMany u bs ts1 ts2 = do
   assert (length ts1 == length ts2) $ "unifyMany failure:\n" ++ sep ts1 ts2
-  foldM (uncurry . unifyT) bs $ zip ts1 ts2
+  foldM (uncurry . unifyT u) bs $ zip ts1 ts2
 
 -- takes fn, args, returns fn applied to correct implict arguments
 getImplicits :: CExpr -> [CExpr] -> M [CExpr]
 getImplicits fn args = do
   FnType (FnT implicits params out) <- typeCheck fn
   argTypes <- mapM typeCheck args
-  bindings <- unifyMany [] (map snd params) argTypes
+  bindings <- unifyMany Extend [] (map snd params) argTypes
   let 
     resolve var =
       case lookup var bindings of
@@ -138,20 +148,14 @@ getImplicits fn args = do
 
 -- Typecheck --
 typeCheck :: CExpr -> M Type
-typeCheck ((R var) := b) = do
+typeCheck e@(var := b) = do
   t <- typeCheck b
   extend var t
   return Void
--- TODO this isn't checking what I want
-typeCheck (a := b) = do
+typeCheck e@(a :< b) = do
   tl <- typeCheck a
   tr <- typeCheck b
-  unifyT [] tl tr
-  return Void
-typeCheck (a :< b) = do
-  tl <- typeCheck a
-  tr <- typeCheck b
-  unifyT [] tl tr
+  unifyT Universal [] tl tr
   return Void
 typeCheck (Declare t var) = do
   extend var t
@@ -204,7 +208,7 @@ typeCheck e@(a :* b) = do
       return $ ExprType [b1]
     _ -> error ("product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
 typeCheck (Lam var bound body) = do
-  mt <- withBinding var numType (typeCheck body)
+  mt <- withBindings [(var, numType)] (typeCheck body)
   case mt of
     ExprType btype -> 
       return $ ExprType (bound : btype)
@@ -229,8 +233,9 @@ typeCheck e@(Free (Unary "inverse" m)) = do
   ExprType [rs, cs] <- typeCheck m
   assert (rs `numericEquiv` cs) $ "typeCheck. inverse applied to non-square matrix: " ++ show e
   return $ ExprType [cs, rs]
-typeCheck e@(FnDef var t _) = do
+typeCheck e@(FnDef var t@(FnT implicits params _) body) = do
   extend var (FnType t)
+  withBindings (implicits ++ params) $ typeCheck body
   return Void
 typeCheck e@(Free (Extern var t)) = do
   extend var t
@@ -239,11 +244,12 @@ typeCheck e@(Free (Extern var t)) = do
 typeCheck e@(Free (App f args)) = do
   FnType (FnT implicits params out) <- typeCheck f
   argTypes <- mapM typeCheck args
-  bindings <- unifyMany [] (map snd params) argTypes
+  bindings <- unifyMany Extend [] (map snd params) argTypes
   let out' = foldl (\term (var, val) -> fmap (subst var val) term) out bindings
   return $ out'
 typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
 typeCheck (Str _) = return stringType
+typeCheck (Ret _) = return Void
 typeCheck x = error ("typeCheck: " ++ ppExpr Lax x)
 
 
@@ -274,7 +280,7 @@ flattenTerm :: CExpr -> M CExpr
 flattenTerm e | not (compoundVal e) = return e
 flattenTerm e = do
   n <- freshName
-  return $ (R n := e :> R n)
+  return $ (n := e :> R n)
 
 compileMVMul :: CExpr -> (CExpr, CExpr) -> CExpr -> CExpr -> M CExpr
 compileMVMul x (r1, c1) y rows = do
@@ -294,7 +300,7 @@ compileFunctionArgs f args = do
       if compoundVal arg
       then do
         n <- freshName
-        return (\e -> (R n := arg) :> e, fn, (R n) : args)
+        return (\e -> (n := arg) :> e, fn, (R n) : args)
       else return (cont, fn, arg : args)
 
 compoundVal (R _) = False
@@ -351,7 +357,7 @@ compileStep :: Context -> CExpr -> M CExpr
 
 -- Initialization -> Declaration; Assignment
 -- var := b  -->  (Decl type var); (a :< b)
-compileStep _ e@((R var) := b) = do
+compileStep _ e@(var := b) = do
   t <- typeCheck b
   _ <- typeCheck e
   -- TODO remove
@@ -381,8 +387,7 @@ compileStep Top e@(Free (Extern var t)) = do
 
 compileStep Top e@(FnDef var t@(FnT implicits params _) body) = do
   -- TODO include implicits?
-  mapM_ (uncurry extend) (params)
-  body' <- compileStep Top body
+  body' <- withBindings (implicits ++ params) $ compileStep Top body
   return $ (FnDef var t body')
 
 compileStep _ e@(Free (Unary "transpose" m)) = do
@@ -411,10 +416,10 @@ compileStep ctxt e@(x :+ y) = do
       return $ Lam i len1 (x :! (R i) + y :! (R i))
     (_, _) | compoundVal x -> do
       a <- freshName
-      return $ (R a := x) :> (R a :+ y)
+      return $ (a := x) :> (R a :+ y)
     (_, _) | compoundVal y -> do
       b <- freshName
-      return $ (R b := y) :> (x :+ R b)
+      return $ (b := y) :> (x :+ R b)
     (ExprType [], ExprType []) | Lit a <- x, Lit b <- y -> return $ Lit (a + b)
     (ExprType [], ExprType []) -> do
       x' <- compileStep ctxt x
@@ -449,10 +454,10 @@ compileStep ctxt e@(x :* y) = do
     (v@(ExprType (len : _)), ExprType []) -> scale y x len
     (_, _) | compoundVal x -> do
       a <- freshName
-      return $ (R a := x) :> (R a :* y)
+      return $ (a := x) :> (R a :* y)
     (_, _) | compoundVal y -> do
       b <- freshName
-      return $ (R b := y) :> (x :* R b)
+      return $ (b := y) :> (x :* R b)
     (ExprType [], ExprType []) | Lit a <- x, Lit b <- y -> return $ Lit (a * b)
     (ExprType [], ExprType []) -> do
       x' <- compileStep ctxt x
@@ -473,10 +478,10 @@ compileStep ctxt e@(x :/ y) = do
       return $ Lam i len ((x :! (R i)) :/ y)
     (ExprType [], ExprType []) | compoundVal x -> do
       a <- freshName
-      return $ (R a := x) :> (R a :/ y)
+      return $ (a := x) :> (R a :/ y)
     (ExprType [], ExprType []) | compoundVal y -> do
       b <- freshName
-      return $ (R b := y) :> (x :/ R b)
+      return $ (b := y) :> (x :/ R b)
     (ExprType [], ExprType []) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
@@ -511,17 +516,17 @@ compileStep _ (a :< (Sig vec)) = do
 -- a :< Vec i b_i  -->  Vec (a + i :< b_i)
 compileStep ctxt (a :< (Lam var r body)) = do
   let lhs = a :! (R var)
-  rhs <- withBinding var numType $ compileStep RHS body
+  rhs <- withBindings [(var, numType)] $ compileStep RHS body
   return $ Lam var r (lhs :< rhs)
   --return $ Lam var r (lhs :< body)
 
 -- Lift compound values before (a :< Vector) wraps vector body in a loop
 compileStep _ (a :< (b :* c)) | compoundVal b = do
   n <- freshName
-  return $ (R n := b) :> (a :< R n :* c)
+  return $ (n := b) :> (a :< R n :* c)
 compileStep _ (a :< (b :* c)) | compoundVal c = do
   n <- freshName
-  return $ (R n := c) :> (a :< b :* R n)
+  return $ (n := c) :> (a :< b :* R n)
 
 -- Vector assignment, reduction on RHS
 compileStep ctxt (a :< b) = do
@@ -543,7 +548,7 @@ compileStep ctxt e@(Neg x) = do
   case tx of
     ExprType [] | compoundVal x -> do
       a <- freshName
-      return $ (R a := x) :> (Neg (R a))
+      return $ (a := x) :> (Neg (R a))
     ExprType [] -> do
       x' <- compileStep ctxt x
       return $ Neg x'
@@ -584,7 +589,7 @@ compileStep _ e@(Lam var (Lit 1) body) = do
 -- Reduction within a Vec
 -- Vec i x  -->  Vec i x
 compileStep ctxt (Lam var r body) = do
-  body' <- withBinding var numType $ compileStep ctxt body
+  body' <- withBindings [(var, numType)] $ compileStep ctxt body
   return $ Lam var r body'
 
 -- Sequencing

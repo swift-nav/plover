@@ -33,7 +33,7 @@ data Expr a
   | Sigma a
 
   | Decl (Type' a) Variable
-  | Init a a
+  | Init Variable a
   | Assign a a
   | Seq a a
   | Return a

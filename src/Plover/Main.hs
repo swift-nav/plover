@@ -8,4 +8,4 @@ import Plover.Compile (writeProgram)
 import Plover.Expressions (testPVT)
 
 main :: IO ()
-main = writeProgram "pvt_gen.c" testPVT
+main = writeProgram "pvt_gen.c" ["extern_defs.c"] testPVT

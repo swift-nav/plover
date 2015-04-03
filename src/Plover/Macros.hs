@@ -47,10 +47,10 @@ generateTestArguments fnName (FnT implicits params output) = do
   
   where
     pValue (var, IntType) =
-      return $ R var := (Call "randInt")
+      return $ var := (Call "randInt")
     pValue (var, ExprType ds) = do
       rhs <- vec ds
-      return $ R var := rhs
+      return $ var := rhs
     vec [] = return $ Call "randFloat"
     vec (d : ds) = do
       n <- freshName

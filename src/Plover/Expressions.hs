@@ -109,7 +109,19 @@ p11 = seqList [
 p12 = seqList [
   FnDef "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
     "z" := "x" * "y",
-    Ret "z"]
+    Ret "z"],
+  Free $ App "foo" [2, 3]
+ ]
+
+p13 = seqList [
+  "x" := l2,
+  "x" :< l1
+ ]
+
+p14 = seqList [
+  FnDef "test" (FnT [] [("x", ExprType [1,1])] Void) $ seqList [
+    "x" :< l1
+    ]
  ]
 
 -- Test cases that fail
@@ -149,7 +161,7 @@ pvtSig = FnT
       ,("pseudo", ExprType [R "n_used"])
       ,("rx_state", ExprType [3])
       ,("correction", ExprType [4])
-      ,("G", ExprType ["n_used", 4])
+      ,("G", ExprType ["n_used", (3+1)])
       ,("X", ExprType [4, "n_used"])
       ]
   , ft_out = Void
@@ -168,7 +180,7 @@ pvtDef :: (Variable, FunctionType CExpr, CExpr)
 pvtDef = ("pvt", pvtSig, pvtBody)
 
 pvt :: CExpr
-pvt = FnDef "pvt" pvtSig $ pvtBody
+pvt = FnDef "pvt" pvtSig pvtBody
 
 testPVT = do
   -- Generate random arguments, call "pvt" defined above
