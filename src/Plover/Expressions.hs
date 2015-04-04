@@ -1,5 +1,3 @@
--- TODO move pvt from this library into libswiftnav
---   - generate header file
 -- Various expressions and testing utilities --
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Expressions where
@@ -137,6 +135,7 @@ f1 = seqList [
  ]
 
 -- The PVT Example --
+-- Current version will live in libswiftnav repository
 decls :: CExpr
 decls = seqList [
   Ext "GPS_OMEGAE_DOT" numType,

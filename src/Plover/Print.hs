@@ -86,7 +86,6 @@ ppParam strict (var, t) =
 
 ppVar = id
 ppNumber = "double"
--- TODO generalize
 ppType :: Type -> String
 ppType (ExprType []) = ppNumber
 ppType (ExprType _) = ppNumber ++ " *"
@@ -96,7 +95,6 @@ ppType Void = "void"
 
 ppTypeDecl :: StrictGen -> Type -> (String, String)
 ppTypeDecl _ (Void) = ("void", "")
--- TODO general base type
 ppTypeDecl strict t = printArrayType t
   where
     printVecType (ExprType []) = (ppNumber, "")

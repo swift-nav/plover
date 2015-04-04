@@ -36,7 +36,6 @@ compileProgram includes expr = do
 printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
 
--- TODO handle numeric simplification better
 main' :: M CExpr -> IO ()
 main' m = 
   case compileProgram [] m of

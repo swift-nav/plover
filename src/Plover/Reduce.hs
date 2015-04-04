@@ -1,10 +1,8 @@
 {-#s LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
-   -- TODO
   ( compile, reduceArith, typeCheck
-  )
-  where
+  ) where
 
 import Data.List (intercalate)
 import Data.Monoid hiding (Sum)
@@ -69,9 +67,7 @@ varType :: Variable -> M Type
 varType var = do
   (_, env) <- get
   case lookup var env of
-    -- TODO infer types?
     Nothing -> left $ "undefined var: " ++ var ++ "\n" ++ unlines (map show env)
-    --Nothing -> return numType
     Just t -> return t
 
 assert :: Bool -> Error -> M ()
@@ -88,7 +84,6 @@ withBindings bindings m = do
 vectorTypeEq :: Type -> Type -> Bool
 vectorTypeEq Void Void = True
 vectorTypeEq (ExprType as) (ExprType bs) = and $ zipWith numericEquiv as bs
--- TODO other cases
 
 -- Unify, for type variables
 type Bindings = [(Variable, CExpr)]
@@ -240,7 +235,6 @@ typeCheck e@(FnDef var t@(FnT implicits params _) body) = do
 typeCheck e@(Free (Extern var t)) = do
   extend var t
   return Void
--- TODO 'reverse' next two cases
 typeCheck e@(Free (App f args)) = do
   FnType (FnT implicits params out) <- typeCheck f
   argTypes <- mapM typeCheck args
@@ -360,7 +354,7 @@ compileStep :: Context -> CExpr -> M CExpr
 compileStep _ e@(var := b) = do
   t <- typeCheck b
   _ <- typeCheck e
-  -- TODO remove
+  -- TODO remove/add cleaner instrumentation option
   let debugFlag = False
   let notGenVar ('v' : 'a' : 'r' : _) = False
       notGenVar _ = True
@@ -386,7 +380,6 @@ compileStep Top e@(Free (Extern var t)) = do
   return e
 
 compileStep Top e@(FnDef var t@(FnT implicits params _) body) = do
-  -- TODO include implicits?
   body' <- withBindings (implicits ++ params) $ compileStep Top body
   return $ (FnDef var t body')
 
@@ -405,7 +398,6 @@ compileStep _ e@(Free (Unary "inverse" m)) = do
     R inv]
 
 -- Arithmetic: +, *, /  --
--- TODO combine these
 compileStep ctxt e@(x :+ y) = do
   tx <- typeCheck x
   ty <- typeCheck y
@@ -533,7 +525,7 @@ compileStep ctxt (a :< b) = do
   bt <- typeCheck b
   case bt of
     -- Avoid repeatedly calling inverse
-    -- TODO generalize
+    -- TODO generalize?
     ExprType (len : _) | simpleVal b -> do
       i <- freshName
       let lhs = (a :! (R i))
