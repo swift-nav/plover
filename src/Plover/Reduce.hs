@@ -1,4 +1,4 @@
-{-#s LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
   ( compile, reduceArith, typeCheck
