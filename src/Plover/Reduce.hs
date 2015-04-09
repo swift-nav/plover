@@ -4,7 +4,7 @@ module Plover.Reduce
   ( compile, reduceArith, typeCheck
   ) where
 
-import Data.List (intercalate)
+import Data.List (intercalate, nub)
 import Data.Monoid hiding (Sum)
 import qualified Data.Foldable as F (Foldable, fold)
 import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM, traverse)
@@ -56,19 +56,12 @@ numericEquiv :: CExpr -> CExpr -> Bool
 numericEquiv = (==) `on` reduceArith
 
 -- Type Checking
-isDefined :: Variable -> M Bool
-isDefined var = do
-  (_, env) <- get
-  case lookup var env of
-    Nothing -> return False
-    Just _ -> return True
-
-varType :: Variable -> M Type
-varType var = do
-  (_, env) <- get
-  case lookup var env of
-    Nothing -> left $ "undefined var: " ++ var ++ "\n" ++ unlines (map show env)
-    Just t -> return t
+--isDefined :: Variable -> M Bool
+--isDefined var = do
+--  (_, env) <- get
+--  case lookup var env of
+--    Nothing -> return False
+--    Just _ -> return True
 
 assert :: Bool -> Error -> M ()
 assert cond msg = if cond then return () else left msg
@@ -81,9 +74,13 @@ withBindings bindings m = do
   modify $ \(c, _) -> (c, env0)
   return a
 
-vectorTypeEq :: Type -> Type -> Bool
-vectorTypeEq Void Void = True
-vectorTypeEq (ExprType as) (ExprType bs) = and $ zipWith numericEquiv as bs
+vectorTypeEq :: Type -> Type -> String -> M ()
+vectorTypeEq Void Void _ = return ()
+vectorTypeEq NumType NumType _ = return ()
+vectorTypeEq (VecType as t1) (VecType bs t2) err = do
+  assert (and $ zipWith numericEquiv as bs) err
+  unifyGen t1 t2
+vectorTypeEq _ _ err = left err
 
 -- Unify, for type variables
 type Bindings = [(Variable, CExpr)]
@@ -109,23 +106,49 @@ unifyExpr' _ bs x y = do
   assert (x `numericEquiv` y) $ "unifyExpr failure:\n" ++ sep x y
   return bs
 
+onM f g x y = do
+  x' <- g x
+  y' <- g y
+  f x' y'
+
+unifyType u bs = unifyT u bs `onM` normalizeType
+
 unifyT :: UnifyMethod -> Bindings -> Type -> Type -> M Bindings
-unifyT u bs (ExprType d1) (ExprType d2) =
-  unifyMany u bs (map Dimension d1) (map Dimension d2)
+unifyT u bs (VecType d1 t1) (VecType d2 t2) = do
+  bs' <- unifyMany u bs (map Dimension d1) (map Dimension d2)
+  unifyType u bs' t1 t2
 unifyT u bs (FnType (FnT _ params1 out1)) (FnType (FnT _ params2 out2)) = do
-  bs' <- unifyT u bs out1 out2
+  bs' <- unifyType u bs out1 out2
   unifyMany u bs' (map snd params1) (map snd params2)
 unifyT u bs (Dimension d1) (Dimension d2) = do
   unifyExpr u bs d1 d2
 unifyT _ bs Void Void = return bs
 unifyT _ bs StringType StringType = return bs
 unifyT _ bs IntType IntType = return bs
+unifyT _ bs NumType NumType = return bs
+unifyT _ bs NumType (VecType [] NumType) = return bs
+unifyT _ bs (VecType [] NumType) NumType = return bs
+unifyT u bs t1@(TypedefType _) t2@(TypedefType _) = do
+  t1' <- normalizeType t1
+  t2' <- normalizeType t2
+  unifyType u bs t1' t2'
+unifyT u bs (StructType _ (ST _ fields1)) (StructType _ (ST _ fields2)) = do
+  let (nfs1, ts1) = unzip fields1
+      (nfs2, ts2) = unzip fields2
+  assert (nfs1 == nfs2) $ "unification failure: field names don't match: " ++ sep fields1 fields2
+  unifyMany u bs ts1 ts2
+unifyT u bs (PtrType t1) (PtrType t2) = unifyType u bs t1 t2
 unifyT _ bs e1 e2 = left $ "unification failure:\n" ++ sep e1 e2
 
 unifyMany :: UnifyMethod -> Bindings -> [Type] -> [Type] -> M Bindings
 unifyMany u bs ts1 ts2 = do
   assert (length ts1 == length ts2) $ "unifyMany failure:\n" ++ sep ts1 ts2
-  foldM (uncurry . unifyT u) bs $ zip ts1 ts2
+  foldM (uncurry . unifyType u) bs $ zip ts1 ts2
+
+
+-- Used by typeCheck whenever types should be equal
+unifyGen :: Type -> Type -> M ()
+unifyGen t1 t2 = unifyType Universal [] t1 t2 >> return ()
 
 -- takes fn, args, returns fn applied to correct implict arguments
 getImplicits :: CExpr -> [CExpr] -> M [CExpr]
@@ -141,111 +164,145 @@ getImplicits fn args = do
         Just x -> return x
   mapM (resolve . fst) implicits
 
--- Typecheck --
+numeric NumType = True
+numeric _ = False
+
+numerics NumType NumType = True
+numerics _ _ = False
+
 typeCheck :: CExpr -> M Type
-typeCheck e@(var := b) = do
-  t <- typeCheck b
+typeCheck x = normalizeType =<< typeCheck' x 
+
+-- Typecheck --
+typeCheck' :: CExpr -> M Type
+typeCheck' e@(var := b) = do
+  t <- typeCheck' b
   extend var t
   return Void
-typeCheck e@(a :< b) = do
-  tl <- typeCheck a
-  tr <- typeCheck b
-  unifyT Universal [] tl tr
+typeCheck' e@(a :< b) = do
+  tl <- typeCheck' a
+  tr <- typeCheck' b
+  unifyGen tl tr
   return Void
-typeCheck (Declare t var) = do
+typeCheck' (Declare t var) = do
   extend var t
   return Void
-typeCheck (a :> b) = do
-  typeCheck a
-  typeCheck b
-typeCheck e@(a :# b) = do
-  ta <- typeCheck a
-  tb <- typeCheck b
+typeCheck' (a :> b) = do
+  typeCheck' a
+  typeCheck' b
+typeCheck' e@(a :# b) = do
+  ta <- typeCheck' a
+  tb <- typeCheck' b
   case (ta, tb) of
-    (ExprType (a0 : as), ExprType (b0 : bs)) -> do
+    (VecType (a0 : as) t1, VecType (b0 : bs) t2) -> do
       assert (as == bs) $ "expr concat mismatch: " ++ show e ++ " !! " ++ sep as bs
-      return $ ExprType ((a0 + b0) : as)
-    _ -> error $ "typeCheck :#. " ++ sep ta tb ++ "\n" ++ sep a b
-typeCheck e@(a :+ b) = do
-  typeA <- typeCheck a
-  typeB <- typeCheck b
+      unifyGen t1 t2
+      return $ VecType ((a0 + b0) : as) t1
+    _ -> error $ "typeCheck' :#. " ++ sep ta tb ++ "\n" ++ sep a b
+typeCheck' e@(a :+ b) = do
+  typeA <- typeCheck' a
+  typeB <- typeCheck' b
   case (typeA, typeB) of
     -- TODO check lengths
     -- These are for pointer offsets
-    (ExprType (_ : _), ExprType []) -> return typeA
-    (ExprType [], ExprType (_ : _)) -> return typeB
+    (VecType (_ : _) _, NumType) -> return typeA
+    (NumType, VecType (_ : _) _) -> return typeB
     _ -> do
-      assert (vectorTypeEq typeA typeB) $ "vector sum mismatch:\n" ++ sep typeA typeB ++ "\n" ++ sep a b
+      vectorTypeEq typeA typeB $ "vector sum mismatch:\n" ++
+        sep typeA typeB ++ "\n" ++ sep a b
       return typeA
-typeCheck e@(a :/ b) = do
-  typeA <- typeCheck a
-  typeB <- typeCheck b
+typeCheck' e@(a :/ b) = do
+  typeA <- typeCheck' a
+  typeB <- typeCheck' b
   assert (typeB == numType) $ "denominator must be a number: " ++ show e
   return typeA
-typeCheck e@(a :* b) = do
-  typeA <- typeCheck a
-  typeB <- typeCheck b
+typeCheck' e@(a :* b) = do
+  typeA <- typeCheck' a
+  typeB <- typeCheck' b
   case (typeA, typeB) of
-    (ExprType [], _) -> return typeB
-    (_, ExprType []) -> return typeA
-    (ExprType [a0, a1], ExprType [b0, b1]) -> do
+    (NumType, _) -> return typeB
+    (_, NumType) -> return typeA
+    (VecType [a0, a1] n1, VecType [b0, b1] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "matrix product mismatch: " ++ show e
-      return $ ExprType [a0, b1]
-    (ExprType [a0], ExprType [b0]) -> do
+      return $ VecType [a0, b1] n1
+    (VecType [a0] n1, VecType [b0] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
       assert (a0 `numericEquiv` b0) $ "vector product mismatch: " ++ show e
-      return $ ExprType [a0]
-    (ExprType [a0, a1], ExprType [b0]) -> do
+      return $ VecType [a0] n1
+    (VecType [a0, a1] n1, VecType [b0] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "matrix/vector product mismatch:\n" ++
         sep (reduceArith a1) (reduceArith b0) ++ "\n" ++ sep a b
-      return $ ExprType [a0]
-    (ExprType [a1], ExprType [b0, b1]) -> do
+      return $ VecType [a0] n1
+    (VecType [a1] n1, VecType [b0, b1] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "vector/matrix product mismatch: " ++ show e
-      return $ ExprType [b1]
-    _ -> error ("product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
-typeCheck (Lam var bound body) = do
-  mt <- withBindings [(var, numType)] (typeCheck body)
-  case mt of
-    ExprType btype -> 
-      return $ ExprType (bound : btype)
+      return $ VecType [b1] n1
+    _ -> error ("improper product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
+typeCheck' (Lam var bound body) = do
+  t <- withBindings [(var, numType)] (typeCheck' body)
+  case t of
+    VecType bs bt -> 
+      return $ VecType (bound : bs) bt
     Void -> return Void
-typeCheck (R var) = varType var
-typeCheck (Free (IntLit _)) = return numType
-typeCheck (a :! b) = do
-  ExprType [] <- typeCheck b
-  ta <- typeCheck a
+    _ -> return $ VecType [bound] t
+typeCheck' (R var) = varType var
+typeCheck' (Free (IntLit _)) = return numType
+typeCheck' (a :! b) = do
+  NumType <- typeCheck' b
+  ta <- typeCheck' a
   case ta of
-    ExprType (_ : as) ->
-      return $ ExprType as
+    VecType [_] t -> return t
+    VecType (_ : as) t ->
+      return $ VecType as t
     _ -> error $ "LOOK: " ++ sep a b
-typeCheck (Free (Sigma body)) = do
-  ExprType (_ : as) <- typeCheck body
-  return $ ExprType as
-typeCheck (Neg x) = typeCheck x
-typeCheck (Free (Unary "transpose" m)) = do
-  ExprType [rs, cs] <- typeCheck m
-  return $ ExprType [cs, rs]
-typeCheck e@(Free (Unary "inverse" m)) = do
-  ExprType [rs, cs] <- typeCheck m
-  assert (rs `numericEquiv` cs) $ "typeCheck. inverse applied to non-square matrix: " ++ show e
-  return $ ExprType [cs, rs]
-typeCheck e@(FnDef var t@(FnT implicits params _) body) = do
+typeCheck' (Free (Sigma body)) = do
+  VecType (_ : as) t <- typeCheck' body
+  return $ VecType as t
+typeCheck' (Neg x) = typeCheck' x
+typeCheck' (Free (Unary "transpose" m)) = do
+  VecType [rs, cs] t <- typeCheck' m
+  return $ VecType [cs, rs] t
+typeCheck' e@(Free (Unary "inverse" m)) = do
+  -- TODO replace with case
+  VecType [rs, cs] t <- typeCheck' m
+  assert (rs `numericEquiv` cs) $ "typeCheck'. inverse applied to non-square matrix: " ++ show e
+  return $ VecType [cs, rs] t
+typeCheck' e@(FnDef var t@(FnT implicits params _) body) = do
   extend var (FnType t)
-  withBindings (implicits ++ params) $ typeCheck body
+  withBindings (implicits ++ params) $ typeCheck' body
   return Void
-typeCheck e@(Free (Extern var t)) = do
+typeCheck' e@(Free (Extern var t)) = do
   extend var t
   return Void
-typeCheck e@(Free (App f args)) = do
-  FnType (FnT implicits params out) <- typeCheck f
-  argTypes <- mapM typeCheck args
+typeCheck' e@(Free (App f args)) = do
+  FnType (FnT implicits params out) <- typeCheck' f
+  argTypes <- mapM typeCheck' args
   bindings <- unifyMany Extend [] (map snd params) argTypes
   let out' = foldl (\term (var, val) -> fmap (subst var val) term) out bindings
   return $ out'
-typeCheck (Free (AppImpl f _ args)) = typeCheck (Free (App f args))
-typeCheck (Str _) = return stringType
-typeCheck (Ret _) = return Void
-typeCheck x = error ("typeCheck: " ++ ppExpr Lax x)
-
+typeCheck' (Free (AppImpl f _ args)) = typeCheck' (Free (App f args))
+typeCheck' (Str _) = return stringType
+typeCheck' (Ret _) = return Void
+typeCheck' (Free (StructDecl name tp)) = do
+  extendTypedef name (StructType name tp)
+  let fields = map fst $ st_fields tp
+  assert (length (nub fields) == length fields) $
+    "typeCheck'. struct declaration fields are not unique: " ++ show tp
+  return Void
+typeCheck' (s :. f) = do
+  t <- typeCheck s
+  case t of
+    StructType _ (ST _ fieldTypes) -> do
+      case lookup f fieldTypes of
+        Just t -> return t
+        Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
+          ++ sep f fieldTypes
+    _ -> error $ "typeCheck'. not a struct: " ++ sep s t
+--typeCheck' (s :-> f) = do
+--  PtrType (StructType (ST fieldTypes)) <- typeCheck' s
+--  case lookup f fieldTypes of
+--    Just t -> return t
+--    Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
+--      ++ sep f fieldTypes
+typeCheck' x = error ("typeCheck': " ++ ppExpr Lax x)
 
 -- Compilation Utils --
 -- TODO capture
@@ -359,7 +416,7 @@ compileStep _ e@(var := b) = do
   let notGenVar ('v' : 'a' : 'r' : _) = False
       notGenVar _ = True
   post <- case t of
-            ExprType _ | debugFlag && notGenVar var ->
+            VecType _ _ | debugFlag && notGenVar var ->
               do 
                 let pname = "printf" :$ Str (var ++ "\n")
                 p <- generatePrinter var t
@@ -378,22 +435,25 @@ compileStep _ e@(Declare t var) = do
 compileStep Top e@(Free (Extern var t)) = do
   extend var t
   return e
+compileStep Top e@(Free (StructDecl name tp)) = do
+  extendTypedef name (StructType name tp)
+  return e
 
 compileStep Top e@(FnDef var t@(FnT implicits params _) body) = do
   body' <- withBindings (implicits ++ params) $ compileStep Top body
   return $ (FnDef var t body')
 
 compileStep _ e@(Free (Unary "transpose" m)) = do
-  ExprType [rows, cols] <- typeCheck m
+  VecType [rows, cols] _ <- typeCheck m
   i <- freshName
   j <- freshName
   return $ Lam i cols $ Lam j rows $ ((m :! (R j)) :! (R i))
 
 compileStep _ e@(Free (Unary "inverse" m)) = do
-  ExprType [dim, _] <- typeCheck m
+  VecType [dim, _] t <- typeCheck m
   inv <- freshName
   return $ seqList [
-    Declare (ExprType [dim, dim]) inv,
+    Declare (VecType [dim, dim] t) inv,
     Free $ App "inverse" [m, R inv],
     R inv]
 
@@ -403,7 +463,7 @@ compileStep ctxt e@(x :+ y) = do
   ty <- typeCheck y
   case (tx, ty) of
     -- pointwise add
-    (ExprType (len1 : _), ExprType (len2 : _)) -> do
+    (VecType (len1 : _) t1, VecType (len2 : _) t2) | numerics t1 t2 -> do
       i <- freshName
       return $ Lam i len1 (x :! (R i) + y :! (R i))
     (_, _) | compoundVal x -> do
@@ -412,8 +472,8 @@ compileStep ctxt e@(x :+ y) = do
     (_, _) | compoundVal y -> do
       b <- freshName
       return $ (b := y) :> (x :+ R b)
-    (ExprType [], ExprType []) | Lit a <- x, Lit b <- y -> return $ Lit (a + b)
-    (ExprType [], ExprType []) -> do
+    (NumType, NumType) | Lit a <- x, Lit b <- y -> return $ Lit (a + b)
+    (NumType, NumType) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
       return $ x' + y'
@@ -429,29 +489,25 @@ compileStep ctxt e@(x :* y) = do
   case (tx, ty) of
     -- Matrix product
     -- m × n  -->  Vec i (Vec j (∑ (Vec k (m i k * n k j))))
-    (ExprType [r1, c1], ExprType [r2, c2]) ->
+    (VecType [r1, c1] _, VecType [r2, c2] _) ->
       compileMMMul x (r1, c1) y (r2, c2)
     -- matrix/vector vector/matrix products
-    (ExprType [r1, c1], ExprType [r2]) ->
+    (VecType [r1, c1] _, VecType [r2] _) ->
       compileMVMul x (r1, c1) y r2
-    -- TODO
-    --(ExprType [c1], ExprType [r2, c2]) ->
-    --  compileMMMul x (r1, c1) y (r2, c2)
-    -- pointwise multiply
-    (ExprType (len1 : _), ExprType (len2 : _)) -> do
+    (VecType (len1 : _) _, VecType (len2 : _) _) -> do
       assert (len1 == len2) $ "product length mismatch: " ++ show e
       i <- freshName
       return $ Lam i len1 (x :! (R i) :* y :! (R i))
-    (ExprType [], v@(ExprType (len : _))) -> scale x y len
-    (v@(ExprType (len : _)), ExprType []) -> scale y x len
+    (NumType, v@(VecType (len : _) _)) -> scale x y len
+    (v@(VecType (len : _) _), NumType) -> scale y x len
     (_, _) | compoundVal x -> do
       a <- freshName
       return $ (a := x) :> (R a :* y)
     (_, _) | compoundVal y -> do
       b <- freshName
       return $ (b := y) :> (x :* R b)
-    (ExprType [], ExprType []) | Lit a <- x, Lit b <- y -> return $ Lit (a * b)
-    (ExprType [], ExprType []) -> do
+    (NumType, NumType) | Lit a <- x, Lit b <- y -> return $ Lit (a * b)
+    (NumType, NumType) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
       return $ x' * y'
@@ -465,16 +521,16 @@ compileStep ctxt e@(x :/ y) = do
   ty <- typeCheck y
   case (tx, ty) of
     -- pointwise div
-    (ExprType (len : _), ExprType []) -> do
+    (VecType (len : _) _, NumType) -> do
       i <- freshName
       return $ Lam i len ((x :! (R i)) :/ y)
-    (ExprType [], ExprType []) | compoundVal x -> do
+    (NumType, NumType) | compoundVal x -> do
       a <- freshName
       return $ (a := x) :> (R a :/ y)
-    (ExprType [], ExprType []) | compoundVal y -> do
+    (NumType, NumType) | compoundVal y -> do
       b <- freshName
       return $ (b := y) :> (x :/ R b)
-    (ExprType [], ExprType []) -> do
+    (NumType, NumType) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
       return $ x' / y'
@@ -483,7 +539,7 @@ compileStep ctxt e@(x :/ y) = do
 -- Juxtaposition
 -- a :< u # v  -->  (a :< u); (a + size u :< v)
 compileStep _ (a :< u :# v) = do
-  ExprType (offset : _) <- typeCheck u
+  VecType (offset : _) _ <- typeCheck u
   -- TODO (a + offset) will always be wrapped by an index operation?
   return $ (a :< u) :> ((a + offset) :< v)
 
@@ -498,7 +554,7 @@ compileStep _ (a :< (u :> v)) = do
 -- a :< ∑ (Vec i y_i)  -->  (a :< 0); (Vec i (a :< a + y_i))
 compileStep _ (a :< (Sig vec)) = do
   i <- freshName
-  ExprType (len : _) <- typeCheck vec
+  VecType (len : _) _ <- typeCheck vec
   let body = a :< a + (vec :! (R i))
   return $
     (a :< 0) :>
@@ -526,7 +582,7 @@ compileStep ctxt (a :< b) = do
   case bt of
     -- Avoid repeatedly calling inverse
     -- TODO generalize?
-    ExprType (len : _) | simpleVal b -> do
+    VecType (len : _) _ | simpleVal b -> do
       i <- freshName
       let lhs = (a :! (R i))
       return $ Lam i len (lhs :< b :! (R i))
@@ -538,13 +594,13 @@ compileStep ctxt (a :< b) = do
 compileStep ctxt e@(Neg x) = do
   tx <- typeCheck x
   case tx of
-    ExprType [] | compoundVal x -> do
+    NumType | compoundVal x -> do
       a <- freshName
       return $ (a := x) :> (Neg (R a))
-    ExprType [] -> do
+    NumType -> do
       x' <- compileStep ctxt x
       return $ Neg x'
-    ExprType (len : _) -> do
+    VecType (len : _) _ -> do
       i <- freshName
       return $ Lam i len (- (x :! (R i)))
 
@@ -560,8 +616,8 @@ compileStep ctxt@RHS (e@(a :* b) :! ind) = do
   ta <- typeCheck a
   tb <- typeCheck b
   case (ta, tb) of
-    (ExprType [len1], ExprType [len2]) -> return $ (a :! ind) * (b :! ind)
-    (ExprType [], ExprType []) -> return $ (a :! ind) * (b :! ind)
+    (VecType [len1] _, VecType [len2] _) -> return $ (a :! ind) * (b :! ind)
+    (NumType, NumType) -> return $ (a :! ind) * (b :! ind)
     _ -> do
       e' <- compileStep ctxt e
       return $ e' :! ind

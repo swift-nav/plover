@@ -28,6 +28,9 @@ flatten e@(FnDef name fd body) = do
   body' <- flatten body
   return $ Function name fd body'
 flatten (Ret x) = return (LineReturn x)
+flatten (Free (StructDecl name (ST External _))) = return EmptyLine
+flatten (Free (StructDecl name (ST Generated fields))) =
+  return $ TypeDefStruct name fields
 flatten x = Left $ "flatten: " ++ show x
 
 mergeBlocks :: Line -> Line -> Line
@@ -46,6 +49,7 @@ ppProgram line = ppLine Strict "" line
 -- Lax: printing will procede even if a term is not fully reduced, using its "Show" method
 -- Strict: requires that the term is fully reduced by compile
 data StrictGen = Strict | Lax
+-- TODO pp monad
 ppLine :: StrictGen -> String -> Line -> String
 ppLine _ _ EmptyLine = ""
 ppLine _ off (Include str) = off ++ "#include \"" ++ str ++ "\"\n"
@@ -76,6 +80,12 @@ ppLine strict off (LineReturn x) =
 ppLine strict off (ForwardDecl name (FnT ps1 ps2 out)) =
   off ++ ppType out ++ " " ++ name ++
     wrapp (intercalate ", " (map (ppParam strict) (ps1 ++ ps2))) ++ lineEnd
+ppLine strict off (TypeDefStruct name fields) =
+  off ++ "typedef struct {\n" ++ 
+    concatMap printField fields ++ 
+  off ++ "} " ++ ppVar name ++ ";\n"
+  where
+    printField p@(name, t) = off ++ "  " ++ ppParam strict p ++ ";\n"
 ppLine _ _ x = error $ "ppline. " ++ show x
 
 lineEnd = ";\n"
@@ -85,26 +95,33 @@ ppParam strict (var, t) =
   pre ++ " " ++ ppVar var ++ post 
 
 ppVar = id
+
 ppNumber = "double"
+
 ppType :: Type -> String
-ppType (ExprType []) = ppNumber
-ppType (ExprType _) = ppNumber ++ " *"
+ppType (NumType) = ppNumber
+ppType (VecType _ t) = ppType t ++ " *"
 ppType (Dimension _) = "int"
 ppType IntType = "int"
+ppType (TypedefType n) = ppVar n
+ppType (StructType name _) = ppVar name
 ppType Void = "void"
+ppType t = error $ "ppType. " ++ show t
 
 ppTypeDecl :: StrictGen -> Type -> (String, String)
 ppTypeDecl _ (Void) = ("void", "")
 ppTypeDecl strict t = printArrayType t
   where
-    printVecType (ExprType []) = (ppNumber, "")
-    printVecType (ExprType es) = (ppNumber, "[" ++ intercalate " * " (map (ppExpr strict) es) ++ "]")
-    printArrayType (ExprType es) = (ppNumber, concatMap printOne es)
+    printArrayType (VecType es t) = (ppType t, concatMap printOne es)
     printArrayType StringType = ("char *", "")
     printArrayType IntType = ("int", "")
+    printArrayType NumType = (ppNumber, "")
+    printArrayType (TypedefType name) = (name, "")
     printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
+
 wrapp s = "(" ++ s ++ ")"
+
 ppExpr :: StrictGen -> CExpr -> String
 ppExpr strict e =
   let pe = ppExpr strict in
@@ -121,6 +138,7 @@ ppExpr strict e =
     (Free (App a args)) -> pe a ++ wrapp (intercalate ", " (map pe args))
     (Free (AppImpl a impls args)) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
     (a :< b) -> error "ppExpr.  :<"
+    (a :. b) -> pe a ++ "." ++ ppVar b
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e
            Lax -> show e

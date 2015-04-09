@@ -8,6 +8,7 @@ import Control.Arrow (second)
 
 import Plover.Types
 import Plover.Macros
+import Plover.Reduce (typeCheck)
 
 -- Simple Test Expressions --
 l1, l2 :: CExpr
@@ -83,11 +84,13 @@ p6 = seqList [
   "x" := l1,
   "x2" := normalize "x"
  ]
+
 p7 = seqList [
   "x" := 1 + 1 + 1,
   "y" := 3,
   "z" := "x" * "y"
  ]
+
 p8 = "x" := rot_small 22
 p9 = seqList [
   "z" := (s (s 1)),
@@ -117,10 +120,26 @@ p13 = seqList [
  ]
 
 p14 = seqList [
-  FnDef "test" (FnT [] [("x", ExprType [1,1])] Void) $ seqList [
+  FnDef "test" (FnT [] [("x", VecType [1,1] NumType)] Void) $ seqList [
     "x" :< l1
     ]
  ]
+
+p15 = seqList [
+  Free $ StructDecl "pair" (ST Generated [("a", numType), ("b", numType)]),
+
+  Declare (TypedefType "pair") "x",
+  Declare (TypedefType "pair") "y",
+
+  ("x" :. "a") :< 0,
+  "y" :< "x"
+ ]
+p16 = seqList
+  [ Free $ StructDecl "pair" (ST Generated [("a", numType), ("b", numType)])
+  , Declare (TypedefType "pair") "x"
+  , Declare (VecType [3] (TypedefType "pair")) "p"
+  , "p" :! 0 :< "x"
+  ]
 
 -- Test cases that fail
 b1, b2 :: CExpr
@@ -153,15 +172,20 @@ losLoop = Lam "j" (R "n_used") $ seqList [
   "xk_new" - "rx_state"
  ]
 
+-- Externally defined (and has additional fields)
+nav_meas_def = Free $ StructDecl "navigation_measurement_t" $ ST
+  External [("pseudorange", numType)]
+
 pvtSig = FnT
   { ft_imp = [("n_used", IntType)]
   , ft_exp =
-      [("sat_pos", ExprType [R "n_used", 3])
-      ,("pseudo", ExprType [R "n_used"])
-      ,("rx_state", ExprType [3])
-      ,("correction", ExprType [4])
-      ,("G", ExprType ["n_used", (3+1)])
-      ,("X", ExprType [4, "n_used"])
+      [("sat_pos", vecType ["n_used", 3])
+      --,("pseudo", vecType ["n_used"])
+      ,("nav_meas", VecType ["n_used"] (TypedefType "navigation_measurement_t"))
+      ,("rx_state", vecType [3])
+      ,("correction", vecType [4])
+      ,("G", vecType ["n_used", (3+1)])
+      ,("X", vecType [4, "n_used"])
       ]
   , ft_out = Void
   }
@@ -169,19 +193,26 @@ pvtSig = FnT
 pvtBody = seqList [
     decls,
     "los" :=  losLoop,
-    "G" :< Lam "j" (R "n_used") (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
-    "omp" := "pseudo" - Lam "j" (R "n_used") (norm ("los" :! "j")),
+    "G" :< Lam "j" "n_used" (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
+
+    -- TODO struct
+    --Declare (vecType ["n_used"]) "pseudo",
+    "pseudo" := (Lam "i" "n_used" $ ("nav_meas" :! "i") :. "pseudorange"),
+
+    "omp" := "pseudo" - Lam "j" "n_used" (norm ("los" :! "j")),
     "X" :< inverse (transpose "G" * "G") * transpose "G",
     "correction" :< "X" * "omp"
  ]
 
-pvtDef :: (Variable, FunctionType CExpr, CExpr)
-pvtDef = ("pvt", pvtSig, pvtBody)
+pvtDef :: FunctionDefinition
+pvtDef = ("pvt", nav_meas_def, pvtSig, pvtBody)
 
 pvt :: CExpr
-pvt = FnDef "pvt" pvtSig pvtBody
+pvt = nav_meas_def :> FnDef "pvt" pvtSig pvtBody
 
 testPVT = do
+  -- Load struct def into context
+  typeCheck nav_meas_def
   -- Generate random arguments, call "pvt" defined above
   test1 <- generateTestArguments "pvt" pvtSig
   -- Print n_used
@@ -208,33 +239,35 @@ testPVT = do
 -- Test cases.
 good_cases :: [(String, M CExpr)]
 good_cases = 
-  [("pvt", testPVT)] ++ 
-  map (second (return . wrapMain)) [
-    ("e", e),
-    ("e0", e0),
-    ("e1", e1),
-    ("e2", e2),
-    ("e3", e3),
-    ("e4", e4),
-    ("e5", e5),
-    ("e6", e6),
-    ("e7", e7),
-    ("e8", e8),
-    ("e9", e9),
-    ("e10", e10),
-    ("e11", e11),
-    ("e12", e12),
+  [ ("pvt", testPVT) ] ++ 
+  map (second (return . wrapMain))
+  [ ("e", e)
+  , ("e0", e0)
+  , ("e1", e1)
+  , ("e2", e2)
+  , ("e3", e3)
+  , ("e4", e4)
+  , ("e5", e5)
+  , ("e6", e6)
+  , ("e7", e7)
+  , ("e8", e8)
+  , ("e9", e9)
+  , ("e10", e10)
+  , ("e11", e11)
+  , ("e12", e12)
 
-    ("p1", p1),
-    ("p2", p2),
-    ("p3", p3),
-    ("p4", p4),
-    ("p5", p5),
-    ("p6", p6),
-    ("p9", p9),
-    ("p10", p10),
-    ("p11", p11)]
-
+  , ("p1", p1)
+  , ("p2", p2)
+  , ("p3", p3)
+  , ("p4", p4)
+  , ("p5", p5)
+  , ("p6", p6)
+  , ("p9", p9)
+  , ("p10", p10)
+  , ("p11", p11)
+  , ("p15", p15)
+  , ("p16", p16)
+  ]
 
 bad_cases :: [CExpr]
 bad_cases = [b1, b2]

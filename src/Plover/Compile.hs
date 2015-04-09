@@ -3,6 +3,7 @@ module Plover.Compile
   , compileLib
   , testWithGcc
   , printExpr
+  , printType
   , runM
   ) where
 
@@ -54,6 +55,9 @@ printOutput mp =
 printExpr :: CExpr -> IO ()
 printExpr expr = printOutput (compileProgram [] (return expr))
 
+printType :: CExpr -> IO ()
+printType expr = printOutput (fmap show $ fst $ runM $ typeCheck expr)
+
 writeProgram :: FilePath -> [String] -> M CExpr -> IO ()
 writeProgram fn includes expr =
   let mp = compileProgram includes expr in
@@ -91,15 +95,15 @@ testWithGcc expr =
         Just output -> return $ Just (GCCError output)
 
 -- Generates .h and .c file
-generateLib :: [(Variable, FunctionType CExpr, CExpr)] -> ([Line], CExpr)
+generateLib :: [FunctionDefinition] -> ([Line], CExpr)
 generateLib fns =
   let (decls, defs) = unzip $ map fix fns
   in (decls, seqList defs)
   where
-    fix (name, fntype, def) = (ForwardDecl name fntype, FnDef name fntype def)
+    fix (name, prefix, fntype, def) = (ForwardDecl name fntype, prefix :> FnDef name fntype def)
 
 -- Adds .h, .c to given filename
-compileLib :: FilePath -> [String] -> [(Variable, FunctionType CExpr, CExpr)] -> IO ()
+compileLib :: FilePath -> [String] -> [FunctionDefinition] -> IO ()
 compileLib filename includes defs =
   let (decls, defExpr) = generateLib defs
       stuff = do
