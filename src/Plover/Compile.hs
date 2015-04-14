@@ -1,6 +1,6 @@
 module Plover.Compile 
   ( writeProgram
-  , compileLib
+  , defaultMain
   , testWithGcc
   , printExpr
   , printType
@@ -100,11 +100,12 @@ generateLib fns =
   let (decls, defs) = unzip $ map fix fns
   in (decls, seqList defs)
   where
-    fix (name, prefix, fntype, def) = (ForwardDecl name fntype, prefix :> FnDef name fntype def)
+    fix (name, prefix, fntype, def) =
+      (ForwardDecl name fntype, prefix :> FunctionDef name fntype def)
 
 -- Adds .h, .c to given filename
-compileLib :: FilePath -> [String] -> [FunctionDefinition] -> IO ()
-compileLib filename includes defs =
+defaultMain :: FilePath -> [String] -> [FunctionDefinition] -> IO ()
+defaultMain filename includes defs =
   let (decls, defExpr) = generateLib defs
       stuff = do
         cout <- compileProgram includes (return defExpr)
@@ -115,3 +116,4 @@ compileLib filename includes defs =
       Right (hout, cout) -> do
         writeFile (filename ++ ".c") cout
         writeFile (filename ++ ".h") hout
+

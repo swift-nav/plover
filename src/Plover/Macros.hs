@@ -6,18 +6,19 @@ import Control.Monad.Free
 import Plover.Types
 
 -- Sequence a list of CExprs
+-- TODO add a noop to Expr so this is total
 seqList :: [CExpr] -> CExpr
 seqList es = foldr1 (:>) es
 
 -- Vector norm
 norm :: CExpr -> CExpr
-norm x = "sqrt" :$ (Sig (x * x))
+norm x = "sqrt" :$ (Sigma (x * x))
 
 normalize :: CExpr -> CExpr
 normalize x = x / norm x
 
-transpose m = Free (Unary "transpose" m)
-inverse m = Free (Unary "inverse" m)
+transpose m = (Unary "transpose" m)
+inverse m = (Unary "inverse" m)
 
 -- TODO better dense matrix notation
 rot_small :: CExpr -> CExpr
@@ -28,20 +29,20 @@ rot_small x =
 
 -- Make a length 1 vector to hold the argument
 s :: CExpr -> CExpr
-s x = Lam "i" 1 x
+s x = Vec "i" 1 x
 
 -- Wrap an expression in a main function
-wrapMain = FnDef "main" (FnT [] [] IntType)
+wrapMain = FunctionDef "main" (FnT [] [] IntType)
 
 -- Print a string with newlines
-newline s = "printf" :$ (Str $ "\n" ++ s ++ "\n")
+newline s = "printf" :$ (StrLit $ "\n" ++ s ++ "\n")
 
 generateTestArguments :: Variable -> FunctionType -> M CExpr
 generateTestArguments fnName (FnT implicits params output) = do
   is <- mapM pBind implicits
   es <- mapM pBind params
   let decls = seqList (is ++ es)
-      call = Free (App (R fnName) (map (R . fst) params))
+      call = (App (Ref fnName) (map (Ref . fst) params))
   return (decls :> call)
   
   where
@@ -57,9 +58,9 @@ generateTestArguments fnName (FnT implicits params output) = do
       let decl = Declare t n
       StructType _ (ST _ fields) <- normalizeType t
       fs <- mapM pBind fields
-      let bs = map (\f -> (R n :. f) :< R f) (map fst fields)
+      let bs = map (\f -> (Ref n :. f) :<= Ref f) (map fst fields)
       return $ seqList $
-        [ decl ] ++ fs ++ bs ++ [ R n ]
+        [ decl ] ++ fs ++ bs ++ [ Ref n ]
     pValue (VecType ds t) = do
       body <- pValue t
       vec ds body
@@ -67,13 +68,13 @@ generateTestArguments fnName (FnT implicits params output) = do
     vec (d : ds) b = do
       n <- freshName
       body <- vec ds b
-      return $ Lam n d body
+      return $ Vec n d body
 
 generatePrinter :: Variable -> Type -> M CExpr
 generatePrinter var (VecType ds NumType) = do
   names <- mapM (\_ -> freshName) ds
-  let body = ("printDouble" :$ foldl (:!) (R var) (map R names))
-  let e = foldr (uncurry Lam) body (zip names ds)
+  let body = ("printDouble" :$ foldl (:!) (Ref var) (map Ref names))
+  let e = foldr (uncurry Vec) body (zip names ds)
   return e
 
 testFunction var sig output tp = do
@@ -84,14 +85,14 @@ testFunction var sig output tp = do
 -- The extern file declarations
 
 externs = seqList
- [ Ext "sqrt"        (FnType $ fnT [numType] numType)
- , Ext "inverse"     (FnType $ FnT [("n", IntType)]
-                                   [("input", VecType [R "n", R "n"] NumType),
-                                    ("output", VecType [R "n", R "n"] NumType)]
+ [ Extern "sqrt"        (FnType $ fnT [numType] numType)
+ , Extern "inverse"     (FnType $ FnT [("n", IntType)]
+                                   [("input", VecType [Ref "n", Ref "n"] NumType),
+                                    ("output", VecType [Ref "n", Ref "n"] NumType)]
                                    Void)
- , Ext "randFloat"       (FnType $ fnT [] numType)
- , Ext "randInt"       (FnType $ fnT [] IntType)
- , Ext "printf"      (FnType $ fnT [stringType] Void)
- , Ext "printDouble" (FnType $ fnT [numType] Void)
- , Ext "printInt" (FnType $ fnT [IntType] Void)
+ , Extern "randFloat"       (FnType $ fnT [] numType)
+ , Extern "randInt"       (FnType $ fnT [] IntType)
+ , Extern "printf"      (FnType $ fnT [stringType] Void)
+ , Extern "printDouble" (FnType $ fnT [numType] Void)
+ , Extern "printInt" (FnType $ fnT [IntType] Void)
  ]

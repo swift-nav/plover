@@ -11,26 +11,27 @@ import Plover.Types
 -- Printing output --
 flatten :: CExpr -> Either Error Line
 flatten (Declare t var) = return $ LineDecl t var
-flatten (Lam var bound body) = do
+flatten (Vec var bound body) = do
   body' <- flatten body
   return $ Each var bound (body')
-flatten (R a :< val) = return $ Store (R a) val
-flatten (n :< val) = return $ Store (n) val
+flatten (Ref a :<= val) = return $ Store (Ref a) val
+flatten (n :<= val) = return $ Store (n) val
 flatten (a :> b) = do
   a' <- flatten a
   b' <- flatten b
   return $ mergeBlocks a' b'
-flatten (n := val) = return $ Store (R n) val
-flatten (Ext _ _) = return EmptyLine
-flatten e@(Free (App _ _)) = return $ LineExpr e
-flatten e@(Free (AppImpl _ _ _)) = return $ LineExpr e
-flatten e@(FnDef name fd body) = do
+flatten (n := val) = return $ Store (Ref n) val
+flatten (Extern _ _) = return EmptyLine
+flatten e@(App _ _) = return $ LineExpr e
+flatten e@(AppImpl _ _ _) = return $ LineExpr e
+flatten e@(FunctionDef name fd body) = do
   body' <- flatten body
   return $ Function name fd body'
-flatten (Ret x) = return (LineReturn x)
-flatten (Free (StructDecl name (ST External _))) = return EmptyLine
-flatten (Free (StructDecl name (ST Generated fields))) =
+flatten (Return x) = return (LineReturn x)
+flatten (StructDecl name (ST External _)) = return EmptyLine
+flatten (StructDecl name (ST Generated fields)) =
   return $ TypeDefStruct name fields
+flatten VoidExpr = return EmptyLine
 flatten x = Left $ "flatten: " ++ show x
 
 mergeBlocks :: Line -> Line -> Line
@@ -129,15 +130,15 @@ ppExpr strict e =
     (a :+ b) -> wrapp $ pe a ++ " + " ++ pe b
     (a :* b) -> wrapp $ pe a ++ " * " ++ pe b
     (a :/ b) -> wrapp $ pe a ++ " / " ++ pe b
-    (R v) -> ppVar v
-    (Lit i) -> show i
-    (Str s) -> show s
+    (Ref v) -> ppVar v
+    (IntLit i) -> show i
+    (StrLit s) -> show s
     (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
-    (DR x) -> "(*(" ++ pe x ++ "))"
-    (Neg x) -> "-(" ++ pe x ++ ")"
-    (Free (App a args)) -> pe a ++ wrapp (intercalate ", " (map pe args))
-    (Free (AppImpl a impls args)) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
-    (a :< b) -> error "ppExpr.  :<"
+    (Deref x) -> "(*(" ++ pe x ++ "))"
+    (Negate x) -> "-(" ++ pe x ++ ")"
+    (App a args) -> pe a ++ wrapp (intercalate ", " (map pe args))
+    (AppImpl a impls args) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
+    (a :<= b) -> error "ppExpr.  :<="
     (a :. b) -> pe a ++ "." ++ ppVar b
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e

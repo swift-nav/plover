@@ -27,42 +27,43 @@ type Variable = String
 -- Input programs are specified in this type, and the
 -- reduction compiler operates on this type.
 data Expr a
-  = Abs Variable a a
-  | Ref Variable
+  = Vec' Variable a a
+  | Ref' Variable
+  | Sigma' a
+
+  | VoidExpr'
+  | IntLit' Int
+  | StrLit' String
+
+  | Declare' (Type) Variable
+  | Return' a
+
+  | FunctionDef' Variable (FunctionType) a
+  | Extern' Variable (Type)
+  | App' a [a]
+  | AppImpl' a [a] [a]
+
+  | Negate' a
+  | Deref' a
+
+  | Unary' Tag a
+  -- | Binary Tag a a
+
+  -- structs
+  | StructDecl' Variable StructType
+
+  -- Operators
   | Index a a
   | Concat a a
-  | Sigma a
-
-  | Decl (Type) Variable
   | Init Variable a
   | Assign a a
   | Seq a a
-  | Return a
-
-  | IntLit Int
-  | StrLit String
-
-  | FunctionDef Variable (FunctionType) a
-  | Extern Variable (Type)
-  | App a [a]
-  | AppImpl a [a] [a]
-
-  -- TODO generalize these?
   | Sum a a
   | Mul a a
   | Div a a
-  | Negate a
-
-  | Unary Tag a
-  | Binary Tag a a
-
-  | Deref a
-
-  -- structs
-  | StructDecl Variable StructType
-
   | StructMemberRef a Variable
   | StructPtrRef a Variable
+
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type CExpr = Free Expr Void
@@ -186,48 +187,52 @@ sep :: (Show a, Show b) => a -> b -> String
 sep s1 s2 = show s1 ++ ", " ++ show s2
 
 -- Syntax
-infix  4 :=, :<
+infix  4 :=, :<=
 infix  5 :$
 infixl 1 :>
 infixl  6 :+, :*
 infixr 6 :#
 infix 7 :!
 infix 8 :., :->
-pattern a :< b = Free (Assign a b)
+pattern Vec a b c = Free (Vec' a b c)
+pattern Ref a = Free (Ref' a)
+pattern Sigma x = Free (Sigma' x)
+pattern VoidExpr = Free VoidExpr'
+pattern IntLit a = Free (IntLit' a)
+pattern StrLit s = Free (StrLit' s)
+pattern Declare t x = Free (Declare' t x)
+pattern Return x = Free (Return' x)
+pattern FunctionDef a b c = Free (FunctionDef' a b c)
+pattern Extern v t = Free (Extern' v t)
+pattern App f args = Free (App' f args)
+pattern a :$ b = Free (App' a [b])
+pattern Call a = Free (App' a [])
+pattern AppImpl a b c = Free (AppImpl' a b c)
+pattern StructDecl a b = Free (StructDecl' a b)
+pattern Negate x = Free (Negate' x)
+pattern Deref a = Free (Deref' a)
+pattern Unary tag x = Free (Unary' tag x)
+pattern a :<= b = Free (Assign a b)
 pattern a := b = Free (Init a b)
 pattern a :# b = Free (Concat a b)
 pattern a :+ b = Free (Sum a b)
 pattern a :* b = Free (Mul a b)
 pattern a :/ b = Free (Div a b)
-pattern Lit a = Free (IntLit a)
-pattern Lam a b c = Free (Abs a b c)
-pattern R a = Free (Ref a)
-pattern DR a = Free (Deref a)
-pattern Sig x = Free (Sigma x)
-pattern Neg x = Free (Negate x)
-pattern Declare t x = Free (Decl t x)
-pattern FnDef a b c = Free (FunctionDef a b c)
-pattern Ret x = Free (Return x)
 pattern a :! b = Free (Index a b)
 pattern a :> b = Free (Seq a b)
-pattern a :$ b = Free (App a [b])
-pattern Call a = Free (App a [])
-pattern Ext v t = Free (Extern v t)
-pattern Str s = Free (StrLit s)
-
 pattern a :-> b = Free (StructPtrRef a b)
 pattern a :. b = Free (StructMemberRef a b)
 
 instance IsString (Free Expr a) where
-  fromString = Free . Ref
+  fromString = Ref
 
 instance Num (Free Expr a) where
-  x * y = Free (Mul x y)
-  x + y = Free (Sum x y)
-  fromInteger x = Free (IntLit $ fromInteger x)
+  x * y = x :* y
+  x + y = x :+ y
+  fromInteger x = (IntLit $ fromInteger x)
   abs = undefined
   signum = undefined
-  negate = Free . Negate
+  negate = Negate
 
 instance Fractional (Free Expr a) where
-  x / y = Free (Div x y)
+  x / y = x :/ y

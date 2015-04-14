@@ -1,4 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Reduce
   ( compile, reduceArith, typeCheck
@@ -28,8 +29,8 @@ import Plover.Macros (seqList, generatePrinter, newline)
 reduceArith = mvisit toExpr step
   where
     scale 1 x = x
-    scale x (Lit 1) = Lit x
-    scale x y = (Lit x) * y
+    scale x (IntLit 1) = IntLit x
+    scale x y = (IntLit x) * y
 
     step = S.simplify scale
 
@@ -42,11 +43,11 @@ reduceArith = mvisit toExpr step
       a' <- toExpr a
       b' <- toExpr b
       return $ S.Mul [a', b']
-    toExpr (Lit i) = return $ S.Prim i
-    toExpr (Neg x) = do
+    toExpr (IntLit i) = return $ S.Prim i
+    toExpr (Negate x) = do
       x' <- toExpr x
       return $ S.Mul [S.Prim (-1), x']
-    toExpr e@(R v) = return $ S.Atom e
+    toExpr e@(Ref v) = return $ S.Atom e
     --toExpr e@(a :! b) = return $ S.Atom e
     toExpr x = Nothing
 
@@ -86,11 +87,11 @@ vectorTypeEq _ _ err = left err
 type Bindings = [(Variable, CExpr)]
 
 walk :: Bindings -> CExpr -> CExpr
-walk bs (R v) =
+walk bs (Ref v) =
   case lookup v bs of
-    Nothing -> R v
-    Just (R v') | v' == v -> R v
-    Just (R v') -> walk bs (R v')
+    Nothing -> Ref v
+    Just (Ref v') | v' == v -> Ref v
+    Just (Ref v') -> walk bs (Ref v')
     Just val -> val
 walk bs e = e
 
@@ -101,7 +102,7 @@ unifyExpr :: UnifyMethod -> Bindings -> CExpr -> CExpr -> M Bindings
 unifyExpr u bs = unifyExpr' u bs `on` walk bs
 
 unifyExpr' :: UnifyMethod -> Bindings -> CExpr -> CExpr -> M Bindings
-unifyExpr' Extend bs (R v) x = return $ (v, x) : bs
+unifyExpr' Extend bs (Ref v) x = return $ (v, x) : bs
 unifyExpr' _ bs x y = do
   assert (x `numericEquiv` y) $ "unifyExpr failure:\n" ++ sep x y
   return bs
@@ -179,7 +180,7 @@ typeCheck' e@(var := b) = do
   t <- typeCheck' b
   extend var t
   return Void
-typeCheck' e@(a :< b) = do
+typeCheck' e@(a :<= b) = do
   tl <- typeCheck' a
   tr <- typeCheck' b
   unifyGen tl tr
@@ -236,15 +237,18 @@ typeCheck' e@(a :* b) = do
       assert (a1 `numericEquiv` b0) $ "vector/matrix product mismatch: " ++ show e
       return $ VecType [b1] n1
     _ -> error ("improper product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
-typeCheck' (Lam var bound body) = do
+typeCheck' (Vec var bound body) = do
   t <- withBindings [(var, numType)] (typeCheck' body)
   case t of
     VecType bs bt -> 
       return $ VecType (bound : bs) bt
     Void -> return Void
     _ -> return $ VecType [bound] t
-typeCheck' (R var) = varType var
-typeCheck' (Free (IntLit _)) = return numType
+typeCheck' (Ref var) = varType var
+typeCheck' (Return _) = return Void
+typeCheck' VoidExpr = return Void
+typeCheck' (IntLit _) = return numType
+typeCheck' (StrLit _) = return stringType
 typeCheck' (a :! b) = do
   NumType <- typeCheck' b
   ta <- typeCheck' a
@@ -253,35 +257,33 @@ typeCheck' (a :! b) = do
     VecType (_ : as) t ->
       return $ VecType as t
     _ -> error $ "LOOK: " ++ sep a b
-typeCheck' (Free (Sigma body)) = do
+typeCheck' (Sigma body) = do
   VecType (_ : as) t <- typeCheck' body
   return $ VecType as t
-typeCheck' (Neg x) = typeCheck' x
-typeCheck' (Free (Unary "transpose" m)) = do
+typeCheck' (Negate x) = typeCheck' x
+typeCheck' (Unary "transpose" m) = do
   VecType [rs, cs] t <- typeCheck' m
   return $ VecType [cs, rs] t
-typeCheck' e@(Free (Unary "inverse" m)) = do
+typeCheck' e@(Unary "inverse" m) = do
   -- TODO replace with case
   VecType [rs, cs] t <- typeCheck' m
   assert (rs `numericEquiv` cs) $ "typeCheck'. inverse applied to non-square matrix: " ++ show e
   return $ VecType [cs, rs] t
-typeCheck' e@(FnDef var t@(FnT implicits params _) body) = do
+typeCheck' e@(FunctionDef var t@(FnT implicits params _) body) = do
   extend var (FnType t)
   withBindings (implicits ++ params) $ typeCheck' body
   return Void
-typeCheck' e@(Free (Extern var t)) = do
+typeCheck' e@(Extern var t) = do
   extend var t
   return Void
-typeCheck' e@(Free (App f args)) = do
+typeCheck' e@(App f args) = do
   FnType (FnT implicits params out) <- typeCheck' f
   argTypes <- mapM typeCheck' args
   bindings <- unifyMany Extend [] (map snd params) argTypes
   let out' = foldl (\term (var, val) -> fmap (subst var val) term) out bindings
   return $ out'
-typeCheck' (Free (AppImpl f _ args)) = typeCheck' (Free (App f args))
-typeCheck' (Str _) = return stringType
-typeCheck' (Ret _) = return Void
-typeCheck' (Free (StructDecl name tp)) = do
+typeCheck' (AppImpl f _ args) = typeCheck' (App f args)
+typeCheck' (StructDecl name tp) = do
   extendTypedef name (StructType name tp)
   let fields = map fst $ st_fields tp
   assert (length (nub fields) == length fields) $
@@ -296,6 +298,7 @@ typeCheck' (s :. f) = do
         Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
           ++ sep f fieldTypes
     _ -> error $ "typeCheck'. not a struct: " ++ sep s t
+--TODO
 --typeCheck' (s :-> f) = do
 --  PtrType (StructType (ST fieldTypes)) <- typeCheck' s
 --  case lookup f fieldTypes of
@@ -309,7 +312,7 @@ typeCheck' x = error ("typeCheck': " ++ ppExpr Lax x)
 subst :: Variable -> CExpr -> CExpr -> CExpr
 subst var val v = visit fix v
   where
-    fix (R v) | v == var = val
+    fix (Ref v) | v == var = val
     fix v = v
 
 compileMMMul :: CExpr -> (CExpr, CExpr) -> CExpr -> (CExpr, CExpr) -> M CExpr
@@ -319,11 +322,11 @@ compileMMMul x (r1, c1) y (r2, c2) = do
   j <- freshName
   x' <- flattenTerm x
   y' <- flattenTerm y
-  xb <- body x' (R i) (R inner)
-  yb <- body y' (R inner) (R j)
+  xb <- body x' (Ref i) (Ref inner)
+  yb <- body y' (Ref inner) (Ref j)
   return $
-    Lam i r1 $ Lam j c2 $ Free $ Sigma $ 
-      Lam inner c1 (xb * yb)
+    Vec i r1 $ Vec j c2 $ Sigma $ 
+      Vec inner c1 (xb * yb)
   where
     body vec v1 v2 = return ((vec :! v1) :! v2)
 
@@ -331,32 +334,32 @@ flattenTerm :: CExpr -> M CExpr
 flattenTerm e | not (compoundVal e) = return e
 flattenTerm e = do
   n <- freshName
-  return $ (n := e :> R n)
+  return $ (n := e :> Ref n)
 
 compileMVMul :: CExpr -> (CExpr, CExpr) -> CExpr -> CExpr -> M CExpr
 compileMVMul x (r1, c1) y rows = do
   i <- freshName
   inner <- freshName
   return $
-    Lam i rows $ Free $ Sigma $
-      Lam inner c1 (((x :! (R i)) :! (R inner)) * (y :! (R inner)))
+    Vec i rows $ Sigma $
+      Vec inner c1 (((x :! (Ref i)) :! (Ref inner)) * (y :! (Ref inner)))
 
 compileFunctionArgs f args = do
   (cont, fn, rargs) <- foldM step (id, f, []) args
   implicits <- getImplicits f args
-  return $ cont (Free $ AppImpl fn implicits (reverse rargs))
+  return $ cont (AppImpl fn implicits (reverse rargs))
   where
     --step :: (CExpr -> CExpr, CExpr, [CExpr]) -> CExpr -> M (...)
     step (cont, fn, args) arg =
       if compoundVal arg
       then do
         n <- freshName
-        return (\e -> (n := arg) :> e, fn, (R n) : args)
+        return (\e -> (n := arg) :> e, fn, (Ref n) : args)
       else return (cont, fn, arg : args)
 
-compoundVal (R _) = False
-compoundVal (Free (IntLit _)) = False
-compoundVal (Free (StrLit _)) = False
+compoundVal (Ref _) = False
+compoundVal (IntLit _) = False
+compoundVal (StrLit _) = False
 compoundVal (a :! b) = compoundVal a || compoundVal b
 compoundVal (a :+ b) = compoundVal a || compoundVal b
 compoundVal (a :* b) = compoundVal a || compoundVal b
@@ -365,7 +368,7 @@ compoundVal (a :> b) = compoundVal b
 compoundVal _ = True
 
 
-simpleVal (Free (Unary _ _))  = False
+simpleVal (Unary _ _)  = False
 simpleVal (a :! b) = simpleVal a && simpleVal b
 simpleVal (a :+ b) = simpleVal a && simpleVal b
 simpleVal (a :* b) = simpleVal a && simpleVal b
@@ -407,7 +410,7 @@ data Context = Top | LHS | RHS
 compileStep :: Context -> CExpr -> M CExpr
 
 -- Initialization -> Declaration; Assignment
--- var := b  -->  (Decl type var); (a :< b)
+-- var := b  -->  (Decl type var); (a :<= b)
 compileStep _ e@(var := b) = do
   t <- typeCheck b
   _ <- typeCheck e
@@ -418,44 +421,44 @@ compileStep _ e@(var := b) = do
   post <- case t of
             VecType _ _ | debugFlag && notGenVar var ->
               do 
-                let pname = "printf" :$ Str (var ++ "\n")
+                let pname = "printf" :$ StrLit (var ++ "\n")
                 p <- generatePrinter var t
                 return [pname, p, newline ""]
             _ -> return []
 
   return $ seqList $
     [ Declare t var
-    , (R var) :< b
+    , (Ref var) :<= b
     ] ++ post
 
 -- Keep type environment "current" while compiling
 compileStep _ e@(Declare t var) = do
   extend var t
   return e
-compileStep Top e@(Free (Extern var t)) = do
+compileStep Top e@(Extern var t) = do
   extend var t
   return e
-compileStep Top e@(Free (StructDecl name tp)) = do
+compileStep Top e@(StructDecl name tp) = do
   extendTypedef name (StructType name tp)
   return e
 
-compileStep Top e@(FnDef var t@(FnT implicits params _) body) = do
+compileStep Top e@(FunctionDef var t@(FnT implicits params _) body) = do
   body' <- withBindings (implicits ++ params) $ compileStep Top body
-  return $ (FnDef var t body')
+  return $ (FunctionDef var t body')
 
-compileStep _ e@(Free (Unary "transpose" m)) = do
+compileStep _ e@(Unary "transpose" m) = do
   VecType [rows, cols] _ <- typeCheck m
   i <- freshName
   j <- freshName
-  return $ Lam i cols $ Lam j rows $ ((m :! (R j)) :! (R i))
+  return $ Vec i cols $ Vec j rows $ ((m :! (Ref j)) :! (Ref i))
 
-compileStep _ e@(Free (Unary "inverse" m)) = do
+compileStep _ e@(Unary "inverse" m) = do
   VecType [dim, _] t <- typeCheck m
   inv <- freshName
   return $ seqList [
     Declare (VecType [dim, dim] t) inv,
-    Free $ App "inverse" [m, R inv],
-    R inv]
+    App "inverse" [m, Ref inv],
+    Ref inv]
 
 -- Arithmetic: +, *, /  --
 compileStep ctxt e@(x :+ y) = do
@@ -465,14 +468,15 @@ compileStep ctxt e@(x :+ y) = do
     -- pointwise add
     (VecType (len1 : _) t1, VecType (len2 : _) t2) | numerics t1 t2 -> do
       i <- freshName
-      return $ Lam i len1 (x :! (R i) + y :! (R i))
+      return $ Vec i len1 (x :! (Ref i) + y :! (Ref i))
     (_, _) | compoundVal x -> do
       a <- freshName
-      return $ (a := x) :> (R a :+ y)
+      return $ (a := x) :> (Ref a :+ y)
     (_, _) | compoundVal y -> do
       b <- freshName
-      return $ (b := y) :> (x :+ R b)
-    (NumType, NumType) | Lit a <- x, Lit b <- y -> return $ Lit (a + b)
+      return $ (b := y) :> (x :+ Ref b)
+    (NumType, NumType) | IntLit a <- x, IntLit b <- y ->
+      return $ IntLit (a + b)
     (NumType, NumType) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
@@ -497,16 +501,16 @@ compileStep ctxt e@(x :* y) = do
     (VecType (len1 : _) _, VecType (len2 : _) _) -> do
       assert (len1 == len2) $ "product length mismatch: " ++ show e
       i <- freshName
-      return $ Lam i len1 (x :! (R i) :* y :! (R i))
+      return $ Vec i len1 (x :! (Ref i) :* y :! (Ref i))
     (NumType, v@(VecType (len : _) _)) -> scale x y len
     (v@(VecType (len : _) _), NumType) -> scale y x len
     (_, _) | compoundVal x -> do
       a <- freshName
-      return $ (a := x) :> (R a :* y)
+      return $ (a := x) :> (Ref a :* y)
     (_, _) | compoundVal y -> do
       b <- freshName
-      return $ (b := y) :> (x :* R b)
-    (NumType, NumType) | Lit a <- x, Lit b <- y -> return $ Lit (a * b)
+      return $ (b := y) :> (x :* Ref b)
+    (NumType, NumType) | IntLit a <- x, IntLit b <- y -> return $ IntLit (a * b)
     (NumType, NumType) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
@@ -514,7 +518,7 @@ compileStep ctxt e@(x :* y) = do
   where
     scale s vec len = do
       i <- freshName
-      return $ Lam i len (s :* vec :! (R i))
+      return $ Vec i len (s :* vec :! (Ref i))
 
 compileStep ctxt e@(x :/ y) = do
   tx <- typeCheck x
@@ -523,13 +527,13 @@ compileStep ctxt e@(x :/ y) = do
     -- pointwise div
     (VecType (len : _) _, NumType) -> do
       i <- freshName
-      return $ Lam i len ((x :! (R i)) :/ y)
+      return $ Vec i len ((x :! (Ref i)) :/ y)
     (NumType, NumType) | compoundVal x -> do
       a <- freshName
-      return $ (a := x) :> (R a :/ y)
+      return $ (a := x) :> (Ref a :/ y)
     (NumType, NumType) | compoundVal y -> do
       b <- freshName
-      return $ (b := y) :> (x :/ R b)
+      return $ (b := y) :> (x :/ Ref b)
     (NumType, NumType) -> do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
@@ -537,79 +541,79 @@ compileStep ctxt e@(x :/ y) = do
     p -> error ("compileStep: " ++ show p ++ "\n" ++ show x ++ "\n" ++ show y)
 
 -- Juxtaposition
--- a :< u # v  -->  (a :< u); (a + size u :< v)
-compileStep _ (a :< u :# v) = do
+-- a :<= u # v  -->  (a :<= u); (a + size u :<= v)
+compileStep _ (a :<= u :# v) = do
   VecType (offset : _) _ <- typeCheck u
   -- TODO (a + offset) will always be wrapped by an index operation?
-  return $ (a :< u) :> ((a + offset) :< v)
+  return $ (a :<= u) :> ((a + offset) :<= v)
 
 -- Sequence assignment
--- a :< (u; v)  --> u; (a :< v)
-compileStep _ (a :< (u :> v)) = do
+-- a :<= (u; v)  --> u; (a :<= v)
+compileStep _ (a :<= (u :> v)) = do
   return $
     u :>
-    a :< v
+    a :<= v
 
 -- Summation
--- a :< ∑ (Vec i y_i)  -->  (a :< 0); (Vec i (a :< a + y_i))
-compileStep _ (a :< (Sig vec)) = do
+-- a :<= ∑ (Vec i y_i)  -->  (a :<= 0); (Vec i (a :<= a + y_i))
+compileStep _ (a :<= (Sigma vec)) = do
   i <- freshName
   VecType (len : _) _ <- typeCheck vec
-  let body = a :< a + (vec :! (R i))
+  let body = a :<= a + (vec :! (Ref i))
   return $
-    (a :< 0) :>
-    (Lam i len $ body)
+    (a :<= 0) :>
+    (Vec i len $ body)
 
 -- Vector assignment
--- a :< Vec i b_i  -->  Vec (a + i :< b_i)
-compileStep ctxt (a :< (Lam var r body)) = do
-  let lhs = a :! (R var)
+-- a :<= Vec i b_i  -->  Vec (a + i :<= b_i)
+compileStep ctxt (a :<= (Vec var r body)) = do
+  let lhs = a :! (Ref var)
   rhs <- withBindings [(var, numType)] $ compileStep RHS body
-  return $ Lam var r (lhs :< rhs)
-  --return $ Lam var r (lhs :< body)
+  return $ Vec var r (lhs :<= rhs)
+  --return $ Vec var r (lhs :<= body)
 
--- Lift compound values before (a :< Vector) wraps vector body in a loop
-compileStep _ (a :< (b :* c)) | compoundVal b = do
+-- Lift compound values before (a :<= Vector) wraps vector body in a loop
+compileStep _ (a :<= (b :* c)) | compoundVal b = do
   n <- freshName
-  return $ (n := b) :> (a :< R n :* c)
-compileStep _ (a :< (b :* c)) | compoundVal c = do
+  return $ (n := b) :> (a :<= Ref n :* c)
+compileStep _ (a :<= (b :* c)) | compoundVal c = do
   n <- freshName
-  return $ (n := c) :> (a :< b :* R n)
+  return $ (n := c) :> (a :<= b :* Ref n)
 
 -- Vector assignment, reduction on RHS
-compileStep ctxt (a :< b) = do
+compileStep ctxt (a :<= b) = do
   bt <- typeCheck b
   case bt of
     -- Avoid repeatedly calling inverse
     -- TODO generalize?
     VecType (len : _) _ | simpleVal b -> do
       i <- freshName
-      let lhs = (a :! (R i))
-      return $ Lam i len (lhs :< b :! (R i))
+      let lhs = (a :! (Ref i))
+      return $ Vec i len (lhs :<= b :! (Ref i))
     _ -> do
       a' <- compileStep LHS a
       b' <- compileStep RHS b
-      return $ a' :< b'
+      return $ a' :<= b'
 
-compileStep ctxt e@(Neg x) = do
+compileStep ctxt e@(Negate x) = do
   tx <- typeCheck x
   case tx of
     NumType | compoundVal x -> do
       a <- freshName
-      return $ (a := x) :> (Neg (R a))
+      return $ (a := x) :> (Negate (Ref a))
     NumType -> do
       x' <- compileStep ctxt x
-      return $ Neg x'
+      return $ Negate x'
     VecType (len : _) _ -> do
       i <- freshName
-      return $ Lam i len (- (x :! (R i)))
+      return $ Vec i len (- (x :! (Ref i)))
 
 -- Reduces function args and lifts compound ones
-compileStep _ e@(Free (App f args)) = do
+compileStep _ e@(App f args) = do
   compileFunctionArgs f args
 
 -- Reduction of an application
-compileStep _ ((Lam var b body) :! ind) =
+compileStep _ ((Vec var b body) :! ind) =
   return $ subst var ind body
 compileStep RHS ((a :+ b) :! ind) = return $ (a :! ind) + (b :! ind)
 compileStep ctxt@RHS (e@(a :* b) :! ind) = do
@@ -628,17 +632,17 @@ compileStep ctxt (a :! b) = do
   return (a' :! b')
 
 -- Single-iteration loop unrolling
-compileStep _ e@(Lam var (Lit 1) body) = do
+compileStep _ e@(Vec var (IntLit 1) body) = do
   t <- typeCheck e
   case t of
-    Void -> return $ subst var (Lit 0) body
+    Void -> return $ subst var (IntLit 0) body
     _ -> return e
 
 -- Reduction within a Vec
 -- Vec i x  -->  Vec i x
-compileStep ctxt (Lam var r body) = do
+compileStep ctxt (Vec var r body) = do
   body' <- withBindings [(var, numType)] $ compileStep ctxt body
-  return $ Lam var r body'
+  return $ Vec var r body'
 
 -- Sequencing
 -- a :> b  -->  a :> b

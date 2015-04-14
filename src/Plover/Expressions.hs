@@ -12,33 +12,33 @@ import Plover.Reduce (typeCheck)
 
 -- Simple Test Expressions --
 l1, l2 :: CExpr
-l1 = Lam "i" 2 1
-l2 = Lam "i" 2 (Lam "j" 2 ("i" + "j"))
+l1 = Vec "i" 2 1
+l2 = Vec "i" 2 (Vec "j" 2 ("i" + "j"))
 
 e, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12 :: CExpr
-e = "x" := Lam "i" 1 2
-e0 = "x" := Lam "i" 2 (Lam "j" 2 ("i" + "j"))
-e1 = "a" := Lam "i" 1 (("x" := 2) :> "x")
-e2 = "x" := Lam "i" 1 1 + Lam "i" 1 1
-e3 = "x" := Sig (Lam "i" 3 "i")
+e = "x" := Vec "i" 1 2
+e0 = "x" := Vec "i" 2 (Vec "j" 2 ("i" + "j"))
+e1 = "a" := Vec "i" 1 (("x" := 2) :> "x")
+e2 = "x" := Vec "i" 1 1 + Vec "i" 1 1
+e3 = "x" := Sigma (Vec "i" 3 "i")
 
 e4 = seqList [
-  "x" := Lam "i" 3 1,
-  "y" := Lam "i" 3 1,
+  "x" := Vec "i" 3 1,
+  "y" := Vec "i" 3 1,
   "z" := "x" * "x" + "y",
   "n" := norm "z",
   "xy" := "x" :# "y"
  ]
 
-e5 = "x" := Lam "i" 1 (2 * 3)
+e5 = "x" := Vec "i" 1 (2 * 3)
 
 e6 = seqList [
-  "x" := Lam "i" 1 (2 * 3),
+  "x" := Vec "i" 1 (2 * 3),
   "y" := (- (normalize "x"))
  ]
 
 e7 = seqList [
-  "v" := Lam "i" 1 1,
+  "v" := Vec "i" 1 1,
   "x" := norm "v"
  ]
 
@@ -47,7 +47,7 @@ e8 = "x" := l2 * l2
 e9 = "x" := l2 * l2 * l2
 
 e10 = seqList [
-  "x" := Lam "i" 2 (Lam "j" 2 1),
+  "x" := Vec "i" 2 (Vec "j" 2 1),
   "y" := "x" * "x" * "x"
  ]
 
@@ -59,13 +59,13 @@ e12 = seqList [
 
 p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12 :: CExpr
 p1 = seqList [
-  ("x" := Lam "i" 1 (Lam "j" 2 (("temp" := "i" + "j") :> "temp"))),
-  ("y" := Lam "i" 2 (Lam "j" 3 ("i" + "j"))),
+  ("x" := Vec "i" 1 (Vec "j" 2 (("temp" := "i" + "j") :> "temp"))),
+  ("y" := Vec "i" 2 (Vec "j" 3 ("i" + "j"))),
   ("z" := "x" * "y")
  ]
 
 p2 = seqList [
-  "x" := Lam "i" 1 (Lam "j" 2 0),
+  "x" := Vec "i" 1 (Vec "j" 2 0),
   "y" := transpose "x" * "x"
  ]
 p3 = seqList [
@@ -77,7 +77,7 @@ p4 = seqList [
   "z" := "x" * "y"
  ]
 p5 = seqList [
-  Free (Extern "sqrt" (FnType $ fnT [numType] numType)),
+  (Extern "sqrt" (FnType $ fnT [numType] numType)),
   "y" := "sqrt" :$ 2
  ]
 p6 = seqList [
@@ -95,7 +95,7 @@ p8 = "x" := rot_small 22
 p9 = seqList [
   "z" := (s (s 1)),
   "x_inv" := s (s 1),
-  Free $ App "inverse" ["z", "x_inv"]
+  App "inverse" ["z", "x_inv"]
  ]
 
 p10 = seqList [
@@ -108,37 +108,37 @@ p11 = seqList [
   "x" := inverse "r"
  ]
 p12 = seqList [
-  FnDef "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
+  FunctionDef "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
     "z" := "x" * "y",
-    Ret "z"],
-  Free $ App "foo" [2, 3]
+    Return "z"],
+  App "foo" [2, 3]
  ]
 
 p13 = seqList [
   "x" := l2,
-  "x" :< l1
+  "x" :<= l1
  ]
 
 p14 = seqList [
-  FnDef "test" (FnT [] [("x", VecType [1,1] NumType)] Void) $ seqList [
-    "x" :< l1
+  FunctionDef "test" (FnT [] [("x", VecType [1,1] NumType)] Void) $ seqList [
+    "x" :<= l1
     ]
  ]
 
 p15 = seqList [
-  Free $ StructDecl "pair" (ST Generated [("a", numType), ("b", numType)]),
+  StructDecl "pair" (ST Generated [("a", numType), ("b", numType)]),
 
   Declare (TypedefType "pair") "x",
   Declare (TypedefType "pair") "y",
 
-  ("x" :. "a") :< 0,
-  "y" :< "x"
+  ("x" :. "a") :<= 0,
+  "y" :<= "x"
  ]
 p16 = seqList
-  [ Free $ StructDecl "pair" (ST Generated [("a", numType), ("b", numType)])
+  [ StructDecl "pair" (ST Generated [("a", numType), ("b", numType)])
   , Declare (TypedefType "pair") "x"
   , Declare (VecType [3] (TypedefType "pair")) "p"
-  , "p" :! 0 :< "x"
+  , "p" :! 0 :<= "x"
   ]
 
 -- Test cases that fail
@@ -157,12 +157,12 @@ f1 = seqList [
 -- Current version will live in libswiftnav repository
 decls :: CExpr
 decls = seqList [
-  Ext "GPS_OMEGAE_DOT" numType,
-  Ext "GPS_C" numType 
+  Extern "GPS_OMEGAE_DOT" numType,
+  Extern "GPS_C" numType 
  ]
 
 losLoop :: CExpr
-losLoop = Lam "j" (R "n_used") $ seqList [
+losLoop = Vec "j" (Ref "n_used") $ seqList [
   "tau" := norm ("rx_state" - "sat_pos" :! "j") / "GPS_C",
   "we_tau" := "GPS_OMEGAE_DOT" * "tau",
   -- TODO rewrite issue forces this onto its own line
@@ -173,7 +173,7 @@ losLoop = Lam "j" (R "n_used") $ seqList [
  ]
 
 -- Externally defined (and has additional fields)
-nav_meas_def = Free $ StructDecl "navigation_measurement_t" $ ST
+nav_meas_def = StructDecl "navigation_measurement_t" $ ST
   External [("pseudorange", numType)]
 
 pvtSig = FnT
@@ -193,22 +193,22 @@ pvtSig = FnT
 pvtBody = seqList [
     decls,
     "los" :=  losLoop,
-    "G" :< Lam "j" "n_used" (normalize ((- "los") :! "j") :# (Lam "i" 1 1)),
+    "G" :<= Vec "j" "n_used" (normalize ((- "los") :! "j") :# (Vec "i" 1 1)),
 
     -- TODO struct
     --Declare (vecType ["n_used"]) "pseudo",
-    "pseudo" := (Lam "i" "n_used" $ ("nav_meas" :! "i") :. "pseudorange"),
+    "pseudo" := (Vec "i" "n_used" $ ("nav_meas" :! "i") :. "pseudorange"),
 
-    "omp" := "pseudo" - Lam "j" "n_used" (norm ("los" :! "j")),
-    "X" :< inverse (transpose "G" * "G") * transpose "G",
-    "correction" :< "X" * "omp"
+    "omp" := "pseudo" - Vec "j" "n_used" (norm ("los" :! "j")),
+    "X" :<= inverse (transpose "G" * "G") * transpose "G",
+    "correction" :<= "X" * "omp"
  ]
 
 pvtDef :: FunctionDefinition
 pvtDef = ("pvt", nav_meas_def, pvtSig, pvtBody)
 
 pvt :: CExpr
-pvt = nav_meas_def :> FnDef "pvt" pvtSig pvtBody
+pvt = nav_meas_def :> FunctionDef "pvt" pvtSig pvtBody
 
 testPVT = do
   -- Load struct def into context
@@ -218,12 +218,12 @@ testPVT = do
   -- Print n_used
   let pnused = ("printInt" :$ "n_used")
   -- Call the wrapped libswiftnav version
-  let test2 = Free (App (R "pvt2") (map (R . fst) (ft_exp pvtSig)))
+  let test2 = App (Ref "pvt2") (map (Ref . fst) (ft_exp pvtSig))
   n <- freshName
-  let printer = Lam n 4 ("printDouble" :$ ("correction" :! R n))
+  let printer = Vec n 4 ("printDouble" :$ ("correction" :! Ref n))
   -- Definition of pvt, then main that calls test code
   return
-    $ Ext "pvt2" (FnType $ pvtSig )
+    $ Extern "pvt2" (FnType $ pvtSig )
     :> pvt
     :> (wrapMain $ seqList
          [ test1
