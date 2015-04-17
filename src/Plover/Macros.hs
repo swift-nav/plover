@@ -10,9 +10,17 @@ import Plover.Types
 seqList :: [CExpr] -> CExpr
 seqList es = foldr1 (:>) es
 
+-- Slice vector from index i, length l
+slice :: CExpr -> CExpr -> CExpr -> CExpr
+slice x i l = Vec "i" l (x :! ("i" + i))
+
+-- Vector dot product
+dot :: CExpr -> CExpr -> CExpr
+dot x y = Sigma (x * y)
+
 -- Vector norm
 norm :: CExpr -> CExpr
-norm x = "sqrt" :$ (Sigma (x * x))
+norm x = "sqrt" :$ x `dot` x
 
 normalize :: CExpr -> CExpr
 normalize x = x / norm x
@@ -44,7 +52,7 @@ generateTestArguments fnName (FnT implicits params output) = do
   let decls = seqList (is ++ es)
       call = (App (Ref fnName) (map (Ref . fst) params))
   return (decls :> call)
-  
+
   where
     pBind (var, t) = do
       val <- pValue t
