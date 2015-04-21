@@ -10,10 +10,12 @@ module Plover.Types where
 import qualified Data.Foldable as F (Foldable)
 import qualified Data.Traversable as T (Traversable)
 import Control.Monad.Free
-import Control.Monad.Trans.Either
+import Control.Monad.Trans.Either hiding (left)
+import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
 import Control.Arrow (first, second)
 import Data.String
+import Data.Ratio
 
 data Void
 deriving instance Show Void
@@ -30,9 +32,12 @@ data Expr a
   = Vec' Variable a a
   | Ref' Variable
   | Sigma' a
+  | Ptr' a
 
   | VoidExpr'
   | IntLit' Int
+  | NumLit' Float
+  -- | INumLit' Int
   | StrLit' String
 
   | Declare' (Type) Variable
@@ -45,6 +50,7 @@ data Expr a
 
   | Negate' a
   | Deref' a
+  | Offset' a a
 
   | Unary' Tag a
   -- | Binary Tag a a
@@ -133,37 +139,62 @@ vecType t = VecType t NumType
 
 -- Used for module definitions
 -- (name, requirements (eg external parameters, struct defs), type, function body
-type FunctionDefinition = (Variable, CExpr, FunctionType, CExpr)
+type FunctionDefinition = (Variable, [CExpr], FunctionType, CExpr)
 
+type TypeEnv = [(Variable, Type)]
 -- Typechecking/Compilation Monad --
 -- (name counter, (variable types, typedef types))
-type TypeEnv = (Int, ([(Variable, Type)], [(Variable, Type)]))
+data Context = TE
+  { count :: Int
+  , var_types :: TypeEnv
+  , typedefs :: TypeEnv
+  , term_stack :: [CExpr]
+  }
+  deriving (Show, Eq, Ord)
 
-initialState :: TypeEnv
-initialState = (0, ([], []))
+initialState :: Context
+initialState = TE 0 [] [] []
 
 type Error = String
-type M = EitherT Error (State TypeEnv)
+type M = EitherT Error (State Context)
+
+showEnv = unlines . map show
 
 -- Basic monad operations
+left :: Error -> M a
+left msg = do
+  stack <- gets term_stack
+  env <- getVarTypes
+  E.left $ msg ++ "\n\nexpr stack:\n" ++ unlines (map (++ "\n") $ map (show) $ take 1 stack)
+    ++ "\n" ++ (unlines (map show env))
+
+assert :: Bool -> Error -> M ()
+assert cond msg = if cond then return () else left msg
+
 freshName :: M Variable
 freshName = do
-  c <- gets fst
-  modify $ first (+1)
+  c <- gets count
+  modify $ \s -> s { count = count s + 1 }
   return ("var" ++ show c)
+
+getVarTypes :: M TypeEnv
+getVarTypes = gets var_types
+
+setVarTypes :: TypeEnv -> M ()
+setVarTypes e = modify $ \s -> s { var_types = e }
 
 varType :: Variable -> M Type
 varType var = do
-  env <- gets (fst . snd)
+  env <- getVarTypes
   case lookup var env of
-    Nothing -> left $ "undefined var: \"" ++ var ++ "\"\nin environment:\n" ++ unlines (map show env)
+    Nothing -> left $ "undefined var: \"" ++ var ++ "\"\nin environment:\n" ++ showEnv env
     Just t -> return t
 
 typedefType :: Variable -> M Type
 typedefType var = do
-  env <- gets (snd . snd)
+  env <- gets typedefs
   case lookup var env of
-    Nothing -> left $ "undefined typedef: \"" ++ var ++ "\"\nin environment:\n" ++ unlines (map show env)
+    Nothing -> left $ "undefined typedef: \"" ++ var ++ "\"\nin environment:\n" ++ showEnv env
     Just t -> return t
 
 -- Walks typedef chains before assigning a type
@@ -173,10 +204,15 @@ extend var t =
     TypedefType name -> do
       t' <- typedefType name
       extend var t'
-    _ -> modify $ second $ first $ ((var, t) :)
+    _ -> do
+      env <- getVarTypes
+      case lookup var env of
+        Nothing ->
+          modify $ \s -> s { var_types = (var, t) : var_types s }
+        _ -> left $ "variable redefinition: " ++ show var ++ "\n" ++ showEnv env
 
 extendTypedef :: Variable -> Type -> M ()
-extendTypedef var t = modify $ second $ second $ ((var, t) :)
+extendTypedef var t = modify $ \s -> s { typedefs = (var, t) : typedefs s }
 
 normalizeType :: Type -> M Type
 normalizeType (TypedefType name) = typedefType name >>= normalizeType
@@ -188,7 +224,7 @@ sep s1 s2 = show s1 ++ ", " ++ show s2
 
 -- Syntax
 infix  4 :=, :<=
-infix  5 :$
+infixr 5 :$
 infixl 1 :>
 infixl  6 :+, :*
 infixr 6 :#
@@ -197,8 +233,11 @@ infix 8 :., :->
 pattern Vec a b c = Free (Vec' a b c)
 pattern Ref a = Free (Ref' a)
 pattern Sigma x = Free (Sigma' x)
+pattern Ptr x = Free (Ptr' x)
 pattern VoidExpr = Free VoidExpr'
 pattern IntLit a = Free (IntLit' a)
+pattern NumLit a = Free (NumLit' a)
+-- pattern INumLit a = Free (INumLit' a)
 pattern StrLit s = Free (StrLit' s)
 pattern Declare t x = Free (Declare' t x)
 pattern Return x = Free (Return' x)
@@ -211,6 +250,7 @@ pattern AppImpl a b c = Free (AppImpl' a b c)
 pattern StructDecl a b = Free (StructDecl' a b)
 pattern Negate x = Free (Negate' x)
 pattern Deref a = Free (Deref' a)
+pattern Offset a b = Free (Offset' a b)
 pattern Unary tag x = Free (Unary' tag x)
 pattern a :<= b = Free (Assign a b)
 pattern a := b = Free (Init a b)
@@ -236,3 +276,4 @@ instance Num (Free Expr a) where
 
 instance Fractional (Free Expr a) where
   x / y = x :/ y
+  fromRational x = NumLit $ fromIntegral (numerator x) / fromIntegral (denominator x)

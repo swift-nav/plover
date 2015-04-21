@@ -1,14 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Plover.Macros where
 
+import Control.Monad (foldM)
 import Control.Monad.Free
+import Data.List (foldl')
 
 import Plover.Types
 
 -- Sequence a list of CExprs
--- TODO add a noop to Expr so this is total
+-- nb: cannot use foldr
 seqList :: [CExpr] -> CExpr
-seqList es = foldr1 (:>) es
+seqList es = foldl' (:>) VoidExpr es
 
 -- Vector norm
 norm :: CExpr -> CExpr
@@ -22,17 +24,41 @@ inverse m = (Unary "inverse" m)
 
 -- TODO better dense matrix notation
 rot_small :: CExpr -> CExpr
+rot_small (IntLit x) = rot_small $ NumLit (fromIntegral x)
 rot_small x =
-  s (s 1     :# s x :# s 0) :#
-  s (s (- x) :# s 1 :# s 0) :#
-  s (s 0     :# s 0 :# s 1)
+  blockMatrix [3,3]
+    [ 1.0,  x,   0.0,
+      (-x), 1.0, 0.0,
+      0.0,  0.0, 1.0 ]
 
--- Make a length 1 vector to hold the argument
+--rot_small' :: CExpr -> CExpr
+--rot_small' (IntLit x) = rot_small $ NumLit (fromIntegral x)
+--rot_small' x =
+--  s (s 1.0     :# s x   :# s 0.0) :#
+--  s (s (- x)   :# s 1.0 :# s 0.0) :#
+--  s (s 0.0     :# s 0.0 :# s 1.0)
+
+-- form a block matrix
+blockMatrix :: [Int] -> [CExpr] -> CExpr
+blockMatrix ds es | product ds /= length es = error $
+    "blockMatrix. expr list length does not match given dimensions: " ++ sep ds es
+blockMatrix [] [e] = e
+blockMatrix (dim : dims) exprs =
+  --assert (dim * product dims == length exprs) $
+  --  "blockMatrix. expr list length does not match given dimensions: " ++ sep dims exprs
+  let size = product dims in
+  let exprs' = map (blockMatrix dims) (split size exprs) in
+    foldr1 (:#) (map Ptr exprs')
+  where
+    split n [] = []
+    split n ds = take n ds : split n (drop n ds)
+
+-- Make a length 1 vector from x
 s :: CExpr -> CExpr
-s x = Vec "i" 1 x
+s x = Ptr x
 
 -- Wrap an expression in a main function
-wrapMain = FunctionDef "main" (FnT [] [] IntType)
+wrapMain body = FunctionDef "main" (FnT [] [] IntType) (body :> Return 0)
 
 -- Print a string with newlines
 newline s = "printf" :$ (StrLit $ "\n" ++ s ++ "\n")
@@ -44,7 +70,7 @@ generateTestArguments fnName (FnT implicits params output) = do
   let decls = seqList (is ++ es)
       call = (App (Ref fnName) (map (Ref . fst) params))
   return (decls :> call)
-  
+
   where
     pBind (var, t) = do
       val <- pValue t

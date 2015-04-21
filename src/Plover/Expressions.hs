@@ -14,6 +14,7 @@ import Plover.Reduce (typeCheck)
 l1, l2 :: CExpr
 l1 = Vec "i" 2 1
 l2 = Vec "i" 2 (Vec "j" 2 ("i" + "j"))
+l3 = Vec "i" 3 (Vec "j" 3 ("i" + "j"))
 
 e, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12 :: CExpr
 e = "x" := Vec "i" 1 2
@@ -52,12 +53,14 @@ e10 = seqList [
  ]
 
 e11 = "a" := l1 :# l1
+
 e12 = seqList [
   "x" := l1,
   "y" := (- "x")
  ]
 
-p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12 :: CExpr
+p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17 :: CExpr
+
 p1 = seqList [
   ("x" := Vec "i" 1 (Vec "j" 2 (("temp" := "i" + "j") :> "temp"))),
   ("y" := Vec "i" 2 (Vec "j" 3 ("i" + "j"))),
@@ -77,7 +80,7 @@ p4 = seqList [
   "z" := "x" * "y"
  ]
 p5 = seqList [
-  (Extern "sqrt" (FnType $ fnT [numType] numType)),
+  --(Extern "sqrt" (FnType $ fnT [numType] numType)),
   "y" := "sqrt" :$ 2
  ]
 p6 = seqList [
@@ -92,6 +95,7 @@ p7 = seqList [
  ]
 
 p8 = "x" := rot_small 22
+
 p9 = seqList [
   "z" := (s (s 1)),
   "x_inv" := s (s 1),
@@ -107,6 +111,7 @@ p11 = seqList [
   "r" := rot_small 2,
   "x" := inverse "r"
  ]
+
 p12 = seqList [
   FunctionDef "foo" (FnT [] [("x", numType), ("y", numType)] numType) $ seqList [
     "z" := "x" * "y",
@@ -141,10 +146,18 @@ p16 = seqList
   , "p" :! 0 :<= "x"
   ]
 
+p17 = "x" := l3 :# (l3 * l3)
+
+p18 = "x" := 0
+
+p19 = Declare IntType "x" :> "x" :<= 0
+
 -- Test cases that fail
 b1, b2 :: CExpr
 b1 = 2 * 3
 b2 = "x" := "y"
+
+b3 = "x" := 22 :> "x" := 0
 
 -- TODO functional test cases
 f1 = seqList [
@@ -158,11 +171,11 @@ f1 = seqList [
 decls :: CExpr
 decls = seqList [
   Extern "GPS_OMEGAE_DOT" numType,
-  Extern "GPS_C" numType 
+  Extern "GPS_C" numType
  ]
 
 losLoop :: CExpr
-losLoop = Vec "j" (Ref "n_used") $ seqList [
+losLoop = Vec "j" "n_used" $ seqList [
   "tau" := norm ("rx_state" - "sat_pos" :! "j") / "GPS_C",
   "we_tau" := "GPS_OMEGAE_DOT" * "tau",
   -- TODO rewrite issue forces this onto its own line
@@ -205,7 +218,7 @@ pvtBody = seqList [
  ]
 
 pvtDef :: FunctionDefinition
-pvtDef = ("pvt", nav_meas_def, pvtSig, pvtBody)
+pvtDef = ("pvt", [nav_meas_def], pvtSig, pvtBody)
 
 pvt :: CExpr
 pvt = nav_meas_def :> FunctionDef "pvt" pvtSig pvtBody
@@ -218,7 +231,7 @@ testPVT = do
   -- Print n_used
   let pnused = ("printInt" :$ "n_used")
   -- Call the wrapped libswiftnav version
-  let test2 = App (Ref "pvt2") (map (Ref . fst) (ft_exp pvtSig))
+  let test2 = App "pvt2" (map (Ref . fst) (ft_exp pvtSig))
   n <- freshName
   let printer = Vec n 4 ("printDouble" :$ ("correction" :! Ref n))
   -- Definition of pvt, then main that calls test code
@@ -238,8 +251,8 @@ testPVT = do
 
 -- Test cases.
 good_cases :: [(String, M CExpr)]
-good_cases = 
-  [ ("pvt", testPVT) ] ++ 
+good_cases =
+  [ ("pvt", testPVT) ] ++
   map (second (return . wrapMain))
   [ ("e", e)
   , ("e0", e0)
@@ -265,8 +278,12 @@ good_cases =
   , ("p9", p9)
   , ("p10", p10)
   , ("p11", p11)
+  -- , ("p12", p12)
   , ("p15", p15)
   , ("p16", p16)
+  , ("p17", p17)
+  , ("p18", p18)
+  , ("p19", p19)
   ]
 
 bad_cases :: [CExpr]

@@ -55,7 +55,7 @@ ppLine :: StrictGen -> String -> Line -> String
 ppLine _ _ EmptyLine = ""
 ppLine _ off (Include str) = off ++ "#include \"" ++ str ++ "\"\n"
 ppLine strict off (Block ls) = concat $ map (ppLine strict off) ls
-ppLine strict off (Each var expr body) = 
+ppLine strict off (Each var expr body) =
   let vs = ppVar var in
   off ++ "for (int " ++ vs ++ " = 0; " ++
   vs ++ " < " ++ ppExpr strict expr ++ "; " ++
@@ -67,7 +67,7 @@ ppLine strict off (Store x e) =
   ppExpr strict e ++ lineEnd
 ppLine strict off (LineExpr e) =
   off ++ ppExpr strict e ++ lineEnd
-ppLine strict off (LineDecl t var) = 
+ppLine strict off (LineDecl t var) =
   let (pre, post) = ppTypeDecl strict t in
   off ++ pre ++ " " ++ ppVar var ++ post ++ lineEnd
 ppLine strict off (Function name (FnT ps1 ps2 out) body) =
@@ -82,8 +82,8 @@ ppLine strict off (ForwardDecl name (FnT ps1 ps2 out)) =
   off ++ ppType out ++ " " ++ name ++
     wrapp (intercalate ", " (map (ppParam strict) (ps1 ++ ps2))) ++ lineEnd
 ppLine strict off (TypeDefStruct name fields) =
-  off ++ "typedef struct {\n" ++ 
-    concatMap printField fields ++ 
+  off ++ "typedef struct {\n" ++
+    concatMap printField fields ++
   off ++ "} " ++ ppVar name ++ ";\n"
   where
     printField p@(name, t) = off ++ "  " ++ ppParam strict p ++ ";\n"
@@ -93,7 +93,7 @@ lineEnd = ";\n"
 
 ppParam strict (var, t) =
   let (pre, post) = ppTypeDecl strict t in
-  pre ++ " " ++ ppVar var ++ post 
+  pre ++ " " ++ ppVar var ++ post
 
 ppVar = id
 
@@ -132,14 +132,17 @@ ppExpr strict e =
     (a :/ b) -> wrapp $ pe a ++ " / " ++ pe b
     (Ref v) -> ppVar v
     (IntLit i) -> show i
+    (NumLit f) -> show f
     (StrLit s) -> show s
     (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
     (Deref x) -> "(*(" ++ pe x ++ "))"
+    (Offset p off) -> pe (p :+ off)
     (Negate x) -> "-(" ++ pe x ++ ")"
     (App a args) -> pe a ++ wrapp (intercalate ", " (map pe args))
     (AppImpl a impls args) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
-    (a :<= b) -> error "ppExpr.  :<="
+    (a :<= b)| Lax <- strict -> pe a ++ " <- " ++ pe b
     (a :. b) -> pe a ++ "." ++ ppVar b
+    (a :> b) | Lax <- strict -> ppExpr Lax a ++ ";\n" ++ ppExpr Lax b
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e
            Lax -> show e

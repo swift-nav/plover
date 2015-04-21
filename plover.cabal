@@ -62,7 +62,7 @@ library
   -- Directories containing source files.
   hs-source-dirs:      src/
 
-  ghc-options:         -Wall
+  ghc-options:         -Wall -fprof-auto
 
   -- Base language which the package is written in.
   default-language:    Haskell2010

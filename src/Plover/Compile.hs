@@ -1,4 +1,4 @@
-module Plover.Compile 
+module Plover.Compile
   ( writeProgram
   , defaultMain
   , testWithGcc
@@ -17,7 +17,7 @@ import Plover.Reduce
 import Plover.Print
 import Plover.Macros (externs, seqList)
 
-runM :: M a -> (Either Error a, TypeEnv)
+runM :: M a -> (Either Error a, Context)
 runM m = runState (runEitherT m) initialState
 
 wrapExterns :: M CExpr -> M CExpr
@@ -27,6 +27,9 @@ wrapExterns e = do
 
 --compileExpr :: M CExpr -> Either Error String
 --compileLine :: CExpr -> Either Error String
+
+noFlatten expr = printOutput $ fmap show $ do 
+  fst . runM $ compile =<< wrapExterns expr
 
 compileProgram :: [String] -> M CExpr -> Either Error String
 compileProgram includes expr = do
@@ -38,7 +41,7 @@ printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
 
 main' :: M CExpr -> IO ()
-main' m = 
+main' m =
   case compileProgram [] m of
     Left err -> printFailure err
     Right str -> putStrLn str
@@ -51,6 +54,9 @@ printOutput mp =
     Left err -> printFailure err
     Right p -> do
       putStrLn p
+
+printExpr' :: M CExpr -> IO ()
+printExpr' expr = printOutput (compileProgram [] expr)
 
 printExpr :: CExpr -> IO ()
 printExpr expr = printOutput (compileProgram [] (return expr))
@@ -101,7 +107,7 @@ generateLib fns =
   in (decls, seqList defs)
   where
     fix (name, prefix, fntype, def) =
-      (ForwardDecl name fntype, prefix :> FunctionDef name fntype def)
+      (ForwardDecl name fntype, seqList (prefix ++ [FunctionDef name fntype def]))
 
 -- Adds .h, .c to given filename
 defaultMain :: FilePath -> [String] -> [FunctionDefinition] -> IO ()
