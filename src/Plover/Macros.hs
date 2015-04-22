@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Plover.Macros where
 
 import Control.Monad (foldM)
