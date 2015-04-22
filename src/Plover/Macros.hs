@@ -13,9 +13,17 @@ import Plover.Types
 seqList :: [CExpr] -> CExpr
 seqList es = foldl' (:>) VoidExpr es
 
+-- Slice vector from index i, length l
+slice :: CExpr -> CExpr -> CExpr -> CExpr
+slice x i l = Vec "i" l (x :! ("i" + i))
+
+-- Vector dot product
+dot :: CExpr -> CExpr -> CExpr
+dot x y = Sigma (x * y)
+
 -- Vector norm
 norm :: CExpr -> CExpr
-norm x = "sqrt" :$ (Sigma (x * x))
+norm x = "sqrt" :$ x `dot` x
 
 normalize :: CExpr -> CExpr
 normalize x = x / norm x
