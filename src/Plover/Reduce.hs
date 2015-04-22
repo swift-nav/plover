@@ -212,6 +212,8 @@ typeCheck' e@(a :<= b) = do
   tr <- typeCheck' b
   unifyGen tl tr
   return Void
+typeCheck' (Extension t) =
+  typeCheck t
 typeCheck' (Declare t var) = do
   extend var t
   return Void
@@ -486,6 +488,9 @@ compileStep' _ e@(var := b) = do
     ] ++ post
 
 -- Keep type environment "current" while compiling
+compileStep' _ e@(Extension t) = do
+  typeCheck t
+  return e
 compileStep' _ e@(Declare t var) = do
   extend var t
   return $ e

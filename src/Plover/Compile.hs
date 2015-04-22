@@ -1,7 +1,8 @@
+{-# LANGUAGE RecordWildCards #-}
 module Plover.Compile
   ( writeProgram
-  , defaultMain
-  , generate
+  , generateLib
+  , generateMain
   , testWithGcc
   , printExpr
   , printType
@@ -101,44 +102,30 @@ testWithGcc expr =
         Nothing -> return $ Nothing
         Just output -> return $ Just (GCCError output)
 
--- Generates .h and .c file
-generateLib :: [FunctionDefinition] -> ([Line], CExpr)
-generateLib fns =
-  let (decls, defs) = unzip $ map fix fns
-  in (decls, seqList defs)
+-- Generates .h and .c file as text
+generateLib :: CompilationUnit -> Either Error (String, String)
+generateLib CU{..} =
+  let (decls, defs) = unzip $ map splitDef definitions
+      headerTerm = seqList headerDefs
+      cfileExpr = Extension headerTerm :> seqList defs
+      forwardDecls = ppProgram (Block decls)
+  in do
+    cfile <- compileProgram includes (return cfileExpr)
+    header <- compileProgram includes (return headerTerm)
+    return (header ++ forwardDecls, cfile)
   where
-    fix (name, prefix, fntype, def) =
-      (ForwardDecl name fntype, seqList (prefix ++ [FunctionDef name fntype def]))
+    splitDef (name, fntype, def) =
+      (ForwardDecl name fntype, FunctionDef name fntype def)
 
--- Adds .h, .c to given filename
-defaultMain :: FilePath -> [String] -> [FunctionDefinition] -> IO ()
-defaultMain filename includes defs =
-  let (decls, defExpr) = generateLib defs
-      stuff = do
-        cout <- compileProgram includes (return defExpr)
-        let hout = ppProgram (Block decls)
-        return (hout, cout)
-  in
-    case stuff of
-      Right (hout, cout) -> do
-        writeFile (filename ++ ".c") cout
-        writeFile (filename ++ ".h") hout
-
-generate :: String -> FilePath -> FilePath -> [String] -> [FunctionDefinition] -> IO ()
-generate filename c_dir h_dir includes defs =
-      let (decls, defExpr) = generateLib defs
-          c_file = (c_dir ++ "/" ++ filename ++ ".c")
-          h_file = (h_dir ++ "/" ++ filename ++ ".h")
-          stuff = do
-            cout <- compileProgram includes (return defExpr)
-            let hout = ppProgram (Block decls)
-            return (hout, cout)
-      in
-        case stuff of
-          Right (hout, cout) -> do
-            writeFile c_file cout
-            putStrLn $ "generated file: " ++ c_file
-            writeFile h_file hout
-            putStrLn $ "generated file: " ++ h_file
-          Left e -> putStrLn $ "Error:\n" ++ e
-
+-- Generates .h and .c file and writes them to given filepaths
+generateMain :: FilePath -> FilePath -> CompilationUnit -> IO ()
+generateMain hdir cdir cu =
+  case generateLib cu of
+    Right (hout, cout) -> do
+      let hfile = hdir ++ "/" ++ unitName cu ++ ".h"
+      let cfile = cdir ++ "/" ++ unitName cu ++ ".c"
+      writeFile hfile hout
+      putStrLn $ "generated file " ++ show hfile
+      writeFile cfile cout
+      putStrLn $ "generated file " ++ show cfile
+    Left err -> putStrLn $ "error: " ++ err

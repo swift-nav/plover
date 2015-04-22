@@ -26,39 +26,35 @@ type Tag = String
 type Variable = String
 
 -- Main program type
--- Input programs are specified in this type, and the
--- reduction compiler operates on this type.
+-- Input programs are specified in the fixpoint of this type (CExpr).
+-- The reduction compiler operates on them.
 data Expr a
+  -- Things at the top of the constructor list
   = Vec' Variable a a
   | Ref' Variable
   | Sigma' a
   | Ptr' a
+  | Return' a
 
+  -- Elementary expressions
   | VoidExpr'
   | IntLit' Int
   | NumLit' Float
-  -- | INumLit' Int
   | StrLit' String
 
+  -- Things that change the context
+  | Extension' a
   | Declare' (Type) Variable
-  | Return' a
-
   | FunctionDef' Variable (FunctionType) a
   | Extern' Variable (Type)
+  | StructDecl' Variable StructType
+
+  -- Function application
   | App' a [a]
   | AppImpl' a [a] [a]
 
-  | Negate' a
-  | Deref' a
-  | Offset' a a
-
-  | Unary' Tag a
-  -- | Binary Tag a a
-
-  -- structs
-  | StructDecl' Variable StructType
-
   -- Operators
+  -- Symbolic patterns given below
   | Index a a
   | Concat a a
   | Init Variable a
@@ -69,7 +65,10 @@ data Expr a
   | Div a a
   | StructMemberRef a Variable
   | StructPtrRef a Variable
-
+  | Negate' a
+  | Deref' a
+  | Offset' a a
+  | Unary' Tag a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type CExpr = Free Expr Void
@@ -139,9 +138,17 @@ vecType t = VecType t NumType
 
 -- Used for module definitions
 -- (name, requirements (eg external parameters, struct defs), type, function body
-type FunctionDefinition = (Variable, [CExpr], FunctionType, CExpr)
+type FunctionDefinition = (Variable, FunctionType, CExpr)
+
+data CompilationUnit = CU
+  { unitName :: String
+  , definitions :: [FunctionDefinition]
+  , includes :: [String]
+  , headerDefs :: [CExpr]
+  }
 
 type TypeEnv = [(Variable, Type)]
+
 -- Typechecking/Compilation Monad --
 -- (name counter, (variable types, typedef types))
 data Context = TE
@@ -239,6 +246,7 @@ pattern IntLit a = Free (IntLit' a)
 pattern NumLit a = Free (NumLit' a)
 -- pattern INumLit a = Free (INumLit' a)
 pattern StrLit s = Free (StrLit' s)
+pattern Extension x = Free (Extension' x)
 pattern Declare t x = Free (Declare' t x)
 pattern Return x = Free (Return' x)
 pattern FunctionDef a b c = Free (FunctionDef' a b c)

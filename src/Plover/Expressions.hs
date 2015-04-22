@@ -140,10 +140,11 @@ p15 = seqList [
   "y" :<= "x"
  ]
 p16 = seqList
-  [ StructDecl "pair" (ST Generated [("a", numType), ("b", numType)])
+  [ StructDecl "pair" (ST Generated [("a", numType), ("b", VecType ["len"] NumType)])
   , Declare (TypedefType "pair") "x"
-  , Declare (VecType [3] (TypedefType "pair")) "p"
-  , "p" :! 0 :<= "x"
+  , "x" :. "a" :<= 2
+  , "y" := Vec "i" ("x" :. "a") "i"
+  , "x" :. "b" :<= "y"
   ]
 
 p17 = "x" := l3 :# (l3 * l3)
@@ -152,19 +153,25 @@ p18 = "x" := 0
 
 p19 = Declare IntType "x" :> "x" :<= 0
 
+-- Example compilation units
+cu1, cu_pvt :: CompilationUnit
+cu1 = CU
+  -- name
+  "test" 
+  -- function defs
+  [("testfn", FnT [] [] Void, VoidExpr)]
+  -- includes
+  []
+  -- header definitions
+  [("x" := 22)]
+
+cu_pvt = CU "gen_pvt" [("pvt", pvtSig, pvtBody)] ["extern_defs.c"] [nav_meas_def]
+
 -- Test cases that fail
 b1, b2 :: CExpr
 b1 = 2 * 3
 b2 = "x" := "y"
-
 b3 = "x" := 22 :> "x" := 0
-
--- TODO functional test cases
-f1 = seqList [
-  "x" := l2,
-  "y" := inverse "x"
-  -- check output
- ]
 
 -- The PVT Example --
 -- Current version will live in libswiftnav repository
@@ -216,9 +223,6 @@ pvtBody = seqList [
     "X" :<= inverse (transpose "G" * "G") * transpose "G",
     "correction" :<= "X" * "omp"
  ]
-
-pvtDef :: FunctionDefinition
-pvtDef = ("pvt", [nav_meas_def], pvtSig, pvtBody)
 
 pvt :: CExpr
 pvt = nav_meas_def :> FunctionDef "pvt" pvtSig pvtBody
@@ -280,7 +284,6 @@ good_cases =
   , ("p11", p11)
   -- , ("p12", p12)
   , ("p15", p15)
-  , ("p16", p16)
   , ("p17", p17)
   , ("p18", p18)
   , ("p19", p19)

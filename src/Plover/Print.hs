@@ -10,6 +10,7 @@ import Plover.Types
 
 -- Printing output --
 flatten :: CExpr -> Either Error Line
+flatten (Extension _) = return EmptyLine
 flatten (Declare t var) = return $ LineDecl t var
 flatten (Vec var bound body) = do
   body' <- flatten body
