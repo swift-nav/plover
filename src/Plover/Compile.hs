@@ -124,7 +124,7 @@ defaultMain filename includes defs =
         writeFile (filename ++ ".c") cout
         writeFile (filename ++ ".h") hout
 
-generate :: FilePath -> FilePath -> FilePath -> [String] -> [FunctionDefinition] -> IO [String]
+generate :: String -> FilePath -> FilePath -> [String] -> [FunctionDefinition] -> IO ()
 generate filename c_dir h_dir includes defs =
       let (decls, defExpr) = generateLib defs
           c_file = (c_dir ++ "/" ++ filename ++ ".c")
@@ -137,6 +137,8 @@ generate filename c_dir h_dir includes defs =
         case stuff of
           Right (hout, cout) -> do
             writeFile c_file cout
+            putStrLn $ "generated file: " ++ c_file
             writeFile h_file hout
-            return [c_file, h_file]
+            putStrLn $ "generated file: " ++ h_file
+          Left e -> putStrLn $ "Error:\n" ++ e
 
