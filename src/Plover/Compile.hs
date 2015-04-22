@@ -6,6 +6,7 @@ module Plover.Compile
   , printExpr
   , printType
   , runM
+  , CompilationUnit(..)
   ) where
 
 import Control.Monad.Trans.Either
@@ -124,14 +125,23 @@ defaultMain filename includes defs =
         writeFile (filename ++ ".c") cout
         writeFile (filename ++ ".h") hout
 
-generate :: String -> FilePath -> FilePath -> [String] -> [FunctionDefinition] -> IO ()
-generate filename c_dir h_dir includes defs =
-      let (decls, defExpr) = generateLib defs
-          c_file = (c_dir ++ "/" ++ filename ++ ".c")
-          h_file = (h_dir ++ "/" ++ filename ++ ".h")
+data CompilationUnit = CompilationUnit
+  { unitName :: String
+  , defs :: [FunctionDefinition]
+  , includes :: [String]
+  , headerDefs :: [CExpr]
+  }
+
+generate :: FilePath -> FilePath -> CompilationUnit -> IO ()
+generate c_dir h_dir cu =
+      let (decls, defExpr) = generateLib $ defs cu
+          c_file = (c_dir ++ "/" ++ (unitName cu) ++ ".c")
+          h_file = (h_dir ++ "/" ++ (unitName cu) ++ ".h")
           stuff = do
-            cout <- compileProgram includes (return defExpr)
-            let hout = ppProgram (Block decls)
+            cout <- compileProgram (includes cu) (return defExpr)
+            h_defs <- compileProgram [] (return $ seqList $ headerDefs cu)
+            let hout = h_defs ++ "\n\n" ++
+                       ppProgram (Block decls)
             return (hout, cout)
       in
         case stuff of
