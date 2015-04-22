@@ -72,15 +72,23 @@ ppLine strict off (LineDecl t var) =
   off ++ pre ++ " " ++ ppVar var ++ post ++ lineEnd
 ppLine strict off (Function name (FnT ps1 ps2 out) body) =
   off ++ ppType out ++ " " ++ name ++
-    wrapp (intercalate ", " (map (ppParam strict) (ps1 ++ ps2))) ++ "\n" ++
+    wrapp argString ++ "\n" ++
   off ++ "{\n" ++
     ppLine strict (indent off) body ++
   off ++ "}\n"
+  where args = map (ppParam strict) (ps1 ++ ps2)
+        argString = case args of
+          [] -> "void"
+          as -> intercalate ", " $ map (ppParam strict) (ps1 ++ ps2)
 ppLine strict off (LineReturn x) =
   off ++ "return " ++ ppExpr strict x ++ lineEnd
 ppLine strict off (ForwardDecl name (FnT ps1 ps2 out)) =
   off ++ ppType out ++ " " ++ name ++
-    wrapp (intercalate ", " (map (ppParam strict) (ps1 ++ ps2))) ++ lineEnd
+    wrapp argString ++ lineEnd
+  where args = map (ppParam strict) (ps1 ++ ps2)
+        argString = case args of
+          [] -> "void"
+          as -> intercalate ", " $ map (ppParam strict) (ps1 ++ ps2)
 ppLine strict off (TypeDefStruct name fields) =
   off ++ "typedef struct {\n" ++
     concatMap printField fields ++
