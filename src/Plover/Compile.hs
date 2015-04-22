@@ -1,6 +1,7 @@
 module Plover.Compile
   ( writeProgram
   , defaultMain
+  , generate
   , testWithGcc
   , printExpr
   , printType
@@ -28,7 +29,7 @@ wrapExterns e = do
 --compileExpr :: M CExpr -> Either Error String
 --compileLine :: CExpr -> Either Error String
 
-noFlatten expr = printOutput $ fmap show $ do 
+noFlatten expr = printOutput $ fmap show $ do
   fst . runM $ compile =<< wrapExterns expr
 
 compileProgram :: [String] -> M CExpr -> Either Error String
@@ -122,4 +123,20 @@ defaultMain filename includes defs =
       Right (hout, cout) -> do
         writeFile (filename ++ ".c") cout
         writeFile (filename ++ ".h") hout
+
+generate :: FilePath -> FilePath -> FilePath -> [String] -> [FunctionDefinition] -> IO [String]
+generate filename c_dir h_dir includes defs =
+      let (decls, defExpr) = generateLib defs
+          c_file = (c_dir ++ "/" ++ filename ++ ".c")
+          h_file = (h_dir ++ "/" ++ filename ++ ".h")
+          stuff = do
+            cout <- compileProgram includes (return defExpr)
+            let hout = ppProgram (Block decls)
+            return (hout, cout)
+      in
+        case stuff of
+          Right (hout, cout) -> do
+            writeFile c_file cout
+            writeFile h_file hout
+            return [c_file, h_file]
 
