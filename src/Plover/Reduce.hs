@@ -427,7 +427,7 @@ simpleVal _ = True
 compile :: CExpr -> M CExpr
 -- Iterate compileStep to convergence
 compile expr = do
-  -- _ <- typeCheck expr
+  _ <- local $ typeCheck expr
   head <$> (scanM step expr)
   where
     sep = "\n------------\n"

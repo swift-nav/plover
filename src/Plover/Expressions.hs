@@ -13,6 +13,7 @@ import Plover.Reduce (typeCheck)
 -- Simple Test Expressions --
 l1, l2 :: CExpr
 l1 = Vec "i" 2 1
+l1' = Vec "i" 3 1
 l2 = Vec "i" 2 (Vec "j" 2 ("i" + "j"))
 l3 = Vec "i" 3 (Vec "j" 3 ("i" + "j"))
 
@@ -140,7 +141,7 @@ p15 = seqList [
   "y" :<= "x"
  ]
 p16 = seqList
-  [ StructDecl "pair" (ST Generated [("a", numType), ("b", VecType ["len"] NumType)])
+  [ StructDecl "pair" (ST Generated [("a", numType), ("b", VecType ["a"] NumType)])
   , Declare (TypedefType "pair") "x"
   , "x" :. "a" :<= 2
   , "y" := Vec "i" ("x" :. "a") "i"
