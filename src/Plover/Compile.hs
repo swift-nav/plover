@@ -12,6 +12,8 @@ module Plover.Compile
 import Control.Monad.Trans.Either
 import Control.Monad.State
 
+import Data.Char
+
 import System.Process
 
 import Plover.Types
@@ -102,6 +104,19 @@ testWithGcc expr =
         Nothing -> return $ Nothing
         Just output -> return $ Just (GCCError output)
 
+-- Wrap header file in guards to prevent inclusion loops
+headerGuards :: String -> String -> String
+headerGuards name body = unlines
+  [ "#ifndef " ++ headerName
+  , "#define " ++ headerName
+  , ""
+  , body
+  , ""
+  , "#endif /* " ++ headerName ++ " */"
+  ]
+  where uName = map toUpper name
+        headerName = "PLOVER_GENERATED_" ++ uName ++ "_H"
+
 -- Generates .h and .c file as text
 generateLib :: CompilationUnit -> Either Error (String, String)
 generateLib CU{..} =
@@ -112,7 +127,7 @@ generateLib CU{..} =
   in do
     cfile <- compileProgram includes (return cfileExpr)
     header <- compileProgram headerIncs (return headerTerm)
-    return (header ++ forwardDecls, cfile)
+    return (headerGuards unitName (header ++ forwardDecls), cfile)
   where
     splitDef (name, fntype, def) =
       (ForwardDecl name fntype, FunctionDef name fntype def)
