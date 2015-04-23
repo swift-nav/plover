@@ -164,8 +164,10 @@ cu1 = CU
   []
   -- header definitions
   [("x" := 22)]
+  -- header includes
+  []
 
-cu_pvt = CU "gen_pvt" [("pvt", pvtSig, pvtBody)] ["extern_defs.c"] [nav_meas_def]
+cu_pvt = CU "gen_pvt" [("pvt", pvtSig, pvtBody)] ["extern_defs.c"] [nav_meas_def] []
 
 -- Test cases that fail
 b1, b2 :: CExpr

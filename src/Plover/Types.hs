@@ -145,6 +145,7 @@ data CompilationUnit = CU
   , definitions :: [FunctionDefinition]
   , includes :: [String]
   , headerDefs :: [CExpr]
+  , headerIncs :: [String]
   }
 
 type TypeEnv = [(Variable, Type)]

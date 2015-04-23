@@ -111,7 +111,7 @@ generateLib CU{..} =
       forwardDecls = ppProgram (Block decls)
   in do
     cfile <- compileProgram includes (return cfileExpr)
-    header <- compileProgram includes (return headerTerm)
+    header <- compileProgram headerIncs (return headerTerm)
     return (header ++ forwardDecls, cfile)
   where
     splitDef (name, fntype, def) =
