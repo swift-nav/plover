@@ -17,7 +17,7 @@ l1' = Vec "i" 3 1
 l2 = Vec "i" 2 (Vec "j" 2 ("i" + "j"))
 l3 = Vec "i" 3 (Vec "j" 3 ("i" + "j"))
 
-e, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12 :: CExpr
+e, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13 :: CExpr
 e = "x" := Vec "i" 1 2
 e0 = "x" := Vec "i" 2 (Vec "j" 2 ("i" + "j"))
 e1 = "a" := Vec "i" 1 (("x" := 2) :> "x")
@@ -58,6 +58,11 @@ e11 = "a" := l1 :# l1
 e12 = seqList [
   "x" := l1,
   "y" := (- "x")
+ ]
+
+e13 = seqList [
+  "y" := 3,
+  Assert ("y" :=: 2)
  ]
 
 p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17 :: CExpr
@@ -275,6 +280,7 @@ good_cases =
   , ("e10", e10)
   , ("e11", e11)
   , ("e12", e12)
+  , ("e13", e13)
 
   , ("p1", p1)
   , ("p2", p2)

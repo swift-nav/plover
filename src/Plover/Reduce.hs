@@ -145,6 +145,7 @@ unifyT u bs (Dimension d1) (Dimension d2) = do
   unifyExpr u bs d1 d2
 unifyT _ bs Void Void = return bs
 unifyT _ bs StringType StringType = return bs
+unifyT _ bs BoolType BoolType = return bs
 unifyT _ bs IntType IntType = return bs
 unifyT _ bs IntType NumType = left "unifyT. can't store float as int"
 unifyT _ bs NumType IntType = return bs
@@ -290,10 +291,22 @@ typeCheck' (Vec var bound body) = do
 typeCheck' (Ref var) = varType var
 -- TODO get rid of this Expr?
 typeCheck' (Return e) = typeCheck' e
+typeCheck' (Assert c) = do
+  btype <- typeCheck' c
+  case btype of
+    BoolType -> return BoolType
+    t -> error $ "Assert condition must be BoolType, got: " ++ sep t btype
+typeCheck' (Equal a b) = do
+  atype <- typeCheck' a
+  btype <- typeCheck' b
+  if atype == btype
+    then return BoolType
+    else error $ "Equality test between values with different types: " ++ sep atype btype
 typeCheck' VoidExpr = return Void
 typeCheck' (IntLit _) = return IntType
 typeCheck' (NumLit _) = return NumType
 typeCheck' (StrLit _) = return stringType
+typeCheck' (BoolLit _) = return BoolType
 typeCheck' (a :! b) = do
   itype <- typeCheck' b
   case itype of
@@ -546,6 +559,8 @@ compileStep' ctxt e@(x :+ y) = do
 
 compileStep' _ ((a :> b) :* c) = return $ a :> (b :* c)
 compileStep' _ (c :* (a :> b)) = return $ a :> (c :* b)
+
+compileStep' _ (Assert c) = return $ App "assert" [c]
 
 compileStep' ctxt e@(x :* y) = do
   tx <- local $ typeCheck x
