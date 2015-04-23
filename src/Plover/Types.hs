@@ -142,8 +142,8 @@ type FunctionDefinition = (Variable, FunctionType, CExpr)
 
 data CompilationUnit = CU
   { unitName :: String
-  , definitions :: [FunctionDefinition]
-  , includes :: [String]
+  , sourceDefs :: [FunctionDefinition]
+  , sourceIncs :: [String]
   , headerDefs :: [CExpr]
   , headerIncs :: [String]
   }
