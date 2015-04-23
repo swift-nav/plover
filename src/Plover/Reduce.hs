@@ -757,6 +757,16 @@ compileStep' ctxt (If c t f) = do
   f' <- local $ compileStep ctxt f
   return (If c' t' f')
 
+-- Vector comparison
+compileStep' _ e@(x :=: y) = do
+  tx <- local $ typeCheck x
+  ty <- local $ typeCheck y
+  case (tx, ty) of
+    -- pointwise comparison
+    (VecType (len1 : _) t1, VecType (len2 : _) t2) -> do
+      error "Vector comparison not implemented"
+    _ -> return e
+
 -- id
 -- x  -->  x
 compileStep' _ x = return x
