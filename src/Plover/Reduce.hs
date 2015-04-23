@@ -213,6 +213,13 @@ typeCheck' e@(a :<= b) = do
   tr <- typeCheck' b
   unifyGen tl tr
   return Void
+typeCheck' e@(If cond t f) = do
+  local $ typeCheck' t
+  local $ typeCheck' f
+  ctype <- typeCheck' cond
+  case ctype of
+    BoolType -> return Void
+    _ -> error $ "If condition is not a BoolType, got: " ++ show ctype
 typeCheck' (Extension t) =
   typeCheck t
 typeCheck' (Declare t var) = do
@@ -422,11 +429,13 @@ compileFunctionArgs f args = do
 compoundVal (Ref _) = False
 compoundVal (IntLit _) = False
 compoundVal (StrLit _) = False
-compoundVal (a :! b) = compoundVal a || compoundVal b
-compoundVal (a :+ b) = compoundVal a || compoundVal b
-compoundVal (a :* b) = compoundVal a || compoundVal b
-compoundVal (a :/ b) = compoundVal a || compoundVal b
-compoundVal (a :> b) = compoundVal b
+compoundVal (BoolLit _) = False
+compoundVal (a :=: b) = compoundVal a || compoundVal b
+compoundVal (a :! b)  = compoundVal a || compoundVal b
+compoundVal (a :+ b)  = compoundVal a || compoundVal b
+compoundVal (a :* b)  = compoundVal a || compoundVal b
+compoundVal (a :/ b)  = compoundVal a || compoundVal b
+compoundVal (a :> b)  = compoundVal b
 compoundVal _ = True
 
 
@@ -734,6 +743,19 @@ compileStep' ctxt (a :> b) = do
   a' <- compileStep ctxt a
   b' <- compileStep ctxt b
   return (a' :> b')
+
+-- Control flow
+-- If -> If
+compileStep' ctxt (If (a :> c) t f) = return $ a :> (If c t f)
+compileStep' ctxt (If c t f) | compoundVal c = do
+  n <- freshName
+  return (n := c :> If (Ref n) t f)
+-- If -> If
+compileStep' ctxt (If c t f) = do
+  c' <- local $ compileStep ctxt c
+  t' <- local $ compileStep ctxt t
+  f' <- local $ compileStep ctxt f
+  return (If c' t' f')
 
 -- id
 -- x  -->  x

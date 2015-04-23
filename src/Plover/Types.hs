@@ -37,6 +37,9 @@ data Expr a
   | Return' a
   | Assert' a
 
+  -- Control flow
+  | If' a a a
+
   -- Elementary expressions
   | VoidExpr'
   | IntLit' Int
@@ -82,6 +85,7 @@ type CExpr = Free Expr Void
 data Line
   -- All instances of CExpr should be numeric arithmetic only
   = Each Variable CExpr Line
+  | IfStmt CExpr Line Line
   | Block [Line]
   | Store CExpr CExpr
   | LineDecl Type Variable
@@ -244,6 +248,7 @@ infixr 6 :#
 infix 7 :!
 infix 8 :., :->
 pattern Vec a b c = Free (Vec' a b c)
+pattern If a b c = Free (If' a b c)
 pattern Ref a = Free (Ref' a)
 pattern Sigma x = Free (Sigma' x)
 pattern Ptr x = Free (Ptr' x)

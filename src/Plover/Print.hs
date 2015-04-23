@@ -15,6 +15,10 @@ flatten (Declare t var) = return $ LineDecl t var
 flatten (Vec var bound body) = do
   body' <- flatten body
   return $ Each var bound (body')
+flatten (If c t f) = do
+  t' <- flatten t
+  f' <- flatten f
+  return $ IfStmt c (t') (f')
 flatten (Ref a :<= val) = return $ Store (Ref a) val
 flatten (n :<= val) = return $ Store (n) val
 flatten (a :> b) = do
@@ -63,6 +67,18 @@ ppLine strict off (Each var expr body) =
   vs ++ "++) {\n"
     ++ ppLine strict (indent off) body
   ++ off ++ "}\n"
+ppLine strict off (IfStmt c t EmptyLine) =
+  let cond = ppExpr strict c in
+  off ++ "if (" ++ cond ++ ") {\n" ++
+    ppLine strict (indent off) t ++
+  off ++ "}\n"
+ppLine strict off (IfStmt c t f) =
+  let cond = ppExpr strict c in
+  off ++ "if (" ++ cond ++ ") {\n" ++
+    ppLine strict (indent off) t ++
+  off ++ "} else {\n" ++
+    ppLine strict (indent off) f ++
+  off ++ "}\n"
 ppLine strict off (Store x e) =
   off ++ ppExpr strict (x) ++ " = " ++
   ppExpr strict e ++ lineEnd
