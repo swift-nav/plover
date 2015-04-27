@@ -145,6 +145,7 @@ ppTypeDecl strict t = printArrayType t
     printArrayType IntType = ("int", "")
     printArrayType NumType = (ppNumber, "")
     printArrayType (TypedefType name) = (name, "")
+    printArrayType (PtrType t) = (ppType t ++ " *", "")
     printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
 
@@ -170,6 +171,7 @@ ppExpr strict e =
     (AppImpl a impls args) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
     (a :<= b)| Lax <- strict -> pe a ++ " <- " ++ pe b
     (a :. b) -> pe a ++ "." ++ ppVar b
+    (a :-> b) -> pe a ++ "->" ++ ppVar b
     (a :> b) | Lax <- strict -> ppExpr Lax a ++ ";\n" ++ ppExpr Lax b
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e

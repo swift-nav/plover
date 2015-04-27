@@ -367,13 +367,19 @@ typeCheck' (s :. f) = do
         Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
           ++ sep f fieldTypes
     _ -> error $ "typeCheck'. not a struct: " ++ sep s t
---TODO
---typeCheck' (s :-> f) = do
---  PtrType (StructType (ST fieldTypes)) <- typeCheck' s
---  case lookup f fieldTypes of
---    Just t -> return t
---    Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
---      ++ sep f fieldTypes
+typeCheck' (s :-> f) = do
+  t <- typeCheck s
+  case t of
+    PtrType t -> do
+      t' <- normalizeType t
+      case t' of
+        StructType _ (ST _ fieldTypes) -> do
+          case lookup f fieldTypes of
+            Just t'' -> return t''
+            Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
+              ++ sep f fieldTypes
+        _ -> error $ "typeCheck'. not a pointer to a struct: " ++ sep s t'
+    _ -> error $ "typeCheck'. not a pointer to a struct: " ++ sep s t
 typeCheck' x = error ("typeCheck': " ++ ppExpr Lax x)
 
 -- Compilation Utils --
