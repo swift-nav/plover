@@ -1,14 +1,14 @@
 -- Various expressions and testing utilities --
 {-# LANGUAGE OverloadedStrings #-}
-module Plover.Expressions where
+module Language.Plover.Expressions where
 
 import Control.Applicative ((<$>))
 import Control.Monad.Free
 import Control.Arrow (second)
 
-import Plover.Types
-import Plover.Macros
-import Plover.Reduce (typeCheck)
+import Language.Plover.Types
+import Language.Plover.Macros
+import Language.Plover.Reduce (typeCheck)
 
 -- Simple Test Expressions --
 l1, l2 :: CExpr

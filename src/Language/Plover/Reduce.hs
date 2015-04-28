@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Plover.Reduce
+module Language.Plover.Reduce
   ( compile, reduceArith, typeCheck
   , fmt
   ) where
@@ -19,11 +19,11 @@ import Data.Function (on)
 
 import Debug.Trace (trace, traceStack)
 
-import qualified Smash.Simplify as S
-import Plover.Types
-import Plover.Generics
-import Plover.Print
-import Plover.Macros (seqList, generatePrinter, newline)
+import qualified Language.Plover.Simplify as S
+import Language.Plover.Types
+import Language.Plover.Generics
+import Language.Plover.Print
+import Language.Plover.Macros (seqList, generatePrinter, newline)
 
 -- Hacky CExpr printer
 fmt :: String -> String

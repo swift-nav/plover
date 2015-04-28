@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Plover.Macros where
+module Language.Plover.Macros where
 
 import Control.Monad (foldM)
 import Control.Monad.Free
 import Data.List (foldl')
 
-import Plover.Types
+import Language.Plover.Types
 
 -- Sequence a list of CExprs
 -- nb: cannot use foldr

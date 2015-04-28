@@ -1,12 +1,12 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 -- Print a C ast
-module Plover.Print where
+module Language.Plover.Print where
 
 import Control.Monad.Free
 import Data.List (intercalate)
 
-import Plover.Types
+import Language.Plover.Types
 
 -- Printing output --
 flatten :: CExpr -> Either Error Line

@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, NamedFieldPuns #-}
-module Smash.Simplify
+module Language.Plover.Simplify
   (simplify, Expr(..))
 where
 import qualified Data.Map.Strict as M

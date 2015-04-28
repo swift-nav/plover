@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
-module Plover.Compile
+module Language.Plover.Compile
   ( writeProgram
   , generateLib
   , generateMain
@@ -16,10 +16,10 @@ import Data.Char
 
 import System.Process
 
-import Plover.Types
-import Plover.Reduce
-import Plover.Print
-import Plover.Macros (externs, seqList)
+import Language.Plover.Types
+import Language.Plover.Reduce
+import Language.Plover.Print
+import Language.Plover.Macros (externs, seqList)
 
 runM :: M a -> (Either Error a, Context)
 runM m = runState (runEitherT m) initialState

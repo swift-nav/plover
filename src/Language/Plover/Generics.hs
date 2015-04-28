@@ -1,4 +1,4 @@
-module Plover.Generics where
+module Language.Plover.Generics where
 
 import Data.List (intercalate)
 import Data.Monoid hiding (Sum)
@@ -12,7 +12,7 @@ import Data.String
 import Data.Maybe (fromJust)
 import Data.Function (on)
 
-import Plover.Types
+import Language.Plover.Types
 
 -- Generic fold
 iterMon :: (Monoid m, Functor f) => (f m -> m) -> Free f m -> m

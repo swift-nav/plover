@@ -39,17 +39,17 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Plover,
-                     Plover.Main,
-                     Plover.Macros,
-                     Plover.Types,
-                     Plover.Reduce,
-                     Plover.Compile
+  exposed-modules:   Language.Plover,
+                     Language.Plover.Main,
+                     Language.Plover.Macros,
+                     Language.Plover.Types,
+                     Language.Plover.Reduce,
+                     Language.Plover.Compile
 
-  other-modules:     Plover.Print,
-                     Plover.Generics,
-                     Plover.Expressions,
-                     Smash.Simplify
+  other-modules:     Language.Plover.Print,
+                     Language.Plover.Generics,
+                     Language.Plover.Expressions,
+                     Language.Plover.Simplify
 
   build-depends:     base >=4.7 && <4.8,
                      mtl >=2.1 && <2.2,

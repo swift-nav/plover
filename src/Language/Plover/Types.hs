@@ -5,7 +5,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Plover.Types where
+module Language.Plover.Types where
 
 import qualified Data.Foldable as F (Foldable)
 import qualified Data.Traversable as T (Traversable)
