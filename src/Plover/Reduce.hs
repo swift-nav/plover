@@ -330,8 +330,11 @@ typeCheck' (a :! b) = do
       return $ VecType as t
     _ -> error $ "LOOK: " ++ sep a b
 typeCheck' (Sigma body) = do
-  VecType (_ : as) t <- typeCheck' body
-  return $ VecType as t
+  btype <- typeCheck' body
+  case btype of
+    VecType [_] t -> return t
+    VecType (_ : as) t -> return $ VecType as t
+    _ -> left $ "Sigma body not a Vec, was type: " ++ show btype
 typeCheck' (Negate x) = typeCheck' x
 typeCheck' (Unary "transpose" m) = do
   VecType [rs, cs] t <- typeCheck' m
