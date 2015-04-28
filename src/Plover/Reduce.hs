@@ -219,7 +219,7 @@ typeCheck' e@(If cond t f) = do
   ctype <- typeCheck' cond
   case ctype of
     BoolType -> return Void
-    _ -> error $ "If condition is not a BoolType, got: " ++ show ctype
+    _ -> left $ "If condition is not a BoolType, got: " ++ show ctype
 typeCheck' (Extension t) =
   typeCheck t
 typeCheck' (Declare t var) = do
@@ -306,13 +306,13 @@ typeCheck' (Assert c) = do
   btype <- typeCheck' c
   case btype of
     BoolType -> return BoolType
-    t -> error $ "Assert condition must be BoolType, got: " ++ sep t btype
+    t -> left $ "Assert condition must be BoolType, got: " ++ sep t btype
 typeCheck' (Equal a b) = do
   atype <- typeCheck' a
   btype <- typeCheck' b
   if atype == btype
     then return BoolType
-    else error $ "Equality test between values with different types: " ++ sep atype btype
+    else left $ "Equality test between values with different types: " ++ sep atype btype
 typeCheck' VoidExpr = return Void
 typeCheck' (IntLit _) = return IntType
 typeCheck' (NumLit _) = return NumType
@@ -382,8 +382,8 @@ typeCheck' (s :-> f) = do
             Just t'' -> return t''
             Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
               ++ sep f fieldTypes
-        _ -> error $ "typeCheck'. not a pointer to a struct: " ++ sep s t'
-    _ -> error $ "typeCheck'. not a pointer to a struct: " ++ sep s t
+        _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t'
+    _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t
 typeCheck' x = error ("typeCheck': " ++ ppExpr Lax x)
 
 -- Compilation Utils --
@@ -774,7 +774,7 @@ compileStep' _ e@(x :=: y) = do
   case (tx, ty) of
     -- pointwise comparison
     (VecType (len1 : _) t1, VecType (len2 : _) t2) -> do
-      error "Vector comparison not implemented"
+      left "Vector comparison not implemented"
     _ -> return e
 
 -- id
