@@ -274,6 +274,10 @@ typeCheck' e@(a :* b) = do
   typeB <- typeCheck' b
   case (typeA, typeB) of
     (x, y) | numerics x y -> return $ joinNum x y
+    (t@(VecType _ n1), n2) | numeric n1 && numeric n2 && n1 == n2 -> do
+      return $ t
+    (n2, t@(VecType _ n1)) | numeric n1 && numeric n2 && n1 == n2 -> do
+      return $ t
     (VecType [a0, a1] n1, VecType [b0, b1] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "matrix product mismatch: " ++ show e
       return $ VecType [a0, b1] n1
