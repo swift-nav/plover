@@ -306,7 +306,7 @@ typeCheck' (Return e) = typeCheck' e
 typeCheck' (Assert c) = do
   btype <- typeCheck' c
   case btype of
-    BoolType -> return BoolType
+    BoolType -> return Void
     t -> left $ "Assert condition must be BoolType, got: " ++ sep t btype
 typeCheck' (Equal a b) = do
   atype <- typeCheck' a
