@@ -181,7 +181,6 @@ unifyMany u bs ts1 ts2 = do
   assert (length ts1 == length ts2) $ "unifyMany failure:\n" ++ sep ts1 ts2
   foldM (uncurry . unifyType u) bs $ zip ts1 ts2
 
-
 -- Used by typeCheck whenever types should be equal
 unifyGen :: Type -> Type -> M ()
 unifyGen t1 t2 = unifyType Universal [] t1 t2 >> return ()
@@ -210,6 +209,12 @@ joinNum IntType IntType = IntType
 joinNum IntType NumType = NumType
 joinNum NumType IntType = NumType
 joinNum NumType NumType = NumType
+
+-- Returns type of (a :! b) given appropriate type parameters for a
+vecTail :: [CExpr] -> Type -> Error -> M Type
+vecTail [] _ msg = left msg
+vecTail [_] t _ = return t
+vecTail (_ : ds) t _ = return $ VecType ds t
 
 typeCheck :: CExpr -> M Type
 typeCheck x = normalizeType =<< typeCheck' x
@@ -321,25 +326,16 @@ typeCheck' (IntLit _) = return IntType
 typeCheck' (NumLit _) = return NumType
 typeCheck' (StrLit _) = return stringType
 typeCheck' (BoolLit _) = return BoolType
-
--- FIX tail, look error
 typeCheck' (a :! b) = do
   itype <- typeCheck' b
   case itype of
     IntType -> return ()
     t -> left $ sep t b
-  ta <- typeCheck' a
-  case ta of
-    VecType [_] t -> return t
-    VecType (_ : as) t ->
-      return $ VecType as t
-    _ -> error $ "LOOK: " ++ sep a b
-typeCheck' (Sigma body) = do
-  btype <- typeCheck' body
-  case btype of
-    VecType [_] t -> return t
-    VecType (_ : as) t -> return $ VecType as t
-    _ -> left $ "Sigma body not a Vec, was type: " ++ show btype
+  VecType ds t <- typeCheck' a
+  vecTail ds t $ "LOOK: " ++ sep a b
+typeCheck' e@(Sigma body) = do
+  VecType ds t <- typeCheck' body
+  vecTail ds t $ "Attempted to sum scalar type: " ++ show e
 typeCheck' (Negate x) = typeCheck' x
 typeCheck' (Unary "transpose" m) = do
   VecType [rs, cs] t <- typeCheck' m
@@ -670,7 +666,7 @@ compileStep' _ (a :<= (Sigma vec)) = do
   VecType (len : _) _ <- local $ typeCheck vec
   let body = a :<= a + (vec :! (Ref i))
   return $
-    (a :<= 0.0) :>
+    (a :<= 0) :>
     (Vec i len $ body)
 
 -- Vector assignment
@@ -803,4 +799,3 @@ compileStep' _ e@(x :=: y) = do
 -- id
 -- x  -->  x
 compileStep' _ x = return x
-
