@@ -15,6 +15,10 @@ flatten (Declare t var) = return $ LineDecl t var
 flatten (Vec var bound body) = do
   body' <- flatten body
   return $ Each var bound (body')
+flatten (If c t f) = do
+  t' <- flatten t
+  f' <- flatten f
+  return $ IfStmt c (t') (f')
 flatten (Ref a :<= val) = return $ Store (Ref a) val
 flatten (n :<= val) = return $ Store (n) val
 flatten (a :> b) = do
@@ -63,6 +67,18 @@ ppLine strict off (Each var expr body) =
   vs ++ "++) {\n"
     ++ ppLine strict (indent off) body
   ++ off ++ "}\n"
+ppLine strict off (IfStmt c t EmptyLine) =
+  let cond = ppExpr strict c in
+  off ++ "if (" ++ cond ++ ") {\n" ++
+    ppLine strict (indent off) t ++
+  off ++ "}\n"
+ppLine strict off (IfStmt c t f) =
+  let cond = ppExpr strict c in
+  off ++ "if (" ++ cond ++ ") {\n" ++
+    ppLine strict (indent off) t ++
+  off ++ "} else {\n" ++
+    ppLine strict (indent off) f ++
+  off ++ "}\n"
 ppLine strict off (Store x e) =
   off ++ ppExpr strict (x) ++ " = " ++
   ppExpr strict e ++ lineEnd
@@ -112,6 +128,7 @@ ppType :: Type -> String
 ppType (NumType) = ppNumber
 ppType (VecType _ t) = ppType t ++ " *"
 ppType (Dimension _) = "int"
+ppType BoolType = "bool"
 ppType IntType = "int"
 ppType (TypedefType n) = ppVar n
 ppType (StructType name _) = ppVar name
@@ -124,9 +141,11 @@ ppTypeDecl strict t = printArrayType t
   where
     printArrayType (VecType es t) = (ppType t, concatMap printOne es)
     printArrayType StringType = ("char *", "")
+    printArrayType BoolType = ("bool", "")
     printArrayType IntType = ("int", "")
     printArrayType NumType = (ppNumber, "")
     printArrayType (TypedefType name) = (name, "")
+    printArrayType (PtrType t) = (ppType t ++ " *", "")
     printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
 
@@ -147,10 +166,12 @@ ppExpr strict e =
     (Deref x) -> "(*(" ++ pe x ++ "))"
     (Offset p off) -> pe (p :+ off)
     (Negate x) -> "-(" ++ pe x ++ ")"
+    (Equal a b) -> wrapp $ pe a ++ "==" ++ pe b
     (App a args) -> pe a ++ wrapp (intercalate ", " (map pe args))
     (AppImpl a impls args) -> pe a ++ wrapp (intercalate ", " (map pe (impls ++ args)))
     (a :<= b)| Lax <- strict -> pe a ++ " <- " ++ pe b
     (a :. b) -> pe a ++ "." ++ ppVar b
+    (a :-> b) -> pe a ++ "->" ++ ppVar b
     (a :> b) | Lax <- strict -> ppExpr Lax a ++ ";\n" ++ ppExpr Lax b
     e -> case strict of
            Strict -> error $ "ppExpr. " ++ show e

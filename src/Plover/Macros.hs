@@ -120,7 +120,8 @@ testFunction var sig output tp = do
 -- The extern file declarations
 
 externs = seqList
- [ Extern "sqrt"        (FnType $ fnT [numType] numType)
+ [ Extern "assert"      (FnType $ fnT [BoolType] Void)
+ , Extern "sqrt"        (FnType $ fnT [numType] numType)
  , Extern "inverse"     (FnType $ FnT [("n", IntType)]
                                    [("input", VecType [Ref "n", Ref "n"] NumType),
                                     ("output", VecType [Ref "n", Ref "n"] NumType)]

@@ -145,6 +145,7 @@ unifyT u bs (Dimension d1) (Dimension d2) = do
   unifyExpr u bs d1 d2
 unifyT _ bs Void Void = return bs
 unifyT _ bs StringType StringType = return bs
+unifyT _ bs BoolType BoolType = return bs
 unifyT _ bs IntType IntType = return bs
 unifyT _ bs IntType NumType = left "unifyT. can't store float as int"
 unifyT _ bs NumType IntType = return bs
@@ -212,6 +213,14 @@ typeCheck' e@(a :<= b) = do
   tr <- typeCheck' b
   unifyGen tl tr
   return Void
+typeCheck' e@(If cond t f) = do
+  tt <- local $ typeCheck' t
+  tf <- local $ typeCheck' f
+  assert (tt == tf) $ "If branch expressions must have the same type, have: " ++ sep tt tf
+  ctype <- typeCheck' cond
+  case ctype of
+    BoolType -> return tt
+    _ -> left $ "If condition is not a BoolType, got: " ++ show ctype
 typeCheck' (Extension t) =
   typeCheck t
 typeCheck' (Declare t var) = do
@@ -266,6 +275,10 @@ typeCheck' e@(a :* b) = do
   typeB <- typeCheck' b
   case (typeA, typeB) of
     (x, y) | numerics x y -> return $ joinNum x y
+    (t@(VecType _ n1), n2) | numeric n1 && numeric n2 && n1 == n2 -> do
+      return $ t
+    (n2, t@(VecType _ n1)) | numeric n1 && numeric n2 && n1 == n2 -> do
+      return $ t
     (VecType [a0, a1] n1, VecType [b0, b1] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "matrix product mismatch: " ++ show e
       return $ VecType [a0, b1] n1
@@ -290,10 +303,22 @@ typeCheck' (Vec var bound body) = do
 typeCheck' (Ref var) = varType var
 -- TODO get rid of this Expr?
 typeCheck' (Return e) = typeCheck' e
+typeCheck' (Assert c) = do
+  btype <- typeCheck' c
+  case btype of
+    BoolType -> return Void
+    t -> left $ "Assert condition must be BoolType, got: " ++ sep t btype
+typeCheck' (Equal a b) = do
+  atype <- typeCheck' a
+  btype <- typeCheck' b
+  if atype == btype
+    then return BoolType
+    else left $ "Equality test between values with different types: " ++ sep atype btype
 typeCheck' VoidExpr = return Void
 typeCheck' (IntLit _) = return IntType
 typeCheck' (NumLit _) = return NumType
 typeCheck' (StrLit _) = return stringType
+typeCheck' (BoolLit _) = return BoolType
 typeCheck' (a :! b) = do
   itype <- typeCheck' b
   case itype of
@@ -306,8 +331,11 @@ typeCheck' (a :! b) = do
       return $ VecType as t
     _ -> error $ "LOOK: " ++ sep a b
 typeCheck' (Sigma body) = do
-  VecType (_ : as) t <- typeCheck' body
-  return $ VecType as t
+  btype <- typeCheck' body
+  case btype of
+    VecType [_] t -> return t
+    VecType (_ : as) t -> return $ VecType as t
+    _ -> left $ "Sigma body not a Vec, was type: " ++ show btype
 typeCheck' (Negate x) = typeCheck' x
 typeCheck' (Unary "transpose" m) = do
   VecType [rs, cs] t <- typeCheck' m
@@ -347,13 +375,19 @@ typeCheck' (s :. f) = do
         Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
           ++ sep f fieldTypes
     _ -> error $ "typeCheck'. not a struct: " ++ sep s t
---TODO
---typeCheck' (s :-> f) = do
---  PtrType (StructType (ST fieldTypes)) <- typeCheck' s
---  case lookup f fieldTypes of
---    Just t -> return t
---    Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
---      ++ sep f fieldTypes
+typeCheck' (s :-> f) = do
+  t <- typeCheck s
+  case t of
+    PtrType t -> do
+      t' <- normalizeType t
+      case t' of
+        StructType _ (ST _ fieldTypes) -> do
+          case lookup f fieldTypes of
+            Just t'' -> return t''
+            Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
+              ++ sep f fieldTypes
+        _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t'
+    _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t
 typeCheck' x = error ("typeCheck': " ++ ppExpr Lax x)
 
 -- Compilation Utils --
@@ -409,11 +443,13 @@ compileFunctionArgs f args = do
 compoundVal (Ref _) = False
 compoundVal (IntLit _) = False
 compoundVal (StrLit _) = False
-compoundVal (a :! b) = compoundVal a || compoundVal b
-compoundVal (a :+ b) = compoundVal a || compoundVal b
-compoundVal (a :* b) = compoundVal a || compoundVal b
-compoundVal (a :/ b) = compoundVal a || compoundVal b
-compoundVal (a :> b) = compoundVal b
+compoundVal (BoolLit _) = False
+compoundVal (a :=: b) = compoundVal a || compoundVal b
+compoundVal (a :! b)  = compoundVal a || compoundVal b
+compoundVal (a :+ b)  = compoundVal a || compoundVal b
+compoundVal (a :* b)  = compoundVal a || compoundVal b
+compoundVal (a :/ b)  = compoundVal a || compoundVal b
+compoundVal (a :> b)  = compoundVal b
 compoundVal _ = True
 
 
@@ -546,6 +582,8 @@ compileStep' ctxt e@(x :+ y) = do
 
 compileStep' _ ((a :> b) :* c) = return $ a :> (b :* c)
 compileStep' _ (c :* (a :> b)) = return $ a :> (c :* b)
+
+compileStep' _ (Assert c) = return $ App "assert" [c]
 
 compileStep' ctxt e@(x :* y) = do
   tx <- local $ typeCheck x
@@ -719,6 +757,29 @@ compileStep' ctxt (a :> b) = do
   a' <- compileStep ctxt a
   b' <- compileStep ctxt b
   return (a' :> b')
+
+-- Control flow
+-- If -> If
+compileStep' ctxt (If (a :> c) t f) = return $ a :> (If c t f)
+compileStep' ctxt (If c t f) | compoundVal c = do
+  n <- freshName
+  return (n := c :> If (Ref n) t f)
+-- If -> If
+compileStep' ctxt (If c t f) = do
+  c' <- local $ compileStep ctxt c
+  t' <- local $ compileStep ctxt t
+  f' <- local $ compileStep ctxt f
+  return (If c' t' f')
+
+-- Vector comparison
+compileStep' _ e@(x :=: y) = do
+  tx <- local $ typeCheck x
+  ty <- local $ typeCheck y
+  case (tx, ty) of
+    -- pointwise comparison
+    (VecType (len1 : _) t1, VecType (len2 : _) t2) -> do
+      left "Vector comparison not implemented"
+    _ -> return e
 
 -- id
 -- x  -->  x

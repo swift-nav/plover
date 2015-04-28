@@ -35,12 +35,17 @@ data Expr a
   | Sigma' a
   | Ptr' a
   | Return' a
+  | Assert' a
+
+  -- Control flow
+  | If' a a a
 
   -- Elementary expressions
   | VoidExpr'
   | IntLit' Int
   | NumLit' Float
   | StrLit' String
+  | BoolLit' Bool
 
   -- Things that change the context
   | Extension' a
@@ -63,6 +68,7 @@ data Expr a
   | Sum a a
   | Mul a a
   | Div a a
+  | Equal' a a
   | StructMemberRef a Variable
   | StructPtrRef a Variable
   | Negate' a
@@ -79,6 +85,7 @@ type CExpr = Free Expr Void
 data Line
   -- All instances of CExpr should be numeric arithmetic only
   = Each Variable CExpr Line
+  | IfStmt CExpr Line Line
   | Block [Line]
   | Store CExpr CExpr
   | LineDecl Type Variable
@@ -121,6 +128,7 @@ data Type' a
   | IntType
   | NumType
   | StringType
+  | BoolType
   | PtrType (Type' a)
   | TypedefType Variable
   | StructType Variable StructType
@@ -233,12 +241,14 @@ sep s1 s2 = show s1 ++ ", " ++ show s2
 -- Syntax
 infix  4 :=, :<=
 infixr 5 :$
+infixr 5 :=:
 infixl 1 :>
 infixl  6 :+, :*
 infixr 6 :#
 infix 7 :!
 infix 8 :., :->
 pattern Vec a b c = Free (Vec' a b c)
+pattern If a b c = Free (If' a b c)
 pattern Ref a = Free (Ref' a)
 pattern Sigma x = Free (Sigma' x)
 pattern Ptr x = Free (Ptr' x)
@@ -247,9 +257,11 @@ pattern IntLit a = Free (IntLit' a)
 pattern NumLit a = Free (NumLit' a)
 -- pattern INumLit a = Free (INumLit' a)
 pattern StrLit s = Free (StrLit' s)
+pattern BoolLit s = Free (BoolLit' s)
 pattern Extension x = Free (Extension' x)
 pattern Declare t x = Free (Declare' t x)
 pattern Return x = Free (Return' x)
+pattern Assert x = Free (Assert' x)
 pattern FunctionDef a b c = Free (FunctionDef' a b c)
 pattern Extern v t = Free (Extern' v t)
 pattern App f args = Free (App' f args)
@@ -260,9 +272,11 @@ pattern StructDecl a b = Free (StructDecl' a b)
 pattern Negate x = Free (Negate' x)
 pattern Deref a = Free (Deref' a)
 pattern Offset a b = Free (Offset' a b)
+pattern Equal a b = Free (Equal' a b)
 pattern Unary tag x = Free (Unary' tag x)
 pattern a :<= b = Free (Assign a b)
 pattern a := b = Free (Init a b)
+pattern a :=: b = Free (Equal' a b)
 pattern a :# b = Free (Concat a b)
 pattern a :+ b = Free (Sum a b)
 pattern a :* b = Free (Mul a b)
