@@ -44,11 +44,11 @@ library
                      Language.Plover.Macros,
                      Language.Plover.Types,
                      Language.Plover.Reduce,
-                     Language.Plover.Compile
+                     Language.Plover.Compile,
+                     Language.Plover.Expressions
 
   other-modules:     Language.Plover.Print,
                      Language.Plover.Generics,
-                     Language.Plover.Expressions,
                      Language.Plover.Simplify
 
   build-depends:     base >=4.7 && <4.8,
@@ -57,9 +57,6 @@ library
                      free,
                      either,
                      transformers,
-                     mtl,
-                     smallcheck,
-                     tasty,
                      process
 
   hs-source-dirs:    src/
@@ -69,22 +66,19 @@ library
 test-suite test-rewrites
   type:              exitcode-stdio-1.0
   main-is:           Main.hs
-  hs-source-dirs:    test, src
-  build-depends:     base >=4.7 && <4.8,
-                     mtl >=2.1 && <2.2,
-                     containers,
-                     free,
-                     either,
-                     transformers,
-                     mtl,
-                     process,
-                     smallcheck,
-                     QuickCheck,
-                     HUnit,
+  hs-source-dirs:    test
+  default-language:  Haskell2010
+  ghc-options:       -Wall
+
+  build-depends:     plover,
+                     base >=4.7 && <4.8,
                      tasty,
                      tasty-hunit,
                      tasty-quickcheck,
-                     tasty-smallcheck
+                     tasty-smallcheck,
+                     smallcheck,
+                     QuickCheck,
+                     HUnit
 
 source-repository head
   type:              git
