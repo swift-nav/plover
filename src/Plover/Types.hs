@@ -73,7 +73,6 @@ data Expr a
   | StructPtrRef a Variable
   | Negate' a
   | Deref' a
-  | Offset' a a
   | Unary' Tag a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
@@ -113,6 +112,7 @@ data ExternalDef = External | Generated
 data StructType = ST
   { st_extern :: ExternalDef
   , st_fields :: [(Variable, Type)]
+  -- , st_params :: [Type]
   }
  deriving (Show, Eq, Ord)
 
@@ -131,7 +131,8 @@ data Type' a
   | BoolType
   | PtrType (Type' a)
   | TypedefType Variable
-  | StructType Variable StructType
+  -- Concrete ST has name, values for type parameters
+  | StructType Variable StructType -- [a]
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type Type = Type' CExpr
@@ -271,7 +272,6 @@ pattern AppImpl a b c = Free (AppImpl' a b c)
 pattern StructDecl a b = Free (StructDecl' a b)
 pattern Negate x = Free (Negate' x)
 pattern Deref a = Free (Deref' a)
-pattern Offset a b = Free (Offset' a b)
 pattern Equal a b = Free (Equal' a b)
 pattern Unary tag x = Free (Unary' tag x)
 pattern a :<= b = Free (Assign a b)

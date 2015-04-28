@@ -46,13 +46,24 @@ fmt x = go "" (tokenize x)
 
 
 -- Searches syntax tree for simple arithmetic expressions, simplifies them
-reduceArith = mvisit toExpr step
+reduceArith t = mvisit msimplify reduceArith t
   where
+    scale :: Int -> CExpr -> CExpr
     scale 1 x = x
     scale x (IntLit 1) = IntLit x
     scale x y = (IntLit x) * y
 
-    step = S.simplify scale
+    simplify :: S.Expr CExpr Int -> CExpr
+    simplify = S.simplify scale
+
+    atom :: CExpr -> Maybe (S.Expr CExpr Int)
+    atom = return . S.Atom
+
+    msimplify :: CExpr -> Maybe CExpr
+    msimplify e = do
+      e' <- toExpr e
+      let e'' = simplify e'
+      if e == e'' then Nothing else return e''
 
     toExpr :: CExpr -> Maybe (S.Expr CExpr Int)
     toExpr (a :+ b) = do
@@ -67,7 +78,8 @@ reduceArith = mvisit toExpr step
     toExpr (Negate x) = do
       x' <- toExpr x
       return $ S.Mul [S.Prim (-1), x']
-    toExpr e@(Ref v) = return $ S.Atom e
+    toExpr e@(Ref v) = atom e
+    toExpr e@(a :! b) = atom e
     --toExpr e@(a :! b) = return $ S.Atom e
     toExpr x = Nothing
 
@@ -242,25 +254,17 @@ typeCheck' e@(a :# b) = do
       assert (as == bs) $ "expr concat mismatch: " ++ show e ++ " !! " ++ sep as bs
       unifyGen t1 t2
       return $ VecType ((a0 + b0) : as) t1
-    _ -> error $ "typeCheck' :#. " ++ sep ta tb ++ "\n" ++ sep a b
-typeCheck' e@(Offset a b) = do
-  typeA <- typeCheck' a
-  typeB <- typeCheck' b
-  case (typeA, typeB) of
-    -- TODO check lengths
-    -- These are for pointer offsets
-    (VecType (_ : _) _, IntType) -> return typeA
-    (IntType, VecType (_ : _) _) -> return typeB
-    _ -> left $ "typeCheck'. Offset. should have VecType, IntType. have: " ++ sep typeA typeB ++ "\n" ++ sep a b
+    _ -> left $ "typeCheck' :#. " ++ sep ta tb ++ "\n" ++ sep a b
+
 typeCheck' e@(a :+ b) = do
   typeA <- typeCheck' a
   typeB <- typeCheck' b
   case (typeA, typeB) of
-    --(VecType (_ : _) _, IntType) -> return typeA
-    --(IntType, VecType (_ : _) _) -> return typeB
     (IntType, IntType) -> return IntType
     (NumType, IntType) -> return NumType
     (IntType, NumType) -> return NumType
+    (VecType (_ : _) _, IntType) -> return typeA
+    (IntType, VecType (_ : _) _) -> return typeB
     _ -> do
       vectorTypeEq typeA typeB $ "vector sum mismatch:\n" ++
         sep typeA typeB ++ "\n" ++ sep a b
@@ -275,24 +279,22 @@ typeCheck' e@(a :* b) = do
   typeB <- typeCheck' b
   case (typeA, typeB) of
     (x, y) | numerics x y -> return $ joinNum x y
-    (t@(VecType _ n1), n2) | numeric n1 && numeric n2 && n1 == n2 -> do
-      return $ t
-    (n2, t@(VecType _ n1)) | numeric n1 && numeric n2 && n1 == n2 -> do
-      return $ t
-    (VecType [a0, a1] n1, VecType [b0, b1] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
+    (VecType [a0, a1] n1, VecType [b0, b1] n2) | numerics n1 n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "matrix product mismatch: " ++ show e
       return $ VecType [a0, b1] n1
-    (VecType [a0] n1, VecType [b0] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
+    (VecType [a0] n1, VecType [b0] n2) | numerics n1 n2 && n1 == n2 -> do
       assert (a0 `numericEquiv` b0) $ "vector product mismatch: " ++ show e
       return $ VecType [a0] n1
-    (VecType [a0, a1] n1, VecType [b0] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
+    (VecType [a0, a1] n1, VecType [b0] n2) | numerics n1 n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "matrix/vector product mismatch:\n" ++
         sep (reduceArith a1) (reduceArith b0) ++ "\n" ++ sep a b
       return $ VecType [a0] n1
-    (VecType [a1] n1, VecType [b0, b1] n2) | numeric n1 && numeric n2 && n1 == n2 -> do
+    (VecType [a1] n1, VecType [b0, b1] n2) | numerics n1 n2 && n1 == n2 -> do
       assert (a1 `numericEquiv` b0) $ "vector/matrix product mismatch: " ++ show e
       return $ VecType [b1] n1
-    _ -> error ("improper product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
+    (n1, VecType d n2) | numerics n1 n2 -> return $ VecType d (joinNum n1 n2)
+    (VecType d n2, n1) | numerics n1 n2-> return $ VecType d (joinNum n1 n2)
+    _ -> left ("improper product:\n" ++ sep typeA typeB ++ "\n" ++ sep a b)
 typeCheck' (Vec var bound body) = do
   t <- withBindings [(var, IntType)] (typeCheck' body)
   case t of
@@ -319,11 +321,13 @@ typeCheck' (IntLit _) = return IntType
 typeCheck' (NumLit _) = return NumType
 typeCheck' (StrLit _) = return stringType
 typeCheck' (BoolLit _) = return BoolType
+
+-- FIX tail, look error
 typeCheck' (a :! b) = do
   itype <- typeCheck' b
   case itype of
     IntType -> return ()
-    t -> error $ sep t b
+    t -> left $ sep t b
   ta <- typeCheck' a
   case ta of
     VecType [_] t -> return t
@@ -463,7 +467,8 @@ simpleVal _ = True
 compile :: CExpr -> M CExpr
 -- Iterate compileStep to convergence
 compile expr = do
-  _ <- local $ typeCheck expr
+  t <- local $ typeCheck expr
+  assert (t == Void) $ "compile expects a Void-type statement, got: " ++ show t
   head <$> (scanM step expr)
   where
     sep = "\n------------\n"
@@ -529,7 +534,8 @@ compileStep' _ e@(Extension t) = do
   return e
 compileStep' _ e@(Declare t var) = do
   extend var t
-  return $ e
+  let t' = fmap reduceArith t
+  return $ Declare t' var
 compileStep' Top e@(Extern var t) = do
   extend var t
   return e
@@ -596,6 +602,7 @@ compileStep' ctxt e@(x :* y) = do
     -- matrix/vector vector/matrix products
     (VecType [r1, c1] _, VecType [r2] _) ->
       compileMVMul x (r1, c1) y r2
+    -- TODO should only apply to [len1], [len2] ?
     (VecType (len1 : _) _, VecType (len2 : _) _) -> do
       assert (len1 == len2) $ "product length mismatch: " ++ show e
       i <- freshName
@@ -643,7 +650,7 @@ compileStep' ctxt e@(x :/ y) = do
 compileStep' _ (a :<= u :# v) = do
   VecType (offset : _) _ <- local $ typeCheck u
   -- TODO (a + offset) will always be wrapped by an index operation?
-  return $ (a :<= u) :> ((Offset a offset) :<= v)
+  return $ (a :<= u) :> ((a :+ offset) :<= v)
 
 compileStep' _ (a :<= (Ptr x)) = do
   n <- freshName
@@ -695,7 +702,7 @@ compileStep' ctxt (a :<= b) = do
     _ -> do
       a' <- compileStep LHS a
       b' <- compileStep RHS b
-      return $ a' :<= b'
+      return $ reduceArith a' :<= reduceArith b'
 
 compileStep' ctxt e@(Negate x) = do
   tx <- local $ typeCheck x
@@ -717,8 +724,13 @@ compileStep' _ e@(App f args) = do
 -- Reduction of an index operation
 compileStep' _ ((Vec var b body) :! ind) =
   return $ subst var ind body
-compileStep' RHS e@((a :+ b) :! ind) =
-  return $ (a :! ind) + (b :! ind)
+compileStep' RHS e@((a :+ b) :! ind) = do
+  ta <- local $ typeCheck a
+  tb <- local $ typeCheck b
+  case (ta, tb) of
+    (VecType _ _, VecType _ _) ->
+      return $ (a :! ind) + (b :! ind)
+    _ -> return e
 compileStep' ctxt@RHS (e@(a :* b) :! ind) = do
   ta <- local $ typeCheck a
   tb <- local $ typeCheck b
@@ -744,12 +756,19 @@ compileStep' _ e@(Vec var (IntLit 1) body) = do
     Void -> return $ subst var (IntLit 0) body
     _ -> return e
 
+-- Finite unrolling
+--compileStep' _ e@(Vec var (IntLit n) body) = do
+--  t <- local $ typeCheck e
+--  case t of
+--    Void -> return $ seqList (map (\i -> subst var (IntLit i) body) [0..(n-1)])
+--    _ -> return e
+
 -- Reduction within a Vec
 -- Vec i x  -->  Vec i x
 compileStep' ctxt (Vec var r body) = do
   body' <- withBindings [(var, IntType)] $ compileStep ctxt body
   --body' <- withBindings [] $ compileStep ctxt body
-  return $ Vec var r body'
+  return $ Vec var (reduceArith r) body'
 
 -- Sequencing
 -- a :> b  -->  a :> b

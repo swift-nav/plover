@@ -37,7 +37,7 @@ flatten (StructDecl name (ST External _)) = return EmptyLine
 flatten (StructDecl name (ST Generated fields)) =
   return $ TypeDefStruct name fields
 flatten VoidExpr = return EmptyLine
-flatten x = Left $ "flatten: " ++ show x
+flatten x = Left $ "flatten. got an expression or non-reduced statement: " ++ show x
 
 mergeBlocks :: Line -> Line -> Line
 mergeBlocks (Block ls1) (Block ls2) = Block (ls1 ++ ls2)
@@ -164,7 +164,6 @@ ppExpr strict e =
     (StrLit s) -> show s
     (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
     (Deref x) -> "(*(" ++ pe x ++ "))"
-    (Offset p off) -> pe (p :+ off)
     (Negate x) -> "-(" ++ pe x ++ ")"
     (Equal a b) -> wrapp $ pe a ++ "==" ++ pe b
     (App a args) -> pe a ++ wrapp (intercalate ", " (map pe args))

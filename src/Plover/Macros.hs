@@ -91,7 +91,7 @@ generateTestArguments fnName (FnT implicits params output) = do
     pValue t@(TypedefType _) = do
       n <- freshName
       let decl = Declare t n
-      StructType _ (ST _ fields) <- normalizeType t
+      StructType _ (ST _ fields ) <- normalizeType t
       fs <- mapM pBind fields
       let bs = map (\f -> (Ref n :. f) :<= Ref f) (map fst fields)
       return $ seqList $
