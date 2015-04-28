@@ -214,11 +214,12 @@ typeCheck' e@(a :<= b) = do
   unifyGen tl tr
   return Void
 typeCheck' e@(If cond t f) = do
-  local $ typeCheck' t
-  local $ typeCheck' f
+  tt <- local $ typeCheck' t
+  tf <- local $ typeCheck' f
+  assert (tt == tf) $ "If branch expressions must have the same type, have: " ++ sep tt tf
   ctype <- typeCheck' cond
   case ctype of
-    BoolType -> return Void
+    BoolType -> return tt
     _ -> left $ "If condition is not a BoolType, got: " ++ show ctype
 typeCheck' (Extension t) =
   typeCheck t
