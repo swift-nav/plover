@@ -86,7 +86,6 @@ p4 = seqList [
   "z" := "x" * "y"
  ]
 p5 = seqList [
-  --(Extern "sqrt" (FnType $ fnT [numType] numType)),
   "y" := "sqrt" :$ 2
  ]
 p6 = seqList [
@@ -158,6 +157,14 @@ p17 = "x" := l3 :# (l3 * l3)
 p18 = "x" := 0
 
 p19 = Declare IntType "x" :> "x" :<= 0
+
+--TODO fix struct type context issue
+--p20  = seqList
+--  [ StructDecl "pair" (ST Generated [("a", numType), ("b", VecType ["a"] NumType)])
+--  , Extern "fn" (FnType $ FnT [("l", IntType)] [("n", NumType), ("vec", VecType ["l"] NumType)] NumType)
+--  , Declare (PtrType $ TypedefType "pair") "x"
+--  , "z2" := App "fn" [norm l1, "x" :-> "b"]
+--  ]
 
 -- Example compilation units
 cu1, cu_pvt :: CompilationUnit
@@ -291,7 +298,6 @@ good_cases =
   , ("p9", p9)
   , ("p10", p10)
   , ("p11", p11)
-  -- , ("p12", p12)
   , ("p15", p15)
   , ("p17", p17)
   , ("p18", p18)

@@ -441,7 +441,8 @@ compileFunctionArgs f args = do
       if compoundVal arg
       then do
         n <- freshName
-        return (\e -> (n := arg) :> e, fn, (Ref n) : args)
+        let declArg = \e -> (n := arg) :> e
+        return (cont . declArg, fn, (Ref n) : args)
       else return (cont, fn, arg : args)
 
 compoundVal (Ref _) = False
@@ -455,7 +456,6 @@ compoundVal (a :* b)  = compoundVal a || compoundVal b
 compoundVal (a :/ b)  = compoundVal a || compoundVal b
 compoundVal (a :> b)  = compoundVal b
 compoundVal _ = True
-
 
 simpleVal (Unary _ _)  = False
 simpleVal (a :! b) = simpleVal a && simpleVal b
