@@ -8,6 +8,8 @@ import Test.Tasty.HUnit
 import Language.Plover.Expressions as Exprs
 import Language.Plover.Compile (testWithGcc)
 
+import Simplify
+
 main = defaultMain tests
 
 foo = do
