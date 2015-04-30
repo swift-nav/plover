@@ -3,14 +3,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Language.Plover.Reduce
   ( compile, reduceArith, typeCheck
+  -- TODO remove
   , fmt
+  , normalizeSeq
+  , stepIndependent
+  , refNames
+  , IndState(..)
   ) where
 
-import Data.List (nub)
+import Data.List (nub, foldl')
+import Data.Monoid (Any(..))
+import qualified Data.Foldable as F (fold)
 import Control.Applicative ((<$>))
 import Control.Monad.State
+import Control.Monad.Free (Free(..))
 import Data.Function (on)
-
 import Debug.Trace (trace)
 
 import qualified Language.Plover.Simplify as S
@@ -465,6 +472,47 @@ simpleVal (a :+ b) = simpleVal a && simpleVal b
 simpleVal (a :* b) = simpleVal a && simpleVal b
 simpleVal _ = True
 
+-- Normalizes sequence terms
+normalizeSeq :: CExpr -> [CExpr]
+normalizeSeq (a :> b) = normalizeSeq a ++ normalizeSeq b
+normalizeSeq VoidExpr = []
+normalizeSeq e = [e]
+
+data IndState = IS
+  { is_names :: [Variable]
+  , is_ind :: [CExpr]
+  , is_dep :: [CExpr]
+  }
+  deriving (Show, Eq, Ord)
+
+-- Main loop lifting function
+stepIndependent :: IndState -> CExpr -> IndState
+stepIndependent (IS names ind dep) expr =
+  if refNames names expr
+  then case expr of
+         var := _        -> IS (var : names) ind (expr : dep)
+         (Ref var) :<= _ -> IS (var : names) ind (expr : dep)
+         _ -> IS names ind (expr : dep)
+  else
+    IS names (expr : ind) dep
+
+refNames :: [Variable] -> Free Expr a -> Bool
+refNames names expr =
+  let
+    isMarked (Ref n) | n `elem` names = Pure (Any True)
+    isMarked (n := _) | n `elem` names = Pure (Any True)
+    isMarked e = e
+    -- ignore Init, struct member ref, various other delcarations
+
+    Any bad = F.fold $ visit isMarked $ fmap (const (Any False)) $ expr
+  in bad
+
+loopHoist :: Variable -> CExpr -> ([CExpr], [CExpr]) 
+loopHoist index body =
+  let IS _ ind dep = foldl' stepIndependent (IS [index] [] []) (normalizeSeq body)
+  in (reverse ind, reverse dep)
+  
+
 -- Term Reduction --
 compile :: CExpr -> M CExpr
 -- Iterate compileStep to convergence
@@ -771,8 +819,11 @@ compileStep' _ e@(Vec var (IntLit 1) body) = do
 -- Vec i x  -->  Vec i x
 compileStep' ctxt (Vec var r body) = do
   body' <- withBindings [(var, IntType)] $ compileStep ctxt body
-  --body' <- withBindings [] $ compileStep ctxt body
-  return $ Vec var (reduceArith r) body'
+  let flag = True
+  let (outer, body'') = loopHoist var body'
+  let simple = Vec var (reduceArith r) body'
+  if flag && outer /= [] then return $ seqList outer :> Vec var (reduceArith r) (seqList body'')
+   else return simple
 
 -- Sequencing
 -- a :> b  -->  a :> b
@@ -787,6 +838,7 @@ compileStep' _ (If (a :> c) t f) = return $ a :> (If c t f)
 compileStep' _ (If c t f) | compoundVal c = do
   n <- freshName
   return (n := c :> If (Ref n) t f)
+
 -- If -> If
 compileStep' ctxt (If c t f) = do
   c' <- local $ compileStep ctxt c

@@ -10,16 +10,9 @@ iterMon :: (Monoid m, Functor f) => (f m -> m) -> Free f m -> m
 iterMon _ (Pure m) = m
 iterMon fn (Free f) = fn $ fmap (iterMon fn) f
 
--- Generic map
-unwrap :: Functor f => Free f a -> Free f (Free f a)
-unwrap (Free f) = Free $ fmap unwrap f
-unwrap (Pure a) = Pure (Pure a)
-
--- TODO why is this so slow?
 visit :: (Functor f) => (Free f a -> Free f a) -> Free f a -> Free f a
----- iterM passes in an unwrapped expr (:: Expr CExpr),
----- so we fmap subst and then rewrap it with Free
-visit f = f . iter (Free . fmap (visit f)) . unwrap
+visit f (Free t) = f $ Free $ fmap (visit f) t
+visit f x = f x
 
 mvisit :: Functor f => (Free f a -> Maybe t) -> (t -> Free f a) -> Free f a -> Free f a
 mvisit f g x =

@@ -25,7 +25,7 @@ type Tag = String
 type Variable = String
 
 -- Main program type
--- Input programs are specified in the fixpoint of this type (CExpr).
+-- Input programs are specified in the fixpoint of this type (CExpr, below).
 -- The reduction compiler operates on them.
 data Expr a
   -- Things at the top of the constructor list
