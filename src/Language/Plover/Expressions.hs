@@ -2,8 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Language.Plover.Expressions where
 
-import Control.Applicative ((<$>))
-import Control.Monad.Free
 import Control.Arrow (second)
 
 import Language.Plover.Types
@@ -11,7 +9,7 @@ import Language.Plover.Macros
 import Language.Plover.Reduce (typeCheck)
 
 -- Simple Test Expressions --
-l1, l2 :: CExpr
+l1, l1', l2, l3 :: CExpr
 l1 = Vec "i" 2 1
 l1' = Vec "i" 3 1
 l2 = Vec "i" 2 (Vec "j" 2 ("i" + "j"))
@@ -65,7 +63,8 @@ e13 = seqList [
   Assert ("y" :=: 2)
  ]
 
-p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17 :: CExpr
+p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16 :: CExpr
+p17, p18, p19 :: CExpr
 
 p1 = seqList [
   ("x" := Vec "i" 1 (Vec "j" 2 (("temp" := "i" + "j") :> "temp"))),
@@ -170,7 +169,7 @@ p19 = Declare IntType "x" :> "x" :<= 0
 cu1, cu_pvt :: CompilationUnit
 cu1 = CU
   -- name
-  "test" 
+  "test"
   -- function defs
   [("testfn", FnT [] [] Void, VoidExpr)]
   -- includes
@@ -183,7 +182,7 @@ cu1 = CU
 cu_pvt = CU "gen_pvt" [("pvt", pvtSig, pvtBody)] ["extern_defs.c"] [nav_meas_def] []
 
 -- Test cases that fail
-b1, b2 :: CExpr
+b1, b2, b3 :: CExpr
 b1 = 2 * 3
 b2 = "x" := "y"
 b3 = "x" := 22 :> "x" := 0
@@ -208,9 +207,11 @@ losLoop = Vec "j" "n_used" $ seqList [
  ]
 
 -- Externally defined (and has additional fields)
+nav_meas_def :: CExpr
 nav_meas_def = StructDecl "navigation_measurement_t" $ ST
   External [("pseudorange", numType)]
 
+pvtSig :: FunctionType
 pvtSig = FnT
   { ft_imp = [("n_used", IntType)]
   , ft_exp =
@@ -225,6 +226,7 @@ pvtSig = FnT
   , ft_out = Void
   }
 
+pvtBody :: CExpr
 pvtBody = seqList [
     decls,
     "los" :=  losLoop,
@@ -242,9 +244,10 @@ pvtBody = seqList [
 pvt :: CExpr
 pvt = nav_meas_def :> FunctionDef "pvt" pvtSig pvtBody
 
+testPVT :: M CExpr
 testPVT = do
   -- Load struct def into context
-  typeCheck nav_meas_def
+  _ <- typeCheck nav_meas_def
   -- Generate random arguments, call "pvt" defined above
   test1 <- generateTestArguments "pvt" pvtSig
   -- Print n_used

@@ -45,11 +45,11 @@ library
                      Language.Plover.Types,
                      Language.Plover.Reduce,
                      Language.Plover.Compile,
-                     Language.Plover.Expressions
+                     Language.Plover.Expressions,
+                     Language.Plover.Simplify
 
   other-modules:     Language.Plover.Print,
-                     Language.Plover.Generics,
-                     Language.Plover.Simplify
+                     Language.Plover.Generics
 
   build-depends:     base >=4.7 && <4.8,
                      mtl >=2.1 && <2.2,
@@ -60,7 +60,7 @@ library
                      process
 
   hs-source-dirs:    src/
-  ghc-options:       -Wall -fprof-auto
+  ghc-options:       -Wall -Werror -fprof-auto
   default-language:  Haskell2010
 
 test-suite test-rewrites
@@ -68,7 +68,7 @@ test-suite test-rewrites
   main-is:           Main.hs
   hs-source-dirs:    test
   default-language:  Haskell2010
-  ghc-options:       -Wall
+  ghc-options:       -Wall -Werror
 
   build-depends:     plover,
                      base >=4.7 && <4.8,

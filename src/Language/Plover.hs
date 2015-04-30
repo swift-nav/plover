@@ -5,6 +5,7 @@ module Language.Plover
   , module Language.Plover.Compile
   -- TODO remove
   , module Language.Plover.Main
+  , module Language.Plover.Expressions
   ) where
 
 import Language.Plover.Macros

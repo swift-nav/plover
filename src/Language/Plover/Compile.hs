@@ -29,12 +29,6 @@ wrapExterns e = do
   e' <- e
   return (externs :> e')
 
---compileExpr :: M CExpr -> Either Error String
---compileLine :: CExpr -> Either Error String
-
-noFlatten expr = printOutput $ fmap show $ do
-  fst . runM $ compile =<< wrapExterns expr
-
 compileProgram :: [String] -> M CExpr -> Either Error String
 compileProgram includes expr = do
   expr' <- fst . runM $ compile =<< wrapExterns expr
@@ -44,23 +38,12 @@ compileProgram includes expr = do
 printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
 
-main' :: M CExpr -> IO ()
-main' m =
-  case compileProgram [] m of
-    Left err -> printFailure err
-    Right str -> putStrLn str
-
-main :: CExpr -> IO ()
-main = main' . return
-
+printOutput :: Either String String -> IO ()
 printOutput mp =
   case mp of
     Left err -> printFailure err
     Right p -> do
       putStrLn p
-
-printExpr' :: M CExpr -> IO ()
-printExpr' expr = printOutput (compileProgram [] expr)
 
 printExpr :: CExpr -> IO ()
 printExpr expr = printOutput (compileProgram [] (return expr))

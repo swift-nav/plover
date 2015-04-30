@@ -6,18 +6,12 @@ module Language.Plover.Reduce
   , fmt
   ) where
 
-import Data.List (intercalate, nub)
-import Data.Monoid hiding (Sum)
-import qualified Data.Foldable as F (Foldable, fold)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM, traverse)
+import Data.List (nub)
 import Control.Applicative ((<$>))
-import Control.Monad.Free
 import Control.Monad.State
-import Data.String
-import Data.Maybe (fromJust)
 import Data.Function (on)
 
-import Debug.Trace (trace, traceStack)
+import Debug.Trace (trace)
 
 import qualified Language.Plover.Simplify as S
 import Language.Plover.Types
@@ -29,23 +23,24 @@ import Language.Plover.Macros (seqList, generatePrinter, newline)
 fmt :: String -> String
 fmt x = go "" (tokenize x)
  where
-   fix :: Char -> String
-   fix '(' = " ( "
-   fix ')' = " ) "
-   fix c = [c]
+   pad :: Char -> String
+   pad '(' = " ( "
+   pad ')' = " ) "
+   pad c = [c]
 
    tokenize :: String -> [String]
-   tokenize = words . concatMap fix
+   tokenize = words . concatMap pad
 
    go :: String -> [String] -> String
    --go ind ("(" : "Free" : str) = "\n" ++ ind ++ "(" ++ "Free" ++ " " ++ go (ind) str
-   go ind ("(" : head : str) = "\n" ++ ind ++ "(" ++ head ++ " " ++ go ("  " ++ ind) str
+   go ind ("(" : h : str) = "\n" ++ ind ++ "(" ++ h ++ " " ++ go ("  " ++ ind) str
    go ind (")" : str) = ")" ++ go (drop 2 ind) str
    go ind (word : str) = word ++ go ind str
    go _ [] = ""
 
 
 -- Searches syntax tree for simple arithmetic expressions, simplifies them
+reduceArith :: CExpr -> CExpr
 reduceArith t = mvisit msimplify reduceArith t
   where
     scale :: Int -> CExpr -> CExpr
@@ -78,10 +73,10 @@ reduceArith t = mvisit msimplify reduceArith t
     toExpr (Negate x) = do
       x' <- toExpr x
       return $ S.Mul [S.Prim (-1), x']
-    toExpr e@(Ref v) = atom e
-    toExpr e@(a :! b) = atom e
+    toExpr e@(Ref _) = atom e
+    toExpr e@(_ :! _) = atom e
     --toExpr e@(a :! b) = return $ S.Atom e
-    toExpr x = Nothing
+    toExpr _ = Nothing
 
 -- Attempts to simplify numeric expressions.
 -- Called by type checker
@@ -104,6 +99,7 @@ withBindings bindings m = do
   setVarTypes env0
   return a
 
+local :: M a -> M a
 local = withBindings []
 
 vectorTypeEq :: Type -> Type -> String -> M ()
@@ -125,7 +121,7 @@ walk bs (Ref v) =
     Just (Ref v') | v' == v -> Ref v
     Just (Ref v') -> walk bs (Ref v')
     Just val -> val
-walk bs e = e
+walk _ e = e
 
 -- Whether to treat R's as variables to be bound or as function arguments
 data UnifyMethod = Extend | Universal
@@ -139,11 +135,13 @@ unifyExpr' _ bs x y = do
   assert (x `numericEquiv` y) $ "unifyExpr failure:\n" ++ sep x y
   return bs
 
+onM :: (a -> a -> M b) -> (c -> M a) -> c -> c -> M b
 onM f g x y = do
   x' <- g x
   y' <- g y
   f x' y'
 
+unifyType :: UnifyMethod -> Bindings -> Type -> Type -> M Bindings
 unifyType u bs = unifyT u bs `onM` normalizeType
 
 unifyT :: UnifyMethod -> Bindings -> Type -> Type -> M Bindings
@@ -159,7 +157,7 @@ unifyT _ bs Void Void = return bs
 unifyT _ bs StringType StringType = return bs
 unifyT _ bs BoolType BoolType = return bs
 unifyT _ bs IntType IntType = return bs
-unifyT _ bs IntType NumType = left "unifyT. can't store float as int"
+unifyT _ _  IntType NumType = left "unifyT. can't store float as int"
 unifyT _ bs NumType IntType = return bs
 unifyT _ bs NumType NumType = return bs
 unifyT _ bs NumType (VecType [] NumType) = return bs
@@ -174,7 +172,7 @@ unifyT u bs (StructType _ (ST _ fields1)) (StructType _ (ST _ fields2)) = do
   assert (nfs1 == nfs2) $ "unification failure: field names don't match: " ++ sep fields1 fields2
   unifyMany u bs ts1 ts2
 unifyT u bs (PtrType t1) (PtrType t2) = unifyType u bs t1 t2
-unifyT _ bs e1 e2 = left $ "unification failure:\n" ++ sep e1 e2
+unifyT _ _ e1 e2 = left $ "unification failure:\n" ++ sep e1 e2
 
 unifyMany :: UnifyMethod -> Bindings -> [Type] -> [Type] -> M Bindings
 unifyMany u bs ts1 ts2 = do
@@ -188,7 +186,7 @@ unifyGen t1 t2 = unifyType Universal [] t1 t2 >> return ()
 -- takes fn, args, returns fn applied to correct implict arguments
 getImplicits :: CExpr -> [CExpr] -> M [CExpr]
 getImplicits fn args = do
-  FnType (FnT implicits params out) <- local $ typeCheck fn
+  FnType (FnT implicits params _) <- local $ typeCheck fn
   argTypes <- mapM (local . typeCheck) args
   bindings <- unifyMany Extend [] (map snd params) argTypes
   let
@@ -199,16 +197,20 @@ getImplicits fn args = do
         Just x -> return x
   mapM (resolve . fst) implicits
 
+numeric :: Type -> Bool
 numeric NumType = True
 numeric IntType = True
 numeric _ = False
 
+numerics :: Type -> Type -> Bool
 numerics x y = numeric x && numeric y
 
+joinNum :: Type -> Type -> Type
 joinNum IntType IntType = IntType
 joinNum IntType NumType = NumType
 joinNum NumType IntType = NumType
 joinNum NumType NumType = NumType
+joinNum t1 t2 = error $ "joinNum: can't join non numeric types: " ++ sep t1 t2
 
 -- Returns type of (a :! b) given appropriate type parameters for a
 vecTail :: [CExpr] -> Type -> Error -> M Type
@@ -221,16 +223,16 @@ typeCheck x = normalizeType =<< typeCheck' x
 
 -- Typecheck --
 typeCheck' :: CExpr -> M Type
-typeCheck' e@(var := b) = do
+typeCheck' (var := b) = do
   t <- typeCheck' b
   extend var t
   return Void
-typeCheck' e@(a :<= b) = do
+typeCheck' (a :<= b) = do
   tl <- typeCheck' a
   tr <- typeCheck' b
   unifyGen tl tr
   return Void
-typeCheck' e@(If cond t f) = do
+typeCheck' (If cond t f) = do
   tt <- local $ typeCheck' t
   tf <- local $ typeCheck' f
   assert (tt == tf) $ "If branch expressions must have the same type, have: " ++ sep tt tf
@@ -249,7 +251,7 @@ typeCheck' (Ptr a) = do
     VecType d b -> return $ VecType (1 : d) b
     _ -> return $ VecType [1] t
 typeCheck' (a :> b) = do
-  typeCheck' a
+  _ <- typeCheck' a
   typeCheck' b
 typeCheck' e@(a :# b) = do
   ta <- typeCheck' a
@@ -261,7 +263,7 @@ typeCheck' e@(a :# b) = do
       return $ VecType ((a0 + b0) : as) t1
     _ -> left $ "typeCheck' :#. " ++ sep ta tb ++ "\n" ++ sep a b
 
-typeCheck' e@(a :+ b) = do
+typeCheck' (a :+ b) = do
   typeA <- typeCheck' a
   typeB <- typeCheck' b
   case (typeA, typeB) of
@@ -345,16 +347,17 @@ typeCheck' e@(Unary "inverse" m) = do
   VecType [rs, cs] t <- typeCheck' m
   assert (rs `numericEquiv` cs) $ "typeCheck'. inverse applied to non-square matrix: " ++ show e
   return $ VecType [cs, rs] t
-typeCheck' e@(FunctionDef var t@(FnT implicits params out) body) = do
+typeCheck' (FunctionDef var t@(FnT implicits params _) body) = do
   extend var (FnType t)
-  tbody <- withBindings (implicits ++ params) $ typeCheck' body
+  _ <- withBindings (implicits ++ params) $ typeCheck' body
+  -- TODO: actually typecheck output
   -- unifyGen tbody out
   return Void
-typeCheck' e@(Extern var t) = do
+typeCheck' (Extern var t) = do
   extend var t
   return Void
-typeCheck' e@(App f args) = do
-  FnType (FnT implicits params out) <- typeCheck' f
+typeCheck' (App f args) = do
+  FnType (FnT _ params out) <- typeCheck' f
   argTypes <- mapM typeCheck' args
   bindings <- unifyMany Extend [] (map snd params) argTypes
   let out' = foldl (\term (var, val) -> fmap (subst var val) term) out bindings
@@ -371,35 +374,35 @@ typeCheck' (s :. f) = do
   case t of
     StructType _ (ST _ fieldTypes) -> do
       case lookup f fieldTypes of
-        Just t -> return t
+        Just t' -> return t'
         Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
           ++ sep f fieldTypes
     _ -> error $ "typeCheck'. not a struct: " ++ sep s t
 typeCheck' (s :-> f) = do
-  t <- typeCheck s
-  case t of
-    PtrType t -> do
-      t' <- normalizeType t
-      case t' of
+  t0 <- typeCheck s
+  case t0 of
+    PtrType t1 -> do
+      t2 <- normalizeType t1
+      case t2 of
         StructType _ (ST _ fieldTypes) -> do
           case lookup f fieldTypes of
-            Just t'' -> return t''
+            Just t3 -> return t3
             Nothing -> left $ "typeCheck'. field is not a member of struct:\n"
               ++ sep f fieldTypes
-        _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t'
-    _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t
+        _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t2
+    _ -> left $ "typeCheck'. not a pointer to a struct: " ++ sep s t0
 typeCheck' x = error ("typeCheck': " ++ ppExpr Lax x)
 
 -- Compilation Utils --
 -- TODO capture
 subst :: Variable -> CExpr -> CExpr -> CExpr
-subst var val v = visit fix v
+subst var val v = visit f v
   where
-    fix (Ref v) | v == var = val
-    fix v = v
+    f (Ref v') | v' == var = val
+    f v' = v'
 
 compileMMMul :: CExpr -> (CExpr, CExpr) -> CExpr -> (CExpr, CExpr) -> M CExpr
-compileMMMul x (r1, c1) y (r2, c2) = do
+compileMMMul x (r1, c1) y (_, c2) = do
   i <- freshName
   inner <- freshName
   j <- freshName
@@ -420,27 +423,29 @@ flattenTerm e = do
   return $ (n := e :> Ref n)
 
 compileMVMul :: CExpr -> (CExpr, CExpr) -> CExpr -> CExpr -> M CExpr
-compileMVMul x (r1, c1) y rows = do
+compileMVMul x (_, c1) y rows = do
   i <- freshName
   inner <- freshName
   return $
     Vec i rows $ Sigma $
       Vec inner c1 (((x :! (Ref i)) :! (Ref inner)) * (y :! (Ref inner)))
 
+compileFunctionArgs :: CExpr -> [CExpr] -> M CExpr
 compileFunctionArgs f args = do
   (cont, fn, rargs) <- foldM step (id, f, []) args
   implicits <- getImplicits f args
   return $ cont (AppImpl fn implicits (reverse rargs))
   where
     --step :: (CExpr -> CExpr, CExpr, [CExpr]) -> CExpr -> M (...)
-    step (cont, fn, args) arg =
+    step (cont, fn, args') arg =
       if compoundVal arg
       then do
         n <- freshName
         let declArg = \e -> (n := arg) :> e
-        return (cont . declArg, fn, (Ref n) : args)
-      else return (cont, fn, arg : args)
+        return (cont . declArg, fn, (Ref n) : args')
+      else return (cont, fn, arg : args')
 
+compoundVal :: CExpr -> Bool
 compoundVal (Ref _) = False
 compoundVal (IntLit _) = False
 compoundVal (StrLit _) = False
@@ -450,9 +455,10 @@ compoundVal (a :! b)  = compoundVal a || compoundVal b
 compoundVal (a :+ b)  = compoundVal a || compoundVal b
 compoundVal (a :* b)  = compoundVal a || compoundVal b
 compoundVal (a :/ b)  = compoundVal a || compoundVal b
-compoundVal (a :> b)  = compoundVal b
+compoundVal (_ :> b)  = compoundVal b
 compoundVal _ = True
 
+simpleVal :: CExpr -> Bool
 simpleVal (Unary _ _)  = False
 simpleVal (a :! b) = simpleVal a && simpleVal b
 simpleVal (a :+ b) = simpleVal a && simpleVal b
@@ -467,19 +473,19 @@ compile expr = do
   assert (t == Void) $ "compile expects a Void-type statement, got: " ++ show t
   head <$> (scanM step expr)
   where
-    sep = "\n------------\n"
+    sepLine = "\n------------\n"
     debugFlag = False
 
-    step expr =
+    step expr' =
      let
         printStep =
           if debugFlag
           then
-            case flatten expr of
-              Right e' -> trace (sep ++ ppLine Lax "" e' ++ sep)
+            case flatten expr' of
+              Right e' -> trace (sepLine ++ ppLine Lax "" e' ++ sepLine)
               Left _ -> id
           else id
-     in printStep $ local $ compileStep Top expr
+     in printStep $ local $ compileStep Top expr'
 
 -- TODO remove dependence on context?
 data RWContext = Top | LHS | RHS
@@ -504,7 +510,7 @@ compileStep' :: RWContext -> CExpr -> M CExpr
 
 -- Initialization -> Declaration; Assignment
 -- var := b  -->  (Decl type var); (a :<= b)
-compileStep' _ e@(var := b) = do
+compileStep' _ (var := b) = do
   t <- local $ typeCheck b
   extend var t
   -- TODO remove/add cleaner instrumentation option
@@ -526,9 +532,9 @@ compileStep' _ e@(var := b) = do
 
 -- Keep type environment "current" while compiling
 compileStep' _ e@(Extension t) = do
-  typeCheck t
+  _ <- typeCheck t
   return e
-compileStep' _ e@(Declare t var) = do
+compileStep' _ (Declare t var) = do
   extend var t
   let t' = fmap reduceArith t
   return $ Declare t' var
@@ -539,18 +545,18 @@ compileStep' Top e@(StructDecl name tp) = do
   extendTypedef name (StructType name tp)
   return e
 
-compileStep' Top e@(FunctionDef var t@(FnT implicits params _) body) = do
+compileStep' Top (FunctionDef var t@(FnT implicits params _) body) = do
   body' <- withBindings (implicits ++ params) $ compileStep Top body
   extend var $ FnType t
   return $ (FunctionDef var t body')
 
-compileStep' _ e@(Unary "transpose" m) = do
+compileStep' _ (Unary "transpose" m) = do
   VecType [rows, cols] _ <- local $ typeCheck m
   i <- freshName
   j <- freshName
   return $ Vec i cols $ Vec j rows $ ((m :! (Ref j)) :! (Ref i))
 
-compileStep' _ e@(Unary "inverse" m) = do
+compileStep' _ (Unary "inverse" m) = do
   VecType [dim, _] t <- local $ typeCheck m
   inv <- freshName
   return $ seqList [
@@ -564,7 +570,7 @@ compileStep' ctxt e@(x :+ y) = do
   ty <- local $ typeCheck y
   case (tx, ty) of
     -- pointwise add
-    (VecType (len1 : _) t1, VecType (len2 : _) t2) | numerics t1 t2 -> do
+    (VecType (len1 : _) t1, VecType (_ : _) t2) | numerics t1 t2 -> do
       i <- freshName
       return $ Vec i len1 (x :! (Ref i) + y :! (Ref i))
     (_, _) | compoundVal x -> do
@@ -603,8 +609,8 @@ compileStep' ctxt e@(x :* y) = do
       assert (len1 == len2) $ "product length mismatch: " ++ show e
       i <- freshName
       return $ Vec i len1 (x :! (Ref i) :* y :! (Ref i))
-    (n, v@(VecType (len : _) _)) | numeric n -> scale x y len
-    (v@(VecType (len : _) _), n) | numeric n -> scale y x len
+    (n, (VecType (len : _) _)) | numeric n -> scale x y len
+    ((VecType (len : _) _), n) | numeric n -> scale y x len
     (_, _) | compoundVal x -> do
       a <- freshName
       return $ (a := x) :> (Ref a :* y)
@@ -616,12 +622,13 @@ compileStep' ctxt e@(x :* y) = do
       x' <- compileStep ctxt x
       y' <- compileStep ctxt y
       return $ x' * y'
+    (t1, t2) -> left $ "don't know how to multiply types: " ++ sep t1 t2
   where
     scale s vec len = do
       i <- freshName
       return $ Vec i len (s :* vec :! (Ref i))
 
-compileStep' ctxt e@(x :/ y) = do
+compileStep' ctxt (x :/ y) = do
   tx <- local $ typeCheck x
   ty <- local $ typeCheck y
   case (tx, ty) of
@@ -671,7 +678,7 @@ compileStep' _ (a :<= (Sigma vec)) = do
 
 -- Vector assignment
 -- a :<= Vec i b_i  -->  Vec (a + i :<= b_i)
-compileStep' ctxt (a :<= (Vec var r body)) = do
+compileStep' _ (a :<= (Vec var r body)) = do
   let lhs = a :! (Ref var)
   rhs <- withBindings [(var, IntType)] $ compileStep RHS body
   return $ Vec var r (lhs :<= rhs)
@@ -686,7 +693,7 @@ compileStep' _ (a :<= (b :* c)) | compoundVal c = do
   return $ (n := c) :> (a :<= b :* Ref n)
 
 -- Vector assignment, reduction on RHS
-compileStep' ctxt (a :<= b) = do
+compileStep' _ (a :<= b) = do
   bt <- local $ typeCheck b
   case bt of
     -- Avoid repeatedly calling inverse
@@ -700,7 +707,7 @@ compileStep' ctxt (a :<= b) = do
       b' <- compileStep RHS b
       return $ reduceArith a' :<= reduceArith b'
 
-compileStep' ctxt e@(Negate x) = do
+compileStep' ctxt (Negate x) = do
   tx <- local $ typeCheck x
   case tx of
     n | numeric n, compoundVal x -> do
@@ -712,13 +719,14 @@ compileStep' ctxt e@(Negate x) = do
     VecType (len : _) _ -> do
       i <- freshName
       return $ Vec i len (- (x :! (Ref i)))
+    t -> left $ "don't know how to negate non numeric type: " ++ show t
 
 -- Reduces function args and lifts compound ones
-compileStep' _ e@(App f args) = do
+compileStep' _ (App f args) = do
   compileFunctionArgs f args
 
 -- Reduction of an index operation
-compileStep' _ ((Vec var b body) :! ind) =
+compileStep' _ ((Vec var _ body) :! ind) =
   return $ subst var ind body
 compileStep' RHS e@((a :+ b) :! ind) = do
   ta <- local $ typeCheck a
@@ -731,14 +739,14 @@ compileStep' ctxt@RHS (e@(a :* b) :! ind) = do
   ta <- local $ typeCheck a
   tb <- local $ typeCheck b
   case (ta, tb) of
-    (VecType [len1] _, VecType [len2] _) -> return $ (a :! ind) * (b :! ind)
+    (VecType [_] _, VecType [_] _) -> return $ (a :! ind) * (b :! ind)
     (t1, t2) | numerics t1 t2 -> return $ (a :! ind) * (b :! ind)
     _ -> do
       e' <- compileStep ctxt e
       return $ e' :! ind
-compileStep' ctrxt ((a :> b) :! c) = return $ a :> (b :! c)
+compileStep' _ ((a :> b) :! c) = return $ a :> (b :! c)
 -- Pointer literal elimination
-compileStep' _ e@((Ptr x) :! (IntLit 0)) = return x
+compileStep' _ ((Ptr x) :! (IntLit 0)) = return x
 compileStep' ctxt (a :! b) = do
   a' <- compileStep ctxt a
   b' <- compileStep ctxt b
@@ -775,8 +783,8 @@ compileStep' ctxt (a :> b) = do
 
 -- Control flow
 -- If -> If
-compileStep' ctxt (If (a :> c) t f) = return $ a :> (If c t f)
-compileStep' ctxt (If c t f) | compoundVal c = do
+compileStep' _ (If (a :> c) t f) = return $ a :> (If c t f)
+compileStep' _ (If c t f) | compoundVal c = do
   n <- freshName
   return (n := c :> If (Ref n) t f)
 -- If -> If
@@ -792,7 +800,7 @@ compileStep' _ e@(x :=: y) = do
   ty <- local $ typeCheck y
   case (tx, ty) of
     -- pointwise comparison
-    (VecType (len1 : _) t1, VecType (len2 : _) t2) -> do
+    (VecType (_ : _) _, VecType (_ : _) _) -> do
       left "Vector comparison not implemented"
     _ -> return e
 

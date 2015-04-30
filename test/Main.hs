@@ -1,20 +1,20 @@
 module Main where
 
 import Test.Tasty
-import Test.Tasty.SmallCheck as SC
-import Test.Tasty.QuickCheck as QC
+-- import Test.Tasty.SmallCheck as SC
+-- import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
 
+import Language.Plover.Types
 import Language.Plover.Expressions as Exprs
 import Language.Plover.Compile (testWithGcc)
 
-import Simplify
+-- import Simplify
 
+main :: IO ()
 main = defaultMain tests
 
-foo = do
-  assert $ 1 == 2
-
+gccCase :: (TestName, M CExpr) -> TestTree
 gccCase (label, expr) = testCase label $ do
   merror <- testWithGcc expr
   case merror of

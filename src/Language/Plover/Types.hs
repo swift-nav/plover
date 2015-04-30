@@ -13,7 +13,6 @@ import Control.Monad.Free
 import Control.Monad.Trans.Either hiding (left)
 import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
-import Control.Arrow (first, second)
 import Data.String
 import Data.Ratio
 
@@ -143,6 +142,7 @@ numType = NumType
 stringType :: Type
 stringType = StringType
 
+vecType :: [CExpr] -> Type
 vecType t = VecType t NumType
 
 -- Used for module definitions
@@ -175,6 +175,7 @@ initialState = TE 0 [] [] []
 type Error = String
 type M = EitherT Error (State Context)
 
+showEnv :: TypeEnv -> String
 showEnv = unlines . map show
 
 -- Basic monad operations

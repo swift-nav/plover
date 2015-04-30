@@ -1,16 +1,7 @@
 module Language.Plover.Generics where
 
-import Data.List (intercalate)
 import Data.Monoid hiding (Sum)
-import qualified Data.Foldable as F (Foldable, fold)
-import qualified Data.Traversable as T (Traversable, mapAccumR, sequence, mapM, traverse)
-import Control.Applicative ((<$>))
 import Control.Monad.Free
-import Control.Monad.Trans.Either
-import Control.Monad.State
-import Data.String
-import Data.Maybe (fromJust)
-import Data.Function (on)
 
 import Language.Plover.Types
 
@@ -30,6 +21,7 @@ visit :: (Functor f) => (Free f a -> Free f a) -> Free f a -> Free f a
 ---- so we fmap subst and then rewrap it with Free
 visit f = f . iter (Free . fmap (visit f)) . unwrap
 
+mvisit :: Functor f => (Free f a -> Maybe t) -> (t -> Free f a) -> Free f a -> Free f a
 mvisit f g x =
   case f x of
     Nothing -> iterM (Free . fmap (mvisit f g)) x
@@ -44,7 +36,7 @@ fixM f x = do
   if x == x' then return x else fixM f x'
 
 scanM :: (Eq a, Monad m) => (a -> m a) -> a -> m [a]
-scanM f x = scan [] x
+scanM f a = scan [] a
   where
     scan xs x = do
       x' <- f x

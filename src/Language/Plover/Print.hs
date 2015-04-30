@@ -3,7 +3,6 @@
 -- Print a C ast
 module Language.Plover.Print where
 
-import Control.Monad.Free
 import Data.List (intercalate)
 
 import Language.Plover.Types
@@ -29,11 +28,11 @@ flatten (n := val) = return $ Store (Ref n) val
 flatten (Extern _ _) = return EmptyLine
 flatten e@(App _ _) = return $ LineExpr e
 flatten e@(AppImpl _ _ _) = return $ LineExpr e
-flatten e@(FunctionDef name fd body) = do
+flatten (FunctionDef name fd body) = do
   body' <- flatten body
   return $ Function name fd body'
 flatten (Return x) = return (LineReturn x)
-flatten (StructDecl name (ST External _)) = return EmptyLine
+flatten (StructDecl _ (ST External _)) = return EmptyLine
 flatten (StructDecl name (ST Generated fields)) =
   return $ TypeDefStruct name fields
 flatten VoidExpr = return EmptyLine
@@ -96,7 +95,7 @@ ppLine strict off (Function name (FnT ps1 ps2 out) body) =
   where args = map (ppParam strict) (ps1 ++ ps2)
         argString = case args of
           [] -> "void"
-          as -> intercalate ", " $ map (ppParam strict) (ps1 ++ ps2)
+          _  -> intercalate ", " $ map (ppParam strict) (ps1 ++ ps2)
 ppLine strict off (LineReturn x) =
   off ++ "return " ++ ppExpr strict x ++ lineEnd
 ppLine strict off (ForwardDecl name (FnT ps1 ps2 out)) =
@@ -105,23 +104,27 @@ ppLine strict off (ForwardDecl name (FnT ps1 ps2 out)) =
   where args = map (ppParam strict) (ps1 ++ ps2)
         argString = case args of
           [] -> "void"
-          as -> intercalate ", " $ map (ppParam strict) (ps1 ++ ps2)
+          _  -> intercalate ", " $ map (ppParam strict) (ps1 ++ ps2)
 ppLine strict off (TypeDefStruct name fields) =
   off ++ "typedef struct {\n" ++
     concatMap printField fields ++
   off ++ "} " ++ ppVar name ++ ";\n"
   where
-    printField p@(name, t) = off ++ "  " ++ ppParam strict p ++ ";\n"
-ppLine _ _ x = error $ "ppline. " ++ show x
+    printField p = off ++ "  " ++ ppParam strict p ++ ";\n"
+--ppLine _ _ x = error $ "ppline. " ++ show x
 
+lineEnd :: String
 lineEnd = ";\n"
 
+ppParam :: StrictGen -> (Variable, Type) -> String
 ppParam strict (var, t) =
   let (pre, post) = ppTypeDecl strict t in
   pre ++ " " ++ ppVar var ++ post
 
+ppVar :: Variable -> String
 ppVar = id
 
+ppNumber :: String
 ppNumber = "double"
 
 ppType :: Type -> String
@@ -139,16 +142,17 @@ ppTypeDecl :: StrictGen -> Type -> (String, String)
 ppTypeDecl _ (Void) = ("void", "")
 ppTypeDecl strict t = printArrayType t
   where
-    printArrayType (VecType es t) = (ppType t, concatMap printOne es)
+    printArrayType (VecType es t') = (ppType t', concatMap printOne es)
     printArrayType StringType = ("char *", "")
     printArrayType BoolType = ("bool", "")
     printArrayType IntType = ("int", "")
     printArrayType NumType = (ppNumber, "")
     printArrayType (TypedefType name) = (name, "")
-    printArrayType (PtrType t) = (ppType t ++ " *", "")
+    printArrayType (PtrType t') = (ppType t' ++ " *", "")
     printArrayType e = error $ "printArrayType: " ++ show e
     printOne e = "[" ++ ppExpr strict e ++ "]"
 
+wrapp :: String -> String
 wrapp s = "(" ++ s ++ ")"
 
 ppExpr :: StrictGen -> CExpr -> String
@@ -172,7 +176,7 @@ ppExpr strict e =
     (a :. b) -> pe a ++ "." ++ ppVar b
     (a :-> b) -> pe a ++ "->" ++ ppVar b
     (a :> b) | Lax <- strict -> ppExpr Lax a ++ ";\n" ++ ppExpr Lax b
-    e -> case strict of
+    _ -> case strict of
            Strict -> error $ "ppExpr. " ++ show e
            Lax -> show e
 

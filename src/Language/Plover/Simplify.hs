@@ -5,7 +5,7 @@ where
 import qualified Data.Map.Strict as M
 import Control.Monad (foldM)
 
--- TODO add rebuild to atom 
+-- TODO add rebuild to atom
 data Expr e num
   = Sum [(Expr e num)]
   | Mul [(Expr e num)]
@@ -34,20 +34,14 @@ reduce term x = step x
   step (Mul as) = foldM reduce term as
   -- Increment
   step (Atom e) =
-    let Term coefficient map = term in
-    return $ Term coefficient (M.insertWith (+) e 1 map)
+    let Term coefficient m = term in
+    return $ Term coefficient (M.insertWith (+) e 1 m)
   -- Numeric simplify
   step (Prim n) =
-    let Term coefficient map = term in
-    return $ Term (n * coefficient) map
+    let Term coefficient m = term in
+    return $ Term (n * coefficient) m
   step Zero = return $ Z
   step One = return $ term
-
-foldTerm :: (Num num) => [Term e num] -> [(num, [(e, Int)])]
-foldTerm = map fix
- where
-  fix Z = (0, [])
-  fix (Term coefficient map) = (coefficient, M.toList map)
 
 rebuildTerm :: Num expr => [(expr, Int)] -> expr
 rebuildTerm [] = 1
@@ -69,9 +63,10 @@ poly0 = M.empty
 addTerm :: (Ord expr, Num num)
         => Term expr num -> Polynomial expr num -> Polynomial expr num
 addTerm Z p = p
-addTerm (Term coefficient map) p =
-  M.insertWith (+) (M.toList map) coefficient p
+addTerm (Term coefficient m) p =
+  M.insertWith (+) (M.toList m) coefficient p
 
+(.>) :: (a -> b) -> (b -> c) -> a -> c
 (.>) = flip (.)
 
 simplify :: (Ord expr, Num expr, Num num)
