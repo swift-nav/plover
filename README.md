@@ -1,7 +1,15 @@
 Plover
 ======
 
-`plover` compiles matrix arithmetic written in an embedded DSL into C code.
+Plover is an embedded Haskell DSL for compiling linear algebra into robust,
+efficient C code suitable for running on embedded systems.
+
+Plover generates code free of dynamic memory allocation and provides compile
+time checking of matrix and vector shapes using a lightweight dependant type
+system.
+
+Plover also aims to make use of sparse structure present in many real world
+linear algebra problems to generate more efficient code.
 
  - `Plover.Types` contains the AST for the DSL.
  - `Plover.Expressions` contains a number of example expressions.

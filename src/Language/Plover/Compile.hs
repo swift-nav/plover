@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
-module Plover.Compile
+module Language.Plover.Compile
   ( writeProgram
   , generateLib
   , generateMain
@@ -16,10 +16,10 @@ import Data.Char
 
 import System.Process
 
-import Plover.Types
-import Plover.Reduce
-import Plover.Print
-import Plover.Macros (externs, seqList)
+import Language.Plover.Types
+import Language.Plover.Reduce
+import Language.Plover.Print
+import Language.Plover.Macros (externs, seqList)
 
 runM :: M a -> (Either Error a, Context)
 runM m = runState (runEitherT m) initialState
@@ -28,12 +28,6 @@ wrapExterns :: M CExpr -> M CExpr
 wrapExterns e = do
   e' <- e
   return (externs :> e')
-
---compileExpr :: M CExpr -> Either Error String
---compileLine :: CExpr -> Either Error String
-
-noFlatten expr = printOutput $ fmap show $ do
-  fst . runM $ compile =<< wrapExterns expr
 
 compileProgram :: [String] -> M CExpr -> Either Error String
 compileProgram includes expr = do
@@ -44,23 +38,12 @@ compileProgram includes expr = do
 printFailure :: String -> IO ()
 printFailure err = putStrLn (err ++ "\nCOMPILATION FAILED")
 
-main' :: M CExpr -> IO ()
-main' m =
-  case compileProgram [] m of
-    Left err -> printFailure err
-    Right str -> putStrLn str
-
-main :: CExpr -> IO ()
-main = main' . return
-
+printOutput :: Either String String -> IO ()
 printOutput mp =
   case mp of
     Left err -> printFailure err
     Right p -> do
       putStrLn p
-
-printExpr' :: M CExpr -> IO ()
-printExpr' expr = printOutput (compileProgram [] expr)
 
 printExpr :: CExpr -> IO ()
 printExpr expr = printOutput (compileProgram [] (return expr))

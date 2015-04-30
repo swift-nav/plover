@@ -1,12 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Plover.Macros where
+module Language.Plover.Macros where
 
-import Control.Monad (foldM)
-import Control.Monad.Free
 import Data.List (foldl')
 
-import Plover.Types
+import Language.Plover.Types
 
 -- Sequence a list of CExprs
 -- nb: cannot use foldr
@@ -28,7 +26,10 @@ norm x = "sqrt" :$ x `dot` x
 normalize :: CExpr -> CExpr
 normalize x = x / norm x
 
+transpose :: CExpr -> CExpr
 transpose m = (Unary "transpose" m)
+
+inverse :: CExpr -> CExpr
 inverse m = (Unary "inverse" m)
 
 -- TODO better dense matrix notation
@@ -40,26 +41,19 @@ rot_small x =
       (-x), 1.0, 0.0,
       0.0,  0.0, 1.0 ]
 
---rot_small' :: CExpr -> CExpr
---rot_small' (IntLit x) = rot_small $ NumLit (fromIntegral x)
---rot_small' x =
---  s (s 1.0     :# s x   :# s 0.0) :#
---  s (s (- x)   :# s 1.0 :# s 0.0) :#
---  s (s 0.0     :# s 0.0 :# s 1.0)
-
 -- form a block matrix
 blockMatrix :: [Int] -> [CExpr] -> CExpr
 blockMatrix ds es | product ds /= length es = error $
     "blockMatrix. expr list length does not match given dimensions: " ++ sep ds es
 blockMatrix [] [e] = e
-blockMatrix (dim : dims) exprs =
-  --assert (dim * product dims == length exprs) $
-  --  "blockMatrix. expr list length does not match given dimensions: " ++ sep dims exprs
+blockMatrix [] e = error $
+    "blockMatrix. zero dimension matrix with non-scalar expr: " ++ show e
+blockMatrix (_ : dims) exprs =
   let size = product dims in
   let exprs' = map (blockMatrix dims) (split size exprs) in
     foldr1 (:#) (map Ptr exprs')
   where
-    split n [] = []
+    split _ [] = []
     split n ds = take n ds : split n (drop n ds)
 
 -- Make a length 1 vector from x
@@ -67,13 +61,15 @@ s :: CExpr -> CExpr
 s x = Ptr x
 
 -- Wrap an expression in a main function
+wrapMain :: CExpr -> CExpr
 wrapMain body = FunctionDef "main" (FnT [] [] IntType) (body :> Return 0)
 
 -- Print a string with newlines
-newline s = "printf" :$ (StrLit $ "\n" ++ s ++ "\n")
+newline :: String -> CExpr
+newline str = "printf" :$ (StrLit $ "\n" ++ str ++ "\n")
 
 generateTestArguments :: Variable -> FunctionType -> M CExpr
-generateTestArguments fnName (FnT implicits params output) = do
+generateTestArguments fnName (FnT implicits params _) = do
   is <- mapM pBind implicits
   es <- mapM pBind params
   let decls = seqList (is ++ es)
@@ -99,6 +95,9 @@ generateTestArguments fnName (FnT implicits params output) = do
     pValue (VecType ds t) = do
       body <- pValue t
       vec ds body
+    pValue t = error $
+      "generateTestArguments: don't know how to generate random value of type: "
+      ++ show t
     vec [] body = return $ body
     vec (d : ds) b = do
       n <- freshName
@@ -111,7 +110,11 @@ generatePrinter var (VecType ds NumType) = do
   let body = ("printDouble" :$ foldl (:!) (Ref var) (map Ref names))
   let e = foldr (uncurry Vec) body (zip names ds)
   return e
+generatePrinter _ t = error $
+  "generatePrinter: don't know how to generate printer for type: " ++ show t
 
+
+testFunction :: Variable -> FunctionType -> Variable -> Type -> M CExpr
 testFunction var sig output tp = do
   test <- generateTestArguments var sig
   printer <- generatePrinter output tp
@@ -119,6 +122,7 @@ testFunction var sig output tp = do
 
 -- The extern file declarations
 
+externs :: CExpr
 externs = seqList
  [ Extern "assert"      (FnType $ fnT [BoolType] Void)
  , Extern "sqrt"        (FnType $ fnT [numType] numType)

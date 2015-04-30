@@ -1,11 +1,11 @@
 {-# LANGUAGE RecordWildCards, NamedFieldPuns #-}
-module Smash.Simplify
+module Language.Plover.Simplify
   (simplify, Expr(..))
 where
 import qualified Data.Map.Strict as M
 import Control.Monad (foldM)
 
--- TODO add rebuild to atom 
+-- TODO add rebuild to atom
 data Expr e num
   = Sum [(Expr e num)]
   | Mul [(Expr e num)]
@@ -34,20 +34,14 @@ reduce term x = step x
   step (Mul as) = foldM reduce term as
   -- Increment
   step (Atom e) =
-    let Term coefficient map = term in
-    return $ Term coefficient (M.insertWith (+) e 1 map)
+    let Term coefficient m = term in
+    return $ Term coefficient (M.insertWith (+) e 1 m)
   -- Numeric simplify
   step (Prim n) =
-    let Term coefficient map = term in
-    return $ Term (n * coefficient) map
+    let Term coefficient m = term in
+    return $ Term (n * coefficient) m
   step Zero = return $ Z
   step One = return $ term
-
-foldTerm :: (Num num) => [Term e num] -> [(num, [(e, Int)])]
-foldTerm = map fix
- where
-  fix Z = (0, [])
-  fix (Term coefficient map) = (coefficient, M.toList map)
 
 rebuildTerm :: Num expr => [(expr, Int)] -> expr
 rebuildTerm [] = 1
@@ -69,9 +63,10 @@ poly0 = M.empty
 addTerm :: (Ord expr, Num num)
         => Term expr num -> Polynomial expr num -> Polynomial expr num
 addTerm Z p = p
-addTerm (Term coefficient map) p =
-  M.insertWith (+) (M.toList map) coefficient p
+addTerm (Term coefficient m) p =
+  M.insertWith (+) (M.toList m) coefficient p
 
+(.>) :: (a -> b) -> (b -> c) -> a -> c
 (.>) = flip (.)
 
 simplify :: (Ord expr, Num expr, Num num)
@@ -79,28 +74,3 @@ simplify :: (Ord expr, Num expr, Num num)
          -- => (expr -> Expr expr num) -> (num -> expr -> expr) -> expr -> expr
 simplify scale = reduce term1 .> foldr addTerm poly0 .> rebuild scale
 
--- Test expressions
-data TE = TE :+ TE | TE :* TE | Lit Int | Var String
- deriving (Show, Eq, Ord)
-instance Num TE where
-  (+) = (:+)
-  (*) = (:*)
-  fromInteger = Lit . fromIntegral
-  abs = undefined
-  signum = undefined
-  negate = undefined
-
-chkte = (simplify scale . teconvert)
- where
-  scale n e | e == fromIntegral 1 = Lit n
-  scale 1 e = e
-  scale i e = Lit i * e
-teconvert (a :+ b) = Sum [teconvert a, teconvert b]
-teconvert (a :* b) = Mul [teconvert a, teconvert b]
-teconvert (Lit 0) = Zero
-teconvert (Lit 1) = One
-teconvert l@(Lit x) = Prim x
-teconvert v@(Var s) = Atom v
-
-t1 :: TE
-t1 = (Var "x" + Var "y") ^ 4
