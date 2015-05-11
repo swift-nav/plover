@@ -60,6 +60,7 @@ data Expr a
   -- Operators
   -- Symbolic patterns given below
   | Index a a
+  | FlatIndex' a a [a]
   | Concat a a
   | Init Variable a
   | Assign a a
@@ -283,6 +284,7 @@ pattern a :+ b = Free (Sum a b)
 pattern a :* b = Free (Mul a b)
 pattern a :/ b = Free (Div a b)
 pattern a :! b = Free (Index a b)
+pattern FlatIndex a b c = Free (FlatIndex' a b c)
 pattern a :> b = Free (Seq a b)
 pattern a :-> b = Free (StructPtrRef a b)
 pattern a :. b = Free (StructMemberRef a b)

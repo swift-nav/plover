@@ -1,12 +1,17 @@
+-- TODO
+-- need uniform way of rewriting
+--   C[ a :> b ] --> a :> C[ b ]
+--   and simplifying under a constructor
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Language.Plover.Reduce
   ( compile, reduceArith, typeCheck
-  , fmt
   ) where
 
 import Data.List (nub)
+import qualified Data.Traversable as T (traverse)
+import Control.Monad.Free (Free(..))
 import Control.Applicative ((<$>))
 import Control.Monad.State
 import Data.Function (on)
@@ -18,26 +23,6 @@ import Language.Plover.Types
 import Language.Plover.Generics
 import Language.Plover.Print
 import Language.Plover.Macros (seqList, generatePrinter, newline)
-
--- Hacky CExpr printer
-fmt :: String -> String
-fmt x = go "" (tokenize x)
- where
-   pad :: Char -> String
-   pad '(' = " ( "
-   pad ')' = " ) "
-   pad c = [c]
-
-   tokenize :: String -> [String]
-   tokenize = words . concatMap pad
-
-   go :: String -> [String] -> String
-   --go ind ("(" : "Free" : str) = "\n" ++ ind ++ "(" ++ "Free" ++ " " ++ go (ind) str
-   go ind ("(" : h : str) = "\n" ++ ind ++ "(" ++ h ++ " " ++ go ("  " ++ ind) str
-   go ind (")" : str) = ")" ++ go (drop 2 ind) str
-   go ind (word : str) = word ++ go ind str
-   go _ [] = ""
-
 
 -- Searches syntax tree for simple arithmetic expressions, simplifies them
 reduceArith :: CExpr -> CExpr
@@ -82,14 +67,6 @@ reduceArith t = mvisit msimplify reduceArith t
 -- Called by type checker
 numericEquiv :: CExpr -> CExpr -> Bool
 numericEquiv = (==) `on` reduceArith
-
--- Type Checking
---isDefined :: Variable -> M Bool
---isDefined var = do
---  (_, env) <- get
---  case lookup var env of
---    Nothing -> return False
---    Just _ -> return True
 
 withBindings :: [(Variable, Type)] -> M a -> M a
 withBindings bindings m = do
@@ -332,9 +309,18 @@ typeCheck' (a :! b) = do
   itype <- typeCheck' b
   case itype of
     IntType -> return ()
-    t -> left $ sep t b
+    t -> left $ "typeCheck. index not an integer: " ++ sep t b
   VecType ds t <- typeCheck' a
   vecTail ds t $ "LOOK: " ++ sep a b
+typeCheck' e@(FlatIndex vec ind dim) = do
+  itype <- typeCheck' ind
+  case itype of
+    IntType -> return ()
+    t -> left $ "typeCheck. index not an integer: " ++ sep t ind
+  VecType (d : ds) t <- typeCheck' vec
+  assert (product ds `numericEquiv` product dim) $ ("internal typeCheck error. malformed FlatIndex: "
+    ++ sep d dim ++ "\n" ++ show e)
+  vecTail (d : ds) t "this can't happen"
 typeCheck' e@(Sigma body) = do
   VecType ds t <- typeCheck' body
   vecTail ds t $ "Attempted to sum scalar type: " ++ show e
@@ -581,13 +567,10 @@ compileStep' ctxt e@(x :+ y) = do
       return $ (b := y) :> (x :+ Ref b)
     (NumType, NumType) | NumLit a <- x, NumLit b <- y ->
       return $ NumLit (a + b)
-    (t1, t2) | numerics t1 t2 -> do
-      x' <- compileStep ctxt x
-      y' <- compileStep ctxt y
-      return $ x' + y'
-    -- TODO this handles adding ptr to int; does it allow anything else?
-    _ -> return e
+    _ -> recurse ctxt e
 
+compileStep' _ ((a :> b) :+ c) = return $ a :> (b :+ c)
+compileStep' _ (c :+ (a :> b)) = return $ a :> (c :+ b)
 compileStep' _ ((a :> b) :* c) = return $ a :> (b :* c)
 compileStep' _ (c :* (a :> b)) = return $ a :> (c :* b)
 
@@ -652,7 +635,6 @@ compileStep' ctxt (x :/ y) = do
 -- a :<= u # v  -->  (a :<= u); (a + size u :<= v)
 compileStep' _ (a :<= u :# v) = do
   VecType (offset : _) _ <- local $ typeCheck u
-  -- TODO (a + offset) will always be wrapped by an index operation?
   return $ (a :<= u) :> ((a :+ offset) :<= v)
 
 compileStep' _ (a :<= (Ptr x)) = do
@@ -665,6 +647,10 @@ compileStep' _ (a :<= (u :> v)) = do
   return $
     u :>
     a :<= v
+compileStep' _ ((u :> v) :<= a) = do
+  return $
+    u :>
+    v :<= a
 
 -- Summation
 -- a :<= ∑ (Vec i y_i)  -->  (a :<= 0); (Vec i (a :<= a + y_i))
@@ -693,7 +679,7 @@ compileStep' _ (a :<= (b :* c)) | compoundVal c = do
   return $ (n := c) :> (a :<= b :* Ref n)
 
 -- Vector assignment, reduction on RHS
-compileStep' _ (a :<= b) = do
+compileStep' ctxt e@(a :<= b) = do
   bt <- local $ typeCheck b
   case bt of
     -- Avoid repeatedly calling inverse
@@ -703,9 +689,8 @@ compileStep' _ (a :<= b) = do
       let lhs = (a :! (Ref i))
       return $ Vec i len (lhs :<= b :! (Ref i))
     _ -> do
-      a' <- compileStep LHS a
-      b' <- compileStep RHS b
-      return $ reduceArith a' :<= reduceArith b'
+      -- TODO call reduceArith?
+      recurse ctxt e
 
 compileStep' ctxt (Negate x) = do
   tx <- local $ typeCheck x
@@ -726,32 +711,41 @@ compileStep' _ (App f args) = do
   compileFunctionArgs f args
 
 -- Reduction of an index operation
-compileStep' _ ((Vec var _ body) :! ind) =
+compileStep' _ (FlatIndex (Vec var _ body) ind _) =
   return $ subst var ind body
-compileStep' RHS e@((a :+ b) :! ind) = do
+
+compileStep' RHS e@(FlatIndex (a :+ b) ind _) = do
   ta <- local $ typeCheck a
   tb <- local $ typeCheck b
   case (ta, tb) of
     (VecType _ _, VecType _ _) ->
       return $ (a :! ind) + (b :! ind)
-    _ -> return e
-compileStep' ctxt@RHS (e@(a :* b) :! ind) = do
+    _ -> recurse RHS e
+
+compileStep' ctxt@RHS e@(FlatIndex (a :* b) ind _) = do
   ta <- local $ typeCheck a
   tb <- local $ typeCheck b
   case (ta, tb) of
     (VecType [_] _, VecType [_] _) -> return $ (a :! ind) * (b :! ind)
     (t1, t2) | numerics t1 t2 -> return $ (a :! ind) * (b :! ind)
     _ -> do
-      e' <- compileStep ctxt e
-      return $ e' :! ind
-compileStep' _ ((a :> b) :! c) = return $ a :> (b :! c)
--- Pointer literal elimination
-compileStep' _ ((Ptr x) :! (IntLit 0)) = return x
-compileStep' ctxt (a :! b) = do
-  a' <- compileStep ctxt a
-  b' <- compileStep ctxt b
-  return (a' :! b')
+      recurse ctxt e
+compileStep' _ (FlatIndex (a :> b) c _) = return $ a :> (b :! c)
+compileStep' _ (FlatIndex a (b :> c) _) = return $ b :> (a :! c)
 
+compileStep' _ (e :! i) = do
+  VecType (_ : ds) _ <- local $ typeCheck e
+  return $ FlatIndex e i (ds)
+
+-- Dim terms are not totally reduced
+compileStep' ctxt (FlatIndex v ind dim) = do
+  v'    <- compileStep ctxt v
+  ind'  <- compileStep ctxt ind
+  dim' <- mapM (compileStep ctxt) dim
+  return $ FlatIndex v' ind' dim'
+
+-- Pointer literal elimination
+compileStep' _ (FlatIndex (Ptr x) (IntLit 0) _) = return x
 
 -- Single iteration loop unrolling
 compileStep' _ e@(Vec var (IntLit 1) body) = do
@@ -776,10 +770,10 @@ compileStep' ctxt (Vec var r body) = do
 
 -- Sequencing
 -- a :> b  -->  a :> b
-compileStep' ctxt (a :> b) = do
-  a' <- compileStep ctxt a
-  b' <- compileStep ctxt b
-  return (a' :> b')
+--compileStep' ctxt (a :> b) = do
+--  a' <- compileStep ctxt a
+--  b' <- compileStep ctxt b
+--  return (a' :> b')
 
 -- Control flow
 -- If -> If
@@ -787,12 +781,13 @@ compileStep' _ (If (a :> c) t f) = return $ a :> (If c t f)
 compileStep' _ (If c t f) | compoundVal c = do
   n <- freshName
   return (n := c :> If (Ref n) t f)
+
 -- If -> If
-compileStep' ctxt (If c t f) = do
-  c' <- local $ compileStep ctxt c
-  t' <- local $ compileStep ctxt t
-  f' <- local $ compileStep ctxt f
-  return (If c' t' f')
+--compileStep' ctxt (If c t f) = do
+--  c' <- local $ compileStep ctxt c
+--  t' <- local $ compileStep ctxt t
+--  f' <- local $ compileStep ctxt f
+--  return (If c' t' f')
 
 -- Vector comparison
 compileStep' _ e@(x :=: y) = do
@@ -804,6 +799,11 @@ compileStep' _ e@(x :=: y) = do
       left "Vector comparison not implemented"
     _ -> return e
 
--- id
--- x  -->  x
-compileStep' _ x = return x
+-- generic recursion step
+-- C[ x ] --> C[ rewrite x ]
+compileStep' c x = recurse c x
+
+
+recurse :: RWContext -> CExpr -> M CExpr
+recurse ctxt (Free x) = fmap Free $ T.traverse (compileStep ctxt) x
+recurse _ x = return x

@@ -61,7 +61,7 @@ ppLine _ off (Include str) = off ++ "#include \"" ++ str ++ "\"\n"
 ppLine strict off (Block ls) = concat $ map (ppLine strict off) ls
 ppLine strict off (Each var expr body) =
   let vs = ppVar var in
-  off ++ "for (int " ++ vs ++ " = 0; " ++
+  off ++ "for (" ++ ppInt ++ " " ++ vs ++ " = 0; " ++
   vs ++ " < " ++ ppExpr strict expr ++ "; " ++
   vs ++ "++) {\n"
     ++ ppLine strict (indent off) body
@@ -127,12 +127,16 @@ ppVar = id
 ppNumber :: String
 ppNumber = "double"
 
+-- TODO generalize integer type
+ppInt :: String
+ppInt = "uint32_t"
+
 ppType :: Type -> String
 ppType (NumType) = ppNumber
 ppType (VecType _ t) = ppType t ++ " *"
-ppType (Dimension _) = "int"
+ppType (Dimension _) = ppInt
 ppType BoolType = "bool"
-ppType IntType = "int"
+ppType IntType = ppInt
 ppType (TypedefType n) = ppVar n
 ppType (StructType name _) = ppVar name
 ppType Void = "void"
@@ -142,7 +146,8 @@ ppTypeDecl :: StrictGen -> Type -> (String, String)
 ppTypeDecl _ (Void) = ("void", "")
 ppTypeDecl strict t = printArrayType t
   where
-    printArrayType (VecType es t') = (ppType t', concatMap printOne es)
+    --printArrayType (VecType es t') = (ppType t', concatMap printOne es)
+    printArrayType (VecType es t') = (ppType t', "[" ++ intercalate "*" (map printOne es) ++ "]")
     printArrayType StringType = ("char *", "")
     printArrayType BoolType = ("bool", "")
     printArrayType IntType = ("int", "")
@@ -150,7 +155,8 @@ ppTypeDecl strict t = printArrayType t
     printArrayType (TypedefType name) = (name, "")
     printArrayType (PtrType t') = (ppType t' ++ " *", "")
     printArrayType e = error $ "printArrayType: " ++ show e
-    printOne e = "[" ++ ppExpr strict e ++ "]"
+    --printOne e = "[" ++ ppExpr strict e ++ "]"
+    printOne e = "(" ++ ppExpr strict e ++ ")"
 
 wrapp :: String -> String
 wrapp s = "(" ++ s ++ ")"
@@ -166,7 +172,11 @@ ppExpr strict e =
     (IntLit i) -> show i
     (NumLit f) -> show f
     (StrLit s) -> show s
-    (a :! b) -> pe a ++ "[" ++ pe b ++ "]"
+    (_ :! _) -> error $ "non-flattened index: " ++ show e
+    --(a :! b) -> pe a ++ "[" ++ pe b ++ "]"
+    -- TODO move this into a separate rewrite phase
+    (FlatIndex v ind []) -> pe (Deref (v + ind))
+    (FlatIndex v ind dim) -> pe (v + (ind * product dim))
     (Deref x) -> "(*(" ++ pe x ++ "))"
     (Negate x) -> "-(" ++ pe x ++ ")"
     (Equal a b) -> wrapp $ pe a ++ "==" ++ pe b
@@ -177,6 +187,6 @@ ppExpr strict e =
     (a :-> b) -> pe a ++ "->" ++ ppVar b
     (a :> b) | Lax <- strict -> ppExpr Lax a ++ ";\n" ++ ppExpr Lax b
     _ -> case strict of
-           Strict -> error $ "ppExpr. " ++ show e
+           Strict -> error $ "ppExpr. " ++ ppExpr Lax e
            Lax -> show e
 

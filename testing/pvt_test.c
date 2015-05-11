@@ -3,7 +3,7 @@
 #include "constants.h"
 #include "linear_algebra.c"
 
-void pvt(int n_used, double sat_pos[n_used][3], navigation_measurement_t nav_meas[n_used], double rx_state[3], double correction[4], double G[n_used][4], double X[4][n_used]);
+void pvt(int n_used, double sat_pos[n_used*3], navigation_measurement_t nav_meas[n_used], double rx_state[3], double correction[4], double G[n_used*4], double X[4*n_used]);
 
 static double pvt_solve(double rx_state[],
                         const u8 n_used,

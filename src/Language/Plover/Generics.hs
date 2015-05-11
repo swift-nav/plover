@@ -1,8 +1,17 @@
 module Language.Plover.Generics where
 
 import Control.Monad.Free
-
+import Data.Monoid
+import qualified Data.Foldable as F (Foldable, fold)
 import Language.Plover.Types
+
+visitAny :: (Functor f, F.Foldable f) => (Free f Any -> Bool) -> Free f a -> Bool
+visitAny f x =
+  let Any result = visitMon (\t -> if f t then Pure (Any True) else t) x
+  in result
+
+visitMon :: (Monoid m, Functor f, F.Foldable f) => (Free f m -> Free f m) -> Free f a -> m
+visitMon f e = F.fold $ visit f $ fmap (const mempty) $ e
 
 visit :: (Functor f) => (Free f a -> Free f a) -> Free f a -> Free f a
 visit f (Free t) = f $ Free $ fmap (visit f) t
