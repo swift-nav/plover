@@ -7,6 +7,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Language.Plover.Reduce
   ( compile, reduceArith, typeCheck
+  -- TODO
+  , defs
+  , refs
+  , seqExpr
+  , hoist
   ) where
 
 import Data.List (nub)
@@ -23,6 +28,7 @@ import Language.Plover.Types
 import Language.Plover.Generics
 import Language.Plover.Print
 import Language.Plover.Macros (seqList, generatePrinter, newline)
+import Language.Plover.Optimization
 
 -- Searches syntax tree for simple arithmetic expressions, simplifies them
 reduceArith :: CExpr -> CExpr
