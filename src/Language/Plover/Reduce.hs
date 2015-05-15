@@ -12,6 +12,7 @@ module Language.Plover.Reduce
   , refs
   , seqExpr
   , hoist
+  , hoistTerm
   ) where
 
 import Data.List (nub)
@@ -772,7 +773,7 @@ compileStep' _ e@(Vec var (IntLit 1) body) = do
 compileStep' ctxt (Vec var r body) = do
   body' <- withBindings [(var, IntType)] $ compileStep ctxt body
   --body' <- withBindings [] $ compileStep ctxt body
-  return $ Vec var (reduceArith r) body'
+  hoistTerm $ Vec var (reduceArith r) body'
 
 -- Sequencing
 -- a :> b  -->  a :> b
@@ -808,7 +809,6 @@ compileStep' _ e@(x :=: y) = do
 -- generic recursion step
 -- C[ x ] --> C[ rewrite x ]
 compileStep' c x = recurse c x
-
 
 recurse :: RWContext -> CExpr -> M CExpr
 recurse ctxt (Free x) = fmap Free $ T.traverse (compileStep ctxt) x

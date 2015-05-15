@@ -103,9 +103,9 @@ headerGuards name body = unlines
 -- Generates .h and .c file as text
 generateLib :: CompilationUnit -> Either Error (String, String)
 generateLib CU{..} =
-  let (decls, defs) = unzip $ map splitDef sourceDefs
+  let (decls, definitions) = unzip $ map splitDef sourceDefs
       headerTerm = seqList headerDefs
-      cfileExpr = Extension headerTerm :> seqList defs
+      cfileExpr = Extension headerTerm :> seqList definitions
       forwardDecls = ppProgram (Block decls)
   in do
     cfile <- compileProgram sourceIncs (return cfileExpr)

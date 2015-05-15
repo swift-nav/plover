@@ -18,7 +18,7 @@ l3 = Vec "i" 3 (Vec "j" 3 ("i" + "j"))
 e, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, e10, e11, e12, e13 :: CExpr
 e = "x" := Vec "i" 1 2
 e0 = "x" := Vec "i" 2 (Vec "j" 2 ("i" + "j"))
-e1 = "a" := Vec "i" 1 (("x" := 2) :> "x")
+e1 = "a" := Vec "i" 2 (("x" := 2 * 2) :> "x")
 e2 = "x" := Vec "i" 1 1 + Vec "i" 1 1
 e3 = "x" := Sigma (Vec "i" 3 "i")
 

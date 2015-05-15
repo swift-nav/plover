@@ -2,14 +2,13 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Language.Plover.Macros where
 
-import Data.List (foldl')
-
 import Language.Plover.Types
 
 -- Sequence a list of CExprs
 -- nb: cannot use foldr
 seqList :: [CExpr] -> CExpr
-seqList es = foldl' (:>) VoidExpr es
+seqList [] = VoidExpr
+seqList es = foldl1 (:>) es
 
 -- Slice vector from index i, length l
 slice :: CExpr -> CExpr -> CExpr -> CExpr
