@@ -775,26 +775,12 @@ compileStep' ctxt (Vec var r body) = do
   --body' <- withBindings [] $ compileStep ctxt body
   hoistTerm $ Vec var (reduceArith r) body'
 
--- Sequencing
--- a :> b  -->  a :> b
---compileStep' ctxt (a :> b) = do
---  a' <- compileStep ctxt a
---  b' <- compileStep ctxt b
---  return (a' :> b')
-
 -- Control flow
 -- If -> If
 compileStep' _ (If (a :> c) t f) = return $ a :> (If c t f)
 compileStep' _ (If c t f) | compoundVal c = do
   n <- freshName
   return (n := c :> If (Ref n) t f)
-
--- If -> If
---compileStep' ctxt (If c t f) = do
---  c' <- local $ compileStep ctxt c
---  t' <- local $ compileStep ctxt t
---  f' <- local $ compileStep ctxt f
---  return (If c' t' f')
 
 -- Vector comparison
 compileStep' _ e@(x :=: y) = do
