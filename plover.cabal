@@ -46,48 +46,56 @@ library
                      Language.Plover.Reduce,
                      Language.Plover.Compile,
                      Language.Plover.Expressions,
-                     Language.Plover.Simplify
+                     Language.Plover.Simplify,
+                     Language.Plover.Quote,
+                     Language.Plover.QuoteTest
 
   other-modules:     Language.Plover.Print,
                      Language.Plover.Generics
 
-  build-depends:     base >=4.7 && <4.8,
-                     mtl >=2.1 && <2.2,
-                     containers,
-                     free,
-                     either,
-                     transformers,
-                     process
+  build-depends:     base >=4.7 && <4.9
+                   , containers
+                   , either
+                   , free
+                   , mtl >=2.1 && <2.3
+                   , parsec >=3.1 && <3.2
+                   , pretty >= 1.1
+                   , process
+                   , template-haskell
+                   , transformers
 
   hs-source-dirs:    src/
-  ghc-options:       -Wall -Werror
+  ghc-options:
+              -- -Wall -Werror
   default-language:  Haskell2010
 
 test-suite test
   type:              exitcode-stdio-1.0
   main-is:           Main.hs
   default-language:  Haskell2010
-  ghc-options:       -Wall -Werror
+  ghc-options:
+              -- -Wall -Werror
 
   -- NOTE: We pull plover directly into the tests, not as a library
   -- This reduces reload time in `cabal repl test` by a large factor
   hs-source-dirs:    test, src
 
-  build-depends:     base >=4.7 && <4.8,
-                     tasty,
-                     tasty-hunit,
-                     tasty-quickcheck,
-                     tasty-smallcheck,
-                     smallcheck,
-                     QuickCheck,
-                     HUnit,
-
-                     mtl >=2.1 && <2.2,
-                     containers,
-                     free,
-                     either,
-                     transformers,
-                     process
+  build-depends:     
+                       HUnit
+                     , QuickCheck
+                     , base >=4.7 && <4.8
+                     , containers
+                     , either
+                     , free
+                     , mtl >=2.1 && <2.2
+                     , pretty >= 1.1
+                     , process
+                     , smallcheck
+                     , tasty
+                     , tasty-hunit
+                     , tasty-quickcheck
+                     , tasty-smallcheck
+                     , transformers
 
 source-repository head
   type:              git

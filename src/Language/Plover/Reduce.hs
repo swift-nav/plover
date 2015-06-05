@@ -12,7 +12,7 @@ module Language.Plover.Reduce
 import Data.List (nub)
 import qualified Data.Traversable as T (traverse)
 import Control.Monad.Free (Free(..))
-import Control.Applicative ((<$>))
+--import Control.Applicative ((<$>))
 import Control.Monad.State
 import Data.Function (on)
 
