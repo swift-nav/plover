@@ -1,0 +1,27 @@
+-- fmap pretty $ parseFile "src/quotetests.txt"
+-- fmap toPosGraph $ parseFile "src/quotetests.txt"
+
+f {n} (1 :: u8) A[_];
+
+
+vec i in 3 -> i + 3;
+
+x := 2;
+
+dot {n} (a :: double[n]) (b :: double[n]) :: double  := (a^T * b)[0,0];
+
+
+book_algorithm {n :: u16} (g :: double[1:n+1]) (f :: double[1:n+1]) :: Void := (
+  gamma := 1/c * R + 1 / c * (1-c) * g * f + g[1] * f[1];
+  Dbar[1] := D[1] * R / gamma;
+  k := g[1] # zeros (n - 1);
+  ubar := UpperUnitTriangular(vec i in 0:n, j in 0:n -> 0);
+  s := c / alpha * (r + (1-c) * g * f);
+  for j in 2:n -> (
+    gamma_last := gamma;
+    gamma <- gamma + g[j] * f[j];
+    Dbar[j] <- D[j] * gamma_last / gamma;
+    ubar[:,j] <- u[j] - (f[j] / gamma_last) * k;
+    k[0:j-1] <- k[0:j-1] + g[j] * u[j,0:j-1];
+  );
+);
