@@ -136,6 +136,7 @@ data Expr' a = Vec [(Variable,a)] a
           | FloatLit (Maybe FloatType) Double
           | BoolLit Bool
           | StrLit String
+          | VecLit [a]
 
             -- Operators
           | UnExpr UnOp a
@@ -143,6 +144,7 @@ data Expr' a = Vec [(Variable,a)] a
 
             -- Structures
           | Field a String
+          | FieldDeref a String
 
             -- Vectors
           | Index a a
@@ -158,6 +160,10 @@ data Expr' a = Vec [(Variable,a)] a
             -- State
           | DefExpr a a
           | StoreExpr a a
+
+            -- Declarations
+          | Extern a
+          | Struct Variable [a]
           deriving (Eq, Show, Functor, Traversable, Foldable)
 
 data Arg a = ImpArg a
@@ -194,6 +200,7 @@ instance PP a => PP (Expr' a) where
   pretty (FloatLit (Just t) x) = parens $ text $ "(FloatLit " ++ show t ++ " " ++ show x
   pretty (BoolLit b) = parens $ text $ "BoolLit " ++ show b
   pretty (StrLit s) = parens $ text $ "StrLit " ++ show s
+  pretty (VecLit xs) = parens $ text "VecLit" <+> sep (map pretty xs)
 
   pretty (UnExpr op exp) = parens $ hang (text $ show op) 1 (pretty exp)
   pretty (BinExpr op a b) = parens $ hang (text $ f op) (length (f op) + 1) $ sep [pretty a, pretty b]
@@ -203,11 +210,11 @@ instance PP a => PP (Expr' a) where
       f Mul = "*"
       f Div = "/"
       f Pow = "^"
-      f Concat = "#"
       f Type = "::"
       f op = show op
 
   pretty (Field e field) = parens $ hang (text "Field") 1 $ sep [pretty e, text $ show field]
+  pretty (FieldDeref e field) = parens $ hang (text "FieldDeref") 1 $ sep [pretty e, text $ show field]
 
   pretty (Index e ei) = parens $ hang (text "Index") 1 $ sep [nest 5 $ pretty e, pretty ei]
   pretty (Tuple exps) = parens $ hang (text "Tuple") 1 $ sep (map pretty exps)
@@ -229,6 +236,9 @@ instance PP a => PP (Expr' a) where
 
   pretty (DefExpr a b) = parens $ hang (text "Def") 1 $ sep [nest 3 $ pretty a, pretty b]
   pretty (StoreExpr a b) = parens $ hang (text "Store") 1 $ sep [nest 5 $ pretty a, pretty b]
+
+  pretty (Extern a) = parens $ hang (text "Extern") 1 $ pretty a
+  pretty (Struct n a) = parens $ (text "Struct" <+> text n) $$ nest 1 (vcat $ map pretty a)
 
 instance PP a => PP (Arg a) where
   pretty (Arg a) = pretty a

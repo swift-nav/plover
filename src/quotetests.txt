@@ -1,8 +1,55 @@
 -- fmap pretty $ parseFile "src/quotetests.txt"
 -- fmap toPosGraph $ parseFile "src/quotetests.txt"
 
-f {n} (1 :: u8) A[_];
+extern GPS_OMEGAE_DOT :: Double;
+extern GPS_C :: Double;
 
+extern struct navigation_measurement_t (
+  pseudorange :: Double;
+);
+
+m := vec(vec(1, 2),
+         vec(3, 4));
+
+pvt {n_used :: u8}
+    (sat_pos :: double[n_used, 3])
+    (pseudo :: double[n_used])
+    (nav_meas :: navigation_measurement_t[n_used])
+    (rx_state :: double[3])
+    (correction :: double[4])
+    (G :: double[n_used, 3+1])
+    (X :: double[4, n_used])
+  :: void
+ := ( los := vec j in 0:n_used -> ( tau := norm (rx_state - sat_pos[j, :]) / GPS_C;
+                                    we_tau := GPS_OMEGAE_DOT * tau;
+                                    xk_new := rot_small we_tau * sat_pos[j, :];
+                                    xk_new - rx_state );
+      G <- vec j in 0:n_used -> normalize((-los)[j] # vec(1));
+      pseudo := vec j in 0:n_used -> nav_meas[i].pseudorange;
+      omp := pseudo - vec j in 0:n_used -> norm los[j];
+      X <- inverse (transpose G * G) * transpose G;
+      correction <- X * omp;
+      Void );
+
+struct pair (
+  a :: double;
+  b :: double;
+);
+
+struct var_array (
+  n :: u16;
+  A :: double[n];
+  ptr :: *u16;
+);
+
+foo (x :: double[2,2]) :: Void
+  := (x <- vec i in 0:2, j in 0:1 -> i + j);
+
+my_matrix := vec i in 0:22, j in 0:22 -> f i + j*j;
+
+a := (vec i in 22 -> i) + (vec j in 22 -> j);
+
+foo2 (s :: var_array) :: u16  := s.*ptr;
 
 vec i in 3 -> i + 3;
 
@@ -10,8 +57,12 @@ x := 2;
 
 dot {n} (a :: double[n]) (b :: double[n]) :: double  := (a^T * b)[0,0];
 
+x := f $ 1 + 2;
 
-book_algorithm {n :: u16} (g :: double[1:n+1]) (f :: double[1:n+1]) :: Void := (
+
+book_algorithm {n :: u16} c r alpha (d :: double[n]) (g :: double[n]) (f :: double[n])
+  :: Void
+:= (
   gamma := 1/c * R + 1 / c * (1-c) * g * f + g[1] * f[1];
   Dbar[1] := D[1] * R / gamma;
   k := g[1] # zeros (n - 1);
@@ -25,3 +76,5 @@ book_algorithm {n :: u16} (g :: double[1:n+1]) (f :: double[1:n+1]) :: Void := (
     k[0:j-1] <- k[0:j-1] + g[j] * u[j,0:j-1];
   );
 );
+
+_x := 2;

@@ -60,17 +60,18 @@ languageDef =
            , Token.commentEnd = "-}"
            , Token.commentLine = "--"
            , Token.nestedComments = True
-           , Token.identStart = letter
+           , Token.identStart = letter <|> oneOf "_"
            , Token.identLetter = alphaNum <|> oneOf "_'"
            , Token.opStart = mzero -- Token.opLetter languageDef
            , Token.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
            , Token.reservedOpNames = ["::", ":", "<-", "->", ":=", "~", "*", "-", "+", "/",
-                                      "#", ".", "^", "$"]
+                                      "#", ".", ".*", "^", "$"]
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
              "struct", "field",
              "vec", "for", "sigma", "in",
-             "True", "False", "Void", "T", "_"
+             "True", "False", "Void", "T", "_",
+             "array"
              ]
            , caseSensitive = True
            }
@@ -91,12 +92,14 @@ semi = Token.semi lexer
 whiteSpace = Token.whiteSpace lexer
 
 
-expr = store
-
 withPos :: Parser (Expr' Expr) -> Parser Expr
 withPos p = do pos <- getPosition
                v <- p
                return $ wrapPos pos v
+
+-- Expression parser
+expr :: Parser Expr
+expr = store
 
 -- Parse stores
 store :: Parser Expr
@@ -126,29 +129,11 @@ range = noStart <|> withStart
                      reservedOp ":"
                      restRange pos Nothing
         withStart = do pos <- getPosition
-                       t <- form
+                       t <- operators
                        (reservedOp ":" >> restRange pos (Just t)) <|> return t
-        restRange pos t = do end <- optionMaybe form
-                             step <- optionMaybe (reservedOp ":" >> form)
+        restRange pos t = do end <- optionMaybe operators
+                             step <- optionMaybe (reservedOp ":" >> operators)
                              return $ wrapPos pos $ Range t end step
-
-
-form :: Parser Expr
-form = iter Vec "vec" <|> iter Sigma "sigma" <|> iter For "for"
-       <|> operators
-  where iter cons s = withPos $ do
-          reserved s
-          vs <- sepBy ((,) <$> identifier <* reserved "in" <*> range) (symbol ",")
-          reservedOp "->"
-          cons vs <$> expr
-
-        -- sigmaExpr = Sigma <$> getPosition
-        --             <* reserved "sigma" <*> expr <* reservedOp "->"
-        --             <*> expr
-        -- forExpr = For <$> getPosition
-        --             <* reserved "for" <*> expr <* reservedOp "->"
-        --             <*> expr
-
 
 operators :: Parser Expr
 operators = buildExpressionParser ops application
@@ -167,6 +152,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin Add "+") AssocLeft
             , Infix (bin Sub "-") AssocLeft
             ]
+          , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
           , [ Infix (bin Type "::") AssocNone ]
           ]
     un op s = do pos <- getPosition
@@ -175,6 +161,9 @@ operators = buildExpressionParser ops application
     bin op s = do pos <- getPosition
                   reservedOp s
                   return $ (wrapPos pos .) . BinExpr op
+    dollar = do pos <- getPosition
+                reservedOp "$"
+                return $ \x y -> wrapPos pos $ App x [Arg y]
 
 -- Parse a sequence of terms as a function application
 application :: Parser Expr
@@ -190,6 +179,8 @@ term :: Parser Expr
 term = literal >>= doMember
   where doMember e = do pos <- getPosition
                         (brackets (wrapPos pos . Index e <$> expr) >>= doMember)
+                          <|> (reservedOp ".*" >> (wrapPos pos . FieldDeref e <$> structFieldName)
+                               >>= doMember)
                           <|> (reservedOp "." >> (wrapPos pos . Field e <$> structFieldName)
                                >>= doMember)
                           <|> return e
@@ -198,6 +189,7 @@ term = literal >>= doMember
 literal :: Parser Expr
 literal = voidlit <|> holelit <|> transposelit <|> numlit <|> binlit <|> strlit
           <|> ref <|> parenGroup
+          <|> veclit <|> form
   where ref = withPos $ Ref <$> identifier
         voidlit = withPos $ reserved "Void" >> return VoidExpr
         holelit = withPos $ reserved "_" >> return Hole
@@ -210,6 +202,21 @@ literal = voidlit <|> holelit <|> transposelit <|> numlit <|> binlit <|> strlit
           return $ BoolLit b
         strlit = withPos $ StrLit <$> stringLiteral
         parenGroup = symbol "(" *> mstatements <* symbol ")"
+        veclit = -- basically match tuple. TODO better vec literal?
+          withPos $ do
+            try (reserved "vec" >> symbol "(")
+            xs <- sepEndBy range (symbol ",")
+            symbol ")"
+            return $ VecLit xs
+
+
+form :: Parser Expr
+form = iter Vec "vec" <|> iter Sigma "sigma" <|> iter For "for"
+  where iter cons s = withPos $ do
+          reserved s
+          vs <- sepBy ((,) <$> identifier <* reserved "in" <*> range) (symbol ",")
+          reservedOp "->"
+          cons vs <$> expr
 
 -- Parse semicolon-separated sequenced statements
 mstatements :: Parser Expr
@@ -219,10 +226,21 @@ mstatements = do pos <- getPosition
                   [x] -> return x -- so no need to sequence
                   _ -> return $ wrapPos pos $ SeqExpr xs
 
+toplevelStatement :: Parser Expr
+toplevelStatement = extern <|> struct <|> expr
+  where extern = withPos $ do reserved "extern"
+                              x <- toplevelStatement
+                              return $ Extern x
+        struct = withPos $ do reserved "struct"
+                              name <- identifier
+                              xs <- parens $ sepEndBy1 expr (symbol ";")
+                              return $ Struct name xs
+
+
 -- Parse entire toplevel
 toplevel :: Parser Expr
 toplevel = do whiteSpace
-              withPos $ SeqExpr <$> sepEndBy expr (symbol ";") <* eof
+              withPos $ SeqExpr <$> sepEndBy toplevelStatement (symbol ";") <* eof
 
 parseString :: String -> Expr
 parseString str =
