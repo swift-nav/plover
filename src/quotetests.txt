@@ -19,7 +19,7 @@ pvt {n_used :: u8}
     (correction :: double[4])
     (G :: double[n_used, 3+1])
     (X :: double[4, n_used])
-  :: void
+  :: Void
  := ( los := vec j in 0:n_used -> ( tau := norm (rx_state - sat_pos[j, :]) / GPS_C;
                                     we_tau := GPS_OMEGAE_DOT * tau;
                                     xk_new := rot_small we_tau * sat_pos[j, :];
@@ -78,3 +78,50 @@ book_algorithm {n :: u16} c r alpha (d :: double[n]) (g :: double[n]) (f :: doub
 );
 
 _x := 2;
+
+
+D := diag(something);
+U := UpperTriangular(something);
+P := U * D * U^T;
+S := R + H * P * H^T;
+y := z - H * x;
+S[i,i] <- R[i,i] + sum k in _ -> (H * U)[i,k]^2 * D[k,k];
+SOS := sum i -> y[i]^2 / S[i,i];
+
+A := H * U;
+S := R + A * D * A^T;
+
+diag {n} (A :: double[n,n]) :: double
+  := vec i in n -> A[i,i];
+
+
+{-
+
+static double get_sos_innov(nkf_t *kf, double *decor_obs)
+{
+ double predicted_obs[kf->obs_dim];
+ matrix_multiply(kf->obs_dim, kf->state_dim, 1,
+                 kf->decor_obs_mtx, kf->state_mean, predicted_obs);
+ double hu[kf->obs_dim * kf->state_dim];
+ /* TODO use the fact that U is unit triangular to save a ton of time */
+ matrix_multiply(kf->obs_dim, kf->state_dim, kf->state_dim,
+                 kf->decor_obs_mtx, kf->state_cov_U, hu);
+ /* (H * U * D * U^T * H^T)_ii = (HU * D * HU^T)_ii
+  *                            = Sum_kl (HU_ik * D_kl * HU^T_li)
+  *                            = Sum_kl (HU_ik * D_kl * HU_il)
+  *                            = Sum_k (HU_ik * D_kk * HU_ik) */
+ double sos = 0;
+ for (u8 i=0; i < kf->obs_dim; i++) {
+   double hph_r_ii = kf->decor_obs_cov[i];
+   for (u8 k=0; i < kf->state_dim; k++) {
+     hph_r_ii += hu[i * kf->state_dim + k] *
+                 hu[i * kf->state_dim + k] *
+                 kf->state_cov_D[k];
+   }
+   sos += (predicted_obs[i] - decor_obs[i]) *
+          (predicted_obs[i] - decor_obs[i]) /
+          hph_r_ii;
+ }
+ return sos;
+}
+-}

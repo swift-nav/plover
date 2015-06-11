@@ -9,74 +9,101 @@ module Language.Plover.Types where
 
 import qualified Data.Foldable as F (Foldable)
 import qualified Data.Traversable as T (Traversable)
-import Control.Monad.Free
+--import Control.Monad.Free
+import Data.Functor.Fixedpoint
 import Control.Monad.Trans.Either hiding (left)
 import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
 import Data.String
 import Data.Ratio
 
-data Void
-deriving instance Show Void
-deriving instance Eq Void
-deriving instance Ord Void
+--data Void
+--deriving instance Show Void
+--deriving instance Eq Void
+--deriving instance Ord Void
 
-type Tag = String
+--type Tag = String
 type Variable = String
+
+data IntType = U8 | S8
+             | U16 | S16
+             | U32 | S32
+             | U64 | S64
+             deriving (Eq, Ord, Show)
+data FloatType = Float | Double
+               deriving (Eq, Ord, Show)
+
+data UnOp = Neg | Not
+          | Transpose | Inverse
+          | Sum | For
+          deriving (Show, Eq, Ord)
+data BinOp = Add | Sub | Mul | Div
+           | Pow | Dot | Concat
+           | And | Or
+           | EqOp | LTOp | LTEOp
+           deriving (Show, Eq, Ord)
+
+data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
+             deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
+
+data Arg a = Arg a
+           | ImpArg a
+           deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
 -- Main program type
 -- Input programs are specified in the fixpoint of this type (CExpr).
 -- The reduction compiler operates on them.
 data Expr a
   -- Things at the top of the constructor list
-  = Vec' Variable a a
-  | Ref' Variable
-  | Sigma' a
-  | Ptr' a
-  | Return' a
+  = Vec' Variable (Range a) a
+  | Return' a -- TODO where is this allowed to appear? (Not inside a Vec, for example)
   | Assert' a
+  | RangeVal' (Range a)
 
   -- Control flow
   | If' a a a
 
   -- Elementary expressions
   | VoidExpr'
-  | IntLit' Int
-  | NumLit' Float
+  | IntLit' (Maybe IntType) Integer
+  | FloatLit' (Maybe FloatType) Double
   | StrLit' String
   | BoolLit' Bool
+  | VecLit' [a]
 
   -- Things that change the context
-  | Extension' a
-  | Declare' (Type) Variable
-  | FunctionDef' Variable (FunctionType) a
-  | Extern' Variable (Type)
+--  | Extension' a
+--  | Declare' (Type) Variable
+--  | FunctionDef' Variable (FunctionType) a
+--  | Extern' Variable (Type)
   | StructDecl' Variable StructType
 
-  -- Function application
-  | App' a [a]
-  | AppImpl' a [a] [a]
+  | Let' Variable a a
+  | Seq a a
+
+  -- Function application   TODO change for implicit arguments
+  | App' a [Arg a]
 
   -- Operators
   -- Symbolic patterns given below
-  | Index a a
-  | FlatIndex' a a [a]
-  | Concat a a
+  | Hole'
+  | Get' (Location a)
+  | Set' (Location a) a
+  | AssertType' a Type
+--  | FlatIndex' a a [a]
   | Init Variable a
-  | Assign a a
-  | Seq a a
-  | Sum a a
-  | Mul a a
-  | Div a a
-  | Equal' a a
-  | StructMemberRef a Variable
-  | StructPtrRef a Variable
-  | Negate' a
-  | Deref' a
-  | Unary' Tag a
+  | Unary' UnOp a
+  | Binary' BinOp a a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
-type CExpr = Free Expr Void
+data Location a = Ref' Variable
+                | Index' a [a]
+                | Field' a String
+                | Deref' a
+                deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
+
+type CExpr = Fix Expr
+pattern Free x = Fix x
 
 -- Basic subset of C
 -- Output of reduction compiler is transformed into Line
@@ -99,11 +126,8 @@ data Line
 
 -- Represents the type of an Expr
 -- Separates implicit parameters, explicit parameters, output type
-data FunctionType = FnT
-  { ft_imp :: [(Variable, Type)]
-  , ft_exp :: [(Variable, Type)]
-  , ft_out :: Type
-  }
+-- The boolean means whether the argument is required (False means implicit)
+data FunctionType = FnT [(Variable, Bool, Type)] Type
   deriving (Show, Eq, Ord)
 
 data ExternalDef = External | Generated
@@ -118,16 +142,17 @@ data StructType = ST
 
 -- Function without implicits or a dependent type
 fnT :: [Type] -> Type -> FunctionType
-fnT params out = FnT [] (zip (repeat "") params) out
+fnT params out = FnT [("", True, t) | t <- params] out
 
 data Type' a
   = VecType [a] (Type' a)
   | Void
   | FnType FunctionType
   | Dimension a
-  | IntType
-  | NumType
-  | StringType
+  | NumType -- some kind of number.  temporary; must become concrete numeric type
+  | IntType (Maybe IntType)
+  | FloatType (Maybe FloatType)
+  | StringType -- null-terminated C string
   | BoolType
   | PtrType (Type' a)
   | TypedefType Variable
@@ -146,15 +171,31 @@ stringType = StringType
 vecType :: [CExpr] -> Type
 vecType t = VecType t NumType
 
+data Definition = FunctionDef FunctionType CExpr
+                | StructDef [(Variable, Type)]
+                | ValueDef (Maybe CExpr) Type -- also used for function prototypes
+                deriving Show
+data DefBinding = DefBinding { binding :: Variable
+                             , extern :: Bool
+                             , static :: Bool
+                             , def :: Definition }
+                deriving Show
+
+mkBinding :: Variable -> Definition -> DefBinding
+mkBinding v d = DefBinding { binding = v
+                           , extern = False
+                           , static = False
+                           , def = d }
+
 -- Used for module definitions
 -- (name, requirements (eg external parameters, struct defs), type, function body
-type FunctionDefinition = (Variable, FunctionType, CExpr)
+--type FunctionDefinition = (Variable, FunctionType, CExpr)
 
 data CompilationUnit = CU
   { unitName :: String
-  , sourceDefs :: [FunctionDefinition]
+  , sourceDefs :: [DefBinding]
   , sourceIncs :: [String]
-  , headerDefs :: [CExpr]
+  , headerDefs :: [Variable] -- refers to DefBindings
   , headerIncs :: [String]
   }
 
@@ -252,54 +293,65 @@ infix 7 :!
 infix 8 :., :->
 pattern Vec a b c = Free (Vec' a b c)
 pattern If a b c = Free (If' a b c)
-pattern Ref a = Free (Ref' a)
-pattern Sigma x = Free (Sigma' x)
-pattern Ptr x = Free (Ptr' x)
+pattern RangeVal r = Free (RangeVal' r)
+--pattern Ref a = Free (Ref' a)
+--pattern Sigma x = Free (Unary' Sum x)
+--pattern For x = Free (Unary' For x)
+--pattern Ptr x = Free (Ptr' x)
 pattern VoidExpr = Free VoidExpr'
-pattern IntLit a = Free (IntLit' a)
-pattern NumLit a = Free (NumLit' a)
+pattern IntLit t a = Free (IntLit' t a)
+pattern FloatLit t a = Free (FloatLit' t a)
 -- pattern INumLit a = Free (INumLit' a)
 pattern StrLit s = Free (StrLit' s)
 pattern BoolLit s = Free (BoolLit' s)
-pattern Extension x = Free (Extension' x)
-pattern Declare t x = Free (Declare' t x)
+pattern VecLit s = Free (VecLit' s)
+--pattern Extension x = Free (Extension' x)
+--pattern Declare t x = Free (Declare' t x)
 pattern Return x = Free (Return' x)
 pattern Assert x = Free (Assert' x)
-pattern FunctionDef a b c = Free (FunctionDef' a b c)
-pattern Extern v t = Free (Extern' v t)
+--pattern FunctionDef a b c = Free (FunctionDef' a b c)
+--pattern Extern v t = Free (Extern' v t)
 pattern App f args = Free (App' f args)
 pattern a :$ b = Free (App' a [b])
 pattern Call a = Free (App' a [])
-pattern AppImpl a b c = Free (AppImpl' a b c)
 pattern StructDecl a b = Free (StructDecl' a b)
-pattern Negate x = Free (Negate' x)
-pattern Deref a = Free (Deref' a)
-pattern Equal a b = Free (Equal' a b)
+pattern Negate x = Free (Unary' Neg x)
+pattern Equal a b = Free (Binary' EqOp a b)
 pattern Unary tag x = Free (Unary' tag x)
-pattern a :<= b = Free (Assign a b)
+pattern Binary tag x y = Free (Binary' tag x y)
+pattern AssertType a ty = Free (AssertType' a ty)
+pattern Hole = Free (Hole')
+pattern Get x = Free (Get' x)
+pattern Set l x = Free (Set' l x)
+pattern a :<= b = Free (Set' a b)
 pattern a := b = Free (Init a b)
-pattern a :=: b = Free (Equal' a b)
-pattern a :# b = Free (Concat a b)
-pattern a :+ b = Free (Sum a b)
-pattern a :* b = Free (Mul a b)
-pattern a :/ b = Free (Div a b)
-pattern a :! b = Free (Index a b)
-pattern FlatIndex a b c = Free (FlatIndex' a b c)
+pattern a :=: b = Equal a b
+pattern a :# b = Binary Concat a b
+pattern a :+ b = Binary Add a b
+pattern a :* b = Binary Mul a b
+pattern a :/ b = Binary Div a b
+--pattern FlatIndex a b c = Free (FlatIndex' a b c)
 pattern a :> b = Free (Seq a b)
-pattern a :-> b = Free (StructPtrRef a b)
-pattern a :. b = Free (StructMemberRef a b)
 
-instance IsString (Free Expr a) where
-  fromString = Ref
+-- Locations
+pattern a :! b = Index' a b
+pattern Deref a = Deref' a
+pattern a :. b = Field' a b
+pattern a :-> b = Deref (Get (Field' a b))
 
-instance Num (Free Expr a) where
+instance IsString (Location (Fix Expr)) where
+  fromString = Ref'
+instance IsString (Fix Expr) where
+  fromString = Free . Get' . Ref'
+
+instance Num (Fix Expr) where
   x * y = x :* y
   x + y = x :+ y
-  fromInteger x = (IntLit $ fromInteger x)
+  fromInteger x = (IntLit Nothing $ fromInteger x)
   abs = undefined
   signum = undefined
   negate = Negate
 
-instance Fractional (Free Expr a) where
+instance Fractional (Fix Expr) where
   x / y = x :/ y
-  fromRational x = NumLit $ fromIntegral (numerator x) / fromIntegral (denominator x)
+  fromRational x = FloatLit Nothing $ fromIntegral (numerator x) / fromIntegral (denominator x)

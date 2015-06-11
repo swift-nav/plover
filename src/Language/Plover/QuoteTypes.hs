@@ -21,7 +21,9 @@ import Data.Functor.Fixedpoint
 import Data.List
 import Text.PrettyPrint
 
-data Tagged tag a = WithTag tag a | Untagged a
+import Language.Plover.Types (IntType, FloatType)
+
+data Tagged tag a = WithTag !tag a | Untagged a
                   deriving (Show)
 
 stripTag :: Tagged tag a -> a
@@ -95,13 +97,13 @@ toPosGraph (Fix (PosExpr' e)) = PosGraph $ evalState (g e) []
           modify (++ [(i, maybeTag e, e')])
           return i
 
-data IntType = U8 | I8
-             | U16 | I16
-             | U32 | I32
-             | U64 | I64
-             deriving (Eq, Show)
-data FloatType = Float | Double
-               deriving (Eq, Show)
+-- data IntType = U8 | I8
+--              | U16 | I16
+--              | U32 | I32
+--              | U64 | I64
+--              deriving (Eq, Show)
+-- data FloatType = Float | Double
+--                deriving (Eq, Show)
 
 type Variable = String
 
@@ -111,6 +113,7 @@ data UnOp = Neg
           | Deref
           | Transpose
           | Inverse
+          | Not
           deriving (Show, Eq)
 
 data BinOp = Add
@@ -121,10 +124,15 @@ data BinOp = Add
            | Dot
            | Concat
            | Type
+           | And
+           | Or
+           | EqualOp
+           | LTOp
+           | LTEOp
            deriving (Show, Eq)
 
 data Expr' a = Vec [(Variable,a)] a
-          | Sigma [(Variable,a)] a
+          | Sum [(Variable,a)] a
           | For [(Variable,a)] a
             
             -- Elementary Expressions
@@ -137,6 +145,7 @@ data Expr' a = Vec [(Variable,a)] a
           | BoolLit Bool
           | StrLit String
           | VecLit [a]
+          | If a a a
 
             -- Operators
           | UnExpr UnOp a
@@ -163,6 +172,7 @@ data Expr' a = Vec [(Variable,a)] a
 
             -- Declarations
           | Extern a
+          | Static a
           | Struct Variable [a]
           deriving (Eq, Show, Functor, Traversable, Foldable)
 
@@ -202,6 +212,8 @@ instance PP a => PP (Expr' a) where
   pretty (StrLit s) = parens $ text $ "StrLit " ++ show s
   pretty (VecLit xs) = parens $ text "VecLit" <+> sep (map pretty xs)
 
+  pretty (If a b c) = parens $ (text "if" <+> nest 3 (pretty a)) $$ (nest 1 (vcat [text "then" <+> pretty b, text "else" <+> pretty c]))
+
   pretty (UnExpr op exp) = parens $ hang (text $ show op) 1 (pretty exp)
   pretty (BinExpr op a b) = parens $ hang (text $ f op) (length (f op) + 1) $ sep [pretty a, pretty b]
     where
@@ -210,6 +222,9 @@ instance PP a => PP (Expr' a) where
       f Mul = "*"
       f Div = "/"
       f Pow = "^"
+      f EqualOp = "=="
+      f LTOp = "<"
+      f LTEOp = "<="
       f Type = "::"
       f op = show op
 
@@ -225,7 +240,7 @@ instance PP a => PP (Expr' a) where
 
   pretty (Vec vs e) = parens $ hang (text "Vec") 1 $ sep [nest 3 $ sep (map iter vs) <+> text "->", pretty e]
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
-  pretty (Sigma vs e) = parens $ hang (text "Sigma") 1 $ sep [nest 5 $ sep (map iter vs) <+> text "->", pretty e]
+  pretty (Sum vs e) = parens $ hang (text "Sum") 1 $ sep [nest 5 $ sep (map iter vs) <+> text "->", pretty e]
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
   pretty (For vs e) = parens $ hang (text "For") 1 $ sep [nest 3 $ sep (map iter vs) <+> text "->", pretty e]
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
@@ -238,6 +253,7 @@ instance PP a => PP (Expr' a) where
   pretty (StoreExpr a b) = parens $ hang (text "Store") 1 $ sep [nest 5 $ pretty a, pretty b]
 
   pretty (Extern a) = parens $ hang (text "Extern") 1 $ pretty a
+  pretty (Static a) = parens $ hang (text "Static") 1 $ pretty a
   pretty (Struct n a) = parens $ (text "Struct" <+> text n) $$ nest 1 (vcat $ map pretty a)
 
 instance PP a => PP (Arg a) where
