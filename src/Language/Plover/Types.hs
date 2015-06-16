@@ -56,7 +56,7 @@ data Arg a = Arg a
 data Expr a
   -- Things at the top of the constructor list
   = Vec' Variable (Range a) a
-  | Return' a -- TODO where is this allowed to appear? (Not inside a Vec, for example)
+  | Return' a -- TODO where is this allowed to appear? (Not inside a Vec, for example, maybe?)
   | Assert' a
   | RangeVal' (Range a)
 
@@ -83,6 +83,7 @@ data Expr a
 
   -- Function application   TODO change for implicit arguments
   | App' a [Arg a]
+  | ConcreteApp' a [a]
 
   -- Operators
   -- Symbolic patterns given below
@@ -91,12 +92,12 @@ data Expr a
   | Set' (Location a) a
   | AssertType' a Type
 --  | FlatIndex' a a [a]
-  | Init Variable a
+--  | Init Variable a
   | Unary' UnOp a
   | Binary' BinOp a a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
-data Location a = Ref' Variable
+data Location a = Ref' Type Variable
                 | Index' a [a]
                 | Field' a String
                 | Deref' a
@@ -148,7 +149,7 @@ data Type' a
   = VecType [a] (Type' a)
   | Void
   | FnType FunctionType
-  | Dimension a
+--  | Dimension a
   | NumType -- some kind of number.  temporary; must become concrete numeric type
   | IntType (Maybe IntType)
   | FloatType (Maybe FloatType)
@@ -158,6 +159,7 @@ data Type' a
   | TypedefType Variable
   -- Concrete ST has name, values for type parameters
   | StructType Variable StructType -- [a]
+  | TypeHole
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type Type = Type' CExpr
@@ -171,7 +173,7 @@ stringType = StringType
 vecType :: [CExpr] -> Type
 vecType t = VecType t NumType
 
-data Definition = FunctionDef FunctionType CExpr
+data Definition = FunctionDef (Maybe CExpr) FunctionType
                 | StructDef [(Variable, Type)]
                 | ValueDef (Maybe CExpr) Type -- also used for function prototypes
                 deriving Show
@@ -283,7 +285,8 @@ sep :: (Show a, Show b) => a -> b -> String
 sep s1 s2 = show s1 ++ ", " ++ show s2
 
 -- Syntax
-infix  4 :=, :<=
+--infix 4 :=
+infix  4 :<=
 infixr 5 :$
 infixr 5 :=:
 infixl 1 :>
@@ -312,6 +315,7 @@ pattern Assert x = Free (Assert' x)
 --pattern FunctionDef a b c = Free (FunctionDef' a b c)
 --pattern Extern v t = Free (Extern' v t)
 pattern App f args = Free (App' f args)
+pattern ConcreteApp f args = Free (ConcreteApp' f args)
 pattern a :$ b = Free (App' a [b])
 pattern Call a = Free (App' a [])
 pattern StructDecl a b = Free (StructDecl' a b)
@@ -324,7 +328,7 @@ pattern Hole = Free (Hole')
 pattern Get x = Free (Get' x)
 pattern Set l x = Free (Set' l x)
 pattern a :<= b = Free (Set' a b)
-pattern a := b = Free (Init a b)
+--pattern a := b = Free (Init a b)
 pattern a :=: b = Equal a b
 pattern a :# b = Binary Concat a b
 pattern a :+ b = Binary Add a b
@@ -332,6 +336,7 @@ pattern a :* b = Binary Mul a b
 pattern a :/ b = Binary Div a b
 --pattern FlatIndex a b c = Free (FlatIndex' a b c)
 pattern a :> b = Free (Seq a b)
+pattern Let v a b = Free (Let' v a b)
 
 -- Locations
 pattern a :! b = Index' a b
@@ -340,9 +345,9 @@ pattern a :. b = Field' a b
 pattern a :-> b = Deref (Get (Field' a b))
 
 instance IsString (Location (Fix Expr)) where
-  fromString = Ref'
+  fromString = Ref' TypeHole
 instance IsString (Fix Expr) where
-  fromString = Free . Get' . Ref'
+  fromString = Free . Get' . Ref' TypeHole
 
 instance Num (Fix Expr) where
   x * y = x :* y

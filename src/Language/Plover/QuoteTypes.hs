@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Language.Plover.QuoteTypes
        where
@@ -23,30 +24,23 @@ import Text.PrettyPrint
 
 import Language.Plover.Types (IntType, FloatType)
 
-data Tagged tag a = WithTag !tag a | Untagged a
+data Tag a = Tag !a | NoTag
+           deriving (Show)
+
+data Tagged tag a = WithTag { maybeTag :: !(Tag tag), stripTag :: a }
                   deriving (Show)
-
-stripTag :: Tagged tag a -> a
-stripTag (WithTag _ x) = x
-stripTag (Untagged x) = x
-
-maybeTag :: Tagged tag a -> Maybe tag
-maybeTag (WithTag tag _ ) = Just tag
-maybeTag (Untagged _) = Nothing
 
 instance Eq a => Eq (Tagged tag a) where
   x == y  = stripTag x == stripTag y
 
 instance Functor (Tagged tag) where
-  fmap f (WithTag tag a) = WithTag tag (f a)
-  fmap f (Untagged a) = Untagged (f a)
+  fmap f (WithTag mt a) = WithTag mt (f a)
 
 instance Foldable (Tagged tag) where
   foldr f z x = f (stripTag x) z
 
 instance Traversable (Tagged tag) where
   traverse f (WithTag tag a) = WithTag tag <$> f a
-  traverse f (Untagged a) = Untagged <$> f a
 
 data PosExpr' a = PosExpr' (Tagged SourcePos (Expr' a))
 
@@ -58,21 +52,26 @@ instance Foldable PosExpr' where
 
 instance Traversable PosExpr' where
   traverse f (PosExpr' (WithTag tag a)) = PosExpr' . WithTag tag <$> traverse f a
-  traverse f (PosExpr' (Untagged a)) = PosExpr' . Untagged <$> traverse f a
 
 instance Show a => Show (PosExpr' a) where
   show (PosExpr' x) = "(" ++ show (stripTag x) ++ ")"
 
 type Expr = Fix PosExpr'
 
+pattern PExpr tag a = Fix (PosExpr' (WithTag tag a))
+
 liftExpr :: Expr' Expr -> Expr
-liftExpr x = Fix (PosExpr' (Untagged x))
+liftExpr x = PExpr NoTag x
 
 wrapPos :: SourcePos -> Expr' Expr -> Expr
-wrapPos pos x = Fix (PosExpr' (WithTag pos x))
+wrapPos pos x = PExpr (Tag pos) x
+
+-- | This is really just a synonym for PExpr
+wrapTag :: Tag SourcePos -> Expr' Expr -> Expr
+wrapTag mpos x = PExpr mpos x
 
 newtype Unique = Unique Int
-data PosGraph a = PosGraph [(Unique, Maybe SourcePos, a Unique)]
+data PosGraph a = PosGraph [(Unique, Tag SourcePos, a Unique)]
 
 instance Show Unique where
   show (Unique i) = "#" ++ show i
@@ -82,8 +81,8 @@ instance Show (PosGraph Expr') where
     where f (i, msp, expr) = " " ++ show i
                              ++ " = " ++ show expr ++ ";"
                              ++ (case msp of
-                                  Nothing -> ""
-                                  Just pos -> "     (position " ++ show pos ++ ")")
+                                  NoTag -> ""
+                                  Tag pos -> "     (position " ++ show pos ++ ")")
 
 toPosGraph :: Expr -> PosGraph Expr'
 toPosGraph (Fix (PosExpr' e)) = PosGraph $ evalState (g e) []

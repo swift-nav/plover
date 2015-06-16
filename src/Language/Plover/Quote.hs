@@ -4,6 +4,8 @@
 module Language.Plover.Quote
  ( plover
  ) where
+import Language.Plover.Unify
+import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
 
 import Language.Haskell.TH as TH
 import Language.Haskell.TH.Quote
@@ -285,7 +287,7 @@ data ConvertError = ConvertError !SourcePos [String]
                   deriving (Show)
 
 makeExpr :: Expr -> Either ConvertError T.CExpr
-makeExpr exp@(Fix (PosExpr' e')) = case stripTag e' of
+makeExpr exp@(PExpr _ e') = case e' of
   Vec [] e -> makeExpr e
   Vec ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
@@ -298,7 +300,7 @@ makeExpr exp@(Fix (PosExpr' e')) = case stripTag e' of
   For ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
                          return $ T.Unary T.For $ T.Vec v rng ee
-  Ref v -> return $ T.Get $ T.Ref' v
+  Ref v -> return $ T.Get $ T.Ref' T.TypeHole v
   VoidExpr -> return $ T.VoidExpr
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]
   Hole -> return $ T.Hole
@@ -324,13 +326,14 @@ makeExpr exp@(Fix (PosExpr' e')) = case stripTag e' of
           tr Transpose = T.Transpose
           tr Inverse = T.Inverse
           tr Not = T.Not
-  BinExpr Pow a b@(Fix (PosExpr' b')) -> case stripTag b' of
-    T -> T.Unary T.Transpose <$> makeExpr a  -- A^T is transpose of A
-    UnExpr Neg (Fix (PosExpr' b'))
-      | IntLit _ 1 <- stripTag b'  -> T.Unary T.Inverse <$> makeExpr a  -- A^(-1) is A inverse
-      | T <- stripTag b'  -> do a' <- makeExpr a -- A^(-T) is transpose of A inverse
-                                return $ T.Unary T.Transpose (T.Unary T.Inverse a')
-    _ -> T.Binary T.Pow <$> makeExpr a <*> makeExpr b
+  BinExpr Pow a (PExpr _ T)
+    -> T.Unary T.Transpose <$> makeExpr a  -- A^T is transpose of A
+  BinExpr Pow a (PExpr _ (UnExpr Neg (PExpr _ (IntLit _ 1))))
+    -> T.Unary T.Inverse <$> makeExpr a  -- A^(-1) is A inverse
+  BinExpr Pow a (PExpr _ (UnExpr Neg (PExpr _ T)))
+    -> do a' <- makeExpr a -- A^(-T) is transpose of A inverse
+          return $ T.Unary T.Transpose (T.Unary T.Inverse a')
+  BinExpr Pow a b -> T.Binary T.Pow <$> makeExpr a <*> makeExpr b
   BinExpr Type a b -> do a' <- makeExpr a
                          b' <- makeType b
                          return $ T.AssertType a' b'
@@ -360,12 +363,8 @@ makeExpr exp@(Fix (PosExpr' e')) = case stripTag e' of
   App f args -> T.App <$> makeExpr f <*> (mapM $ \arg -> case arg of
                                            Arg a -> T.Arg <$> makeExpr a
                                            ImpArg a -> T.ImpArg <$> makeExpr a) args
-
-  SeqExpr [] -> return $ T.VoidExpr
-  SeqExpr [x] -> makeExpr x
-  SeqExpr exprs -> do exprs' <- mapM makeExpr exprs
-                      return $ foldr1 (T.:>) exprs'
-  --DefExpr _ _ -> 
+  SeqExpr xs -> makeSequence xs
+  DefExpr _ _ -> Left $ ConvertError (makePos exp) ["Unexpected definition outside sequence."]
   StoreExpr loc a -> do loc' <- makeLocation loc
                         a' <- makeExpr a
                         return $ T.Set loc' a'
@@ -375,25 +374,26 @@ makeExpr exp@(Fix (PosExpr' e')) = case stripTag e' of
   _ -> Left $ ConvertError (makePos exp) ["Unimplemented expression " ++ show exp]
 
 makeLocation :: Expr -> Either ConvertError (T.Location T.CExpr)
-makeLocation exp@(Fix (PosExpr' e')) = case stripTag e' of
+makeLocation exp@(PExpr _ e') = case e' of
   Field a n -> do a' <- makeExpr a
                   return $ T.Field' a' n
   FieldDeref a n -> do a' <- makeExpr a
                        return $ T.Deref' $ T.Get $ T.Field' a' n
-  Index a (Fix (PosExpr' idx))
-    | (Tuple idxs) <- stripTag idx -> do a' <- makeExpr a
-                                         idxs' <- mapM makeExpr idxs
-                                         return $ T.Index' a' idxs'
+  Index a (PExpr _ (Tuple idxs)) -> do a' <- makeExpr a
+                                       idxs' <- mapM makeExpr idxs
+                                       return $ T.Index' a' idxs'
   UnExpr Deref a -> do a' <- makeExpr a
                        return $ T.Deref' a'
   Index a b -> do a' <- makeExpr a
                   idx' <- makeExpr b
                   return $ T.Index' a' [idx']
 
+  Ref v -> return $ T.Ref' T.TypeHole v
+
   _ -> Left $ ConvertError (makePos exp) ["Expecting location instead of " ++ show exp]
 
 makeRange :: Expr -> Either ConvertError (T.Range T.CExpr)
-makeRange exp@(Fix (PosExpr' e')) = case stripTag e' of
+makeRange exp@(PExpr _ e') = case e' of
   Range start stop step -> do start' <- maybe (return 0) makeExpr start
                               stop' <- maybe (return T.Hole) makeExpr stop
                               step' <- maybe (return 1) makeExpr step
@@ -401,12 +401,24 @@ makeRange exp@(Fix (PosExpr' e')) = case stripTag e' of
   _ -> do ee <- makeExpr exp
           return $ T.Range 0 ee 1
 
+makeSequence :: [Expr] -> Either ConvertError T.CExpr
+makeSequence [] = return $ T.VoidExpr
+makeSequence [x] = makeExpr x
+makeSequence (x@(PExpr pos x') : xs) = case x' of
+  (DefExpr (PExpr pos2 a) b) -> case a of
+    BinExpr Type av at ->
+      makeSequence ((wrapTag pos $ (DefExpr av (wrapTag pos2 $ BinExpr Type b at)))
+                    : xs)
+    Ref v -> do b' <- makeExpr b
+                T.Let v b' <$> makeSequence xs
+  _ -> (T.:>) <$> makeExpr x <*> makeSequence xs
+
+
 makeType :: Expr -> Either ConvertError (T.Type)
-makeType exp@(Fix (PosExpr' e')) = case stripTag e' of
-  Index a (Fix (PosExpr' idx))
-    | (Tuple idxs) <- stripTag idx -> do a' <- makeType a
-                                         idxs' <- mapM makeExpr idxs
-                                         return $ T.VecType idxs' a'
+makeType exp@(PExpr _ e') = case e' of
+  Index a (PExpr _ (Tuple idxs)) -> do a' <- makeType a
+                                       idxs' <- mapM makeExpr idxs
+                                       return $ T.VecType idxs' a'
   Index a b -> do a' <- makeType a
                   b' <- makeExpr b
                   return $ T.VecType [b'] a'
@@ -421,7 +433,7 @@ makeType exp@(Fix (PosExpr' e')) = case stripTag e' of
     "u64" -> return $ T.IntType (Just T.U64)
     "s64" -> return $ T.IntType (Just T.S64)
     "float" -> return $ T.FloatType (Just T.Float)
-    "double" -> return $ T.FloatType (Just T.Float)
+    "double" -> return $ T.FloatType (Just T.Double)
     "Int" -> return $ T.IntType Nothing
     "String" -> return $ T.StringType
     "Bool" -> return $ T.StringType
@@ -434,36 +446,43 @@ makeType exp@(Fix (PosExpr' e')) = case stripTag e' of
 --  case ee of
 
 makeDefs :: Expr -> Either ConvertError [T.DefBinding]
-makeDefs exp@(Fix (PosExpr' pe)) = case stripTag pe of
+makeDefs exp@(PExpr _ pe) = case pe of
   SeqExpr xs -> fmap join $ mapM makeDefs xs
   Extern a -> fmap (map (\z -> z { T.extern = True })) $ makeDefs a
   Static a -> fmap (map (\z -> z { T.static = True })) $ makeDefs a
-  BinExpr Type (Fix (PosExpr' a)) b
-    | Ref v <- stripTag a  -> do t <- makeType b
-                                 return $ [T.mkBinding v $ T.ValueDef Nothing t]
-    | App (Fix (PosExpr' f)) args <- stripTag a ->
-        case stripTag f of
-         Ref v -> do t <- makeType b
-                     at <- funArgs args
-                     return $ [T.mkBinding v $ T.ValueDef Nothing (T.FnType (T.FnT at t))]
-    | otherwise -> Left $ ConvertError (makePos exp) ["Prototype must be variable or function."]
+  BinExpr Type a b -> do (v, def) <- makeTopType exp Nothing
+                         return $ [T.mkBinding v def]
+  DefExpr a b -> do b' <- makeExpr b
+                    (v, def) <- makeTopType a (Just b')
+                    return $ [T.mkBinding v def]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
+
+makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError (T.Variable, T.Definition)
+makeTopType exp@(PExpr _ pe) val = case pe of
+  BinExpr Type (PExpr _ a) b -> case a of
+    Ref v -> do t <- makeType b
+                return $ (v, T.ValueDef val t)
+    App (PExpr _ f) args -> case f of
+                             Ref v -> do t <- makeType b
+                                         at <- funArgs args
+                                         return $ (v, T.FunctionDef val (T.FnT at t))
+    _ -> Left $ ConvertError (makePos exp) ["Expecting variable or function type definition."]
+  _ -> Left $ ConvertError (makePos exp) ["Expecting variable or function type definition (possibly missing return type)."]
+
 
 funArgs :: [Arg Expr] -> Either ConvertError [(Variable, Bool, T.Type)]
 funArgs [] = return []
-funArgs ((Arg e@(Fix (PosExpr' pe))):args)
-  | BinExpr Type (Fix (PosExpr' a)) b  <- stripTag pe, Ref v <- stripTag a = do
-      t <- makeType b
-      ([(v, True, t)] ++) <$> funArgs args
-  | otherwise  = Left $ ConvertError (makePos e) ["Argument definition must have explicit type."]
-funArgs ((ImpArg e@(Fix (PosExpr' pe))):args)
-  | BinExpr Type (Fix (PosExpr' a)) b  <- stripTag pe, Ref v <- stripTag a = do
-      t <- makeType b
-      ([(v, False, t)] ++) <$> funArgs args
-  | otherwise  = Left $ ConvertError (makePos e) ["Implicit argument definition must have explicit type."]
+funArgs ((Arg e@(PExpr _ pe)):args) = case pe of
+  BinExpr Type (PExpr _ (Ref v)) b  -> do t <- makeType b
+                                          ([(v, True, t)] ++) <$> funArgs args
+  VoidExpr -> funArgs args
+  _ -> Left $ ConvertError (makePos e) ["Argument definition must have explicit type."]
+funArgs ((ImpArg e@(PExpr _ pe)):args) = case pe of
+  BinExpr Type (PExpr _ (Ref v)) b  -> do t <- makeType b
+                                          ([(v, False, t)] ++) <$> funArgs args
+  _ -> Left $ ConvertError (makePos e) ["Implicit argument definition must have explicit type."]
 
 
 makePos :: Expr -> SourcePos
-makePos (Fix (PosExpr' e')) = case maybeTag e' of
-  Just pos -> pos
-  Nothing -> newPos "<unknown>" (-1) (-1)
+makePos (PExpr (Tag pos) _) = pos
+makePos (PExpr NoTag _) = newPos "<unknown>" (-1) (-1)
