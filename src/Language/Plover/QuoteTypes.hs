@@ -14,87 +14,20 @@ import Text.ParserCombinators.Parsec.Pos
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import Control.Monad
-import Control.Monad.State
 import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
 import Data.Traversable
-import Data.Functor.Fixedpoint
-import Data.List
 import Text.PrettyPrint
+import Data.Tag
+import Data.Functor.Fixedpoint
 
 import Language.Plover.Types (IntType, FloatType)
 
-data Tag a = Tag !a | NoTag
-           deriving (Show)
-
-data Tagged tag a = WithTag { maybeTag :: !(Tag tag), stripTag :: a }
-                  deriving (Show)
-
-instance Eq a => Eq (Tagged tag a) where
-  x == y  = stripTag x == stripTag y
-
-instance Functor (Tagged tag) where
-  fmap f (WithTag mt a) = WithTag mt (f a)
-
-instance Foldable (Tagged tag) where
-  foldr f z x = f (stripTag x) z
-
-instance Traversable (Tagged tag) where
-  traverse f (WithTag tag a) = WithTag tag <$> f a
-
-data PosExpr' a = PosExpr' (Tagged SourcePos (Expr' a))
-
-instance Functor PosExpr' where
-  fmap f (PosExpr' x) = PosExpr' (fmap (fmap f) x)
-
-instance Foldable PosExpr' where
-  foldr f z (PosExpr' x) = foldr f z (stripTag x)
-
-instance Traversable PosExpr' where
-  traverse f (PosExpr' (WithTag tag a)) = PosExpr' . WithTag tag <$> traverse f a
-
-instance Show a => Show (PosExpr' a) where
-  show (PosExpr' x) = "(" ++ show (stripTag x) ++ ")"
-
-type Expr = Fix PosExpr'
-
-pattern PExpr tag a = Fix (PosExpr' (WithTag tag a))
-
-liftExpr :: Expr' Expr -> Expr
-liftExpr x = PExpr NoTag x
+type Expr = FixTagged SourcePos Expr'
+pattern PExpr tag a = FTag tag a
 
 wrapPos :: SourcePos -> Expr' Expr -> Expr
-wrapPos pos x = PExpr (Tag pos) x
-
--- | This is really just a synonym for PExpr
-wrapTag :: Tag SourcePos -> Expr' Expr -> Expr
-wrapTag mpos x = PExpr mpos x
-
-newtype Unique = Unique Int
-data PosGraph a = PosGraph [(Unique, Tag SourcePos, a Unique)]
-
-instance Show Unique where
-  show (Unique i) = "#" ++ show i
-
-instance Show (PosGraph Expr') where
-  show (PosGraph xs) = "PosGraph [\n" ++ intercalate "\n" (map f xs) ++ "\n]"
-    where f (i, msp, expr) = " " ++ show i
-                             ++ " = " ++ show expr ++ ";"
-                             ++ (case msp of
-                                  NoTag -> ""
-                                  Tag pos -> "     (position " ++ show pos ++ ")")
-
-toPosGraph :: Expr -> PosGraph Expr'
-toPosGraph (Fix (PosExpr' e)) = PosGraph $ evalState (g e) []
-  where g e = do e' <- traverse f (stripTag e)
-                 i <- Unique . length <$> get
-                 graph <- get
-                 return $ graph ++ [(i, maybeTag e, e')]
-        f (Fix (PosExpr' e)) = do
-          e' <- traverse f (stripTag e)
-          i <- Unique . length <$> get
-          modify (++ [(i, maybeTag e, e')])
-          return i
+wrapPos = newTag
 
 -- data IntType = U8 | I8
 --              | U16 | I16
@@ -189,14 +122,14 @@ float x = FloatLit Nothing x
 class PP a where
   pretty :: a -> Doc
 
-instance PP a => PP (Tagged tag a) where
-  pretty x = pretty (stripTag x)
+instance PP (t a) => PP (FixTagged' tag t a) where
+  pretty (FixTagged' x) = pretty (stripTag x)
 
 instance PP (a (Fix a)) => PP (Fix a) where
   pretty (Fix x) = pretty x
 
-instance PP a => PP (PosExpr' a) where
-  pretty (PosExpr' x) = pretty x
+--instance PP a => PP (PosExpr' a) where
+--  pretty (PosExpr' x) = pretty x
 
 instance PP a => PP (Expr' a) where
   pretty (Ref v) = text v

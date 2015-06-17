@@ -1,0 +1,19 @@
+extern CONSTANT :: Double;
+extern g (x :: double) :: double;
+
+static MY_CONST :: Double := 3;
+
+f {n :: u8} (A :: double[n]) :: double
+  := sum i in n -> 2 * g a[i] * CONSTANT + MY_CONST;
+
+dim {n :: u8} (A :: double[n]) :: u8 := n;
+
+mean {n :: u8} (A :: double[n]) :: double
+  := (sum i in n -> A[i]) / dim A;
+
+g Void :: double
+  := A[0:2] + f Void;
+
+--extern struct navigation_measurement_t (
+--  pseudorange :: Double;
+--);

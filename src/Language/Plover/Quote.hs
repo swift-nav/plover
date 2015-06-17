@@ -4,14 +4,13 @@
 module Language.Plover.Quote
  ( plover
  ) where
-import Language.Plover.Unify
+--import Language.Plover.Unify
 import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
 
 import Language.Haskell.TH as TH
 import Language.Haskell.TH.Quote
 --import Data.Typeable
 --import Data.Data
-import Data.Functor.Fixedpoint
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Pos
 import Text.ParserCombinators.Parsec.Expr
@@ -23,6 +22,7 @@ import Control.Monad.Free
 import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
 import Language.Plover.QuoteTypes
+import Data.Tag
 
 import qualified Language.Plover.Types as T
 
@@ -100,7 +100,7 @@ whiteSpace = Token.whiteSpace lexer
 withPos :: Parser (Expr' Expr) -> Parser Expr
 withPos p = do pos <- getPosition
                v <- p
-               return $ wrapPos pos v
+               return $ newTag pos v
 
 -- Expression parser
 expr :: Parser Expr
@@ -287,39 +287,39 @@ data ConvertError = ConvertError !SourcePos [String]
                   deriving (Show)
 
 makeExpr :: Expr -> Either ConvertError T.CExpr
-makeExpr exp@(PExpr _ e') = case e' of
+makeExpr exp@(PExpr pos e') = case e' of
   Vec [] e -> makeExpr e
   Vec ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
-                         return $ T.Vec v rng ee
+                         return $ T.Vec pos v rng ee
   Sum [] e -> makeExpr e
   Sum ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
-                         return $ T.Unary T.Sum $ T.Vec v rng ee
+                         return $ T.Unary pos T.Sum $ T.Vec pos v rng ee
   For [] e -> makeExpr e
   For ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
-                         return $ T.Unary T.For $ T.Vec v rng ee
-  Ref v -> return $ T.Get $ T.Ref' T.TypeHole v
-  VoidExpr -> return $ T.VoidExpr
+                         return $ T.Unary pos T.For $ T.Vec pos v rng ee
+  Ref v -> return $ T.Get pos $ T.Ref T.TypeHole v
+  VoidExpr -> return $ T.VoidExpr pos
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]
-  Hole -> return $ T.Hole
-  IntLit t i -> return $ T.IntLit t i
-  FloatLit t x -> return $ T.FloatLit t x
-  BoolLit b -> return $ T.BoolLit b
-  StrLit s -> return $ T.StrLit s
+  Hole -> return $ T.Hole pos
+  IntLit t i -> return $ T.IntLit pos t i
+  FloatLit t x -> return $ T.FloatLit pos t x
+  BoolLit b -> return $ T.BoolLit pos b
+  StrLit s -> return $ T.StrLit pos s
   VecLit es -> do es' <- mapM makeExpr es
-                  return $ T.VecLit es'
+                  return $ T.VecLit pos es'
   If a b c -> do a' <- makeExpr a
                  b' <- makeExpr b
                  c' <- makeExpr c
-                 return $ T.If a' b' c'
+                 return $ T.If pos a' b' c'
   UnExpr Deref a -> do a' <- makeExpr a
-                       return $ T.Get $ T.Deref a'
+                       return $ T.Get pos $ T.Deref a'
   UnExpr Pos a -> do a' <- makeExpr a
-                     return $ T.AssertType a' T.NumType
+                     return $ T.AssertType pos a' T.NumType
   UnExpr op a -> do a' <- makeExpr a
-                    return $ T.Unary (tr op) a'
+                    return $ T.Unary pos (tr op) a'
     where tr Neg = T.Neg
           tr Pos = error "Not translatable here"
           tr Deref = error "Not translatable here"
@@ -327,19 +327,19 @@ makeExpr exp@(PExpr _ e') = case e' of
           tr Inverse = T.Inverse
           tr Not = T.Not
   BinExpr Pow a (PExpr _ T)
-    -> T.Unary T.Transpose <$> makeExpr a  -- A^T is transpose of A
+    -> T.Unary pos T.Transpose <$> makeExpr a  -- A^T is transpose of A
   BinExpr Pow a (PExpr _ (UnExpr Neg (PExpr _ (IntLit _ 1))))
-    -> T.Unary T.Inverse <$> makeExpr a  -- A^(-1) is A inverse
+    -> T.Unary pos T.Inverse <$> makeExpr a  -- A^(-1) is A inverse
   BinExpr Pow a (PExpr _ (UnExpr Neg (PExpr _ T)))
     -> do a' <- makeExpr a -- A^(-T) is transpose of A inverse
-          return $ T.Unary T.Transpose (T.Unary T.Inverse a')
-  BinExpr Pow a b -> T.Binary T.Pow <$> makeExpr a <*> makeExpr b
+          return $ T.Unary pos T.Transpose (T.Unary pos T.Inverse a')
+  BinExpr Pow a b -> T.Binary pos T.Pow <$> makeExpr a <*> makeExpr b
   BinExpr Type a b -> do a' <- makeExpr a
                          b' <- makeType b
-                         return $ T.AssertType a' b'
+                         return $ T.AssertType pos a' b'
   BinExpr op a b -> do a' <- makeExpr a
                        b' <- makeExpr b
-                       return $ T.Binary (tr op) a' b'
+                       return $ T.Binary pos (tr op) a' b'
     where tr Add = T.Add
           tr Sub = T.Sub
           tr Mul = T.Mul
@@ -353,65 +353,65 @@ makeExpr exp@(PExpr _ e') = case e' of
           tr LTOp = T.LTOp
           tr LTEOp = T.LTEOp
 
-  Field _ _ -> T.Get <$> makeLocation exp
-  FieldDeref _ _ -> T.Get <$> makeLocation exp
-  Index _ _ -> T.Get <$> makeLocation exp
+  Field _ _ -> T.Get pos <$> makeLocation exp
+  FieldDeref _ _ -> T.Get pos <$> makeLocation exp
+  Index _ _ -> T.Get pos <$> makeLocation exp
 
   Tuple _ -> Left $ ConvertError (makePos exp) ["What do we do with tuples?"]
-  Range _ _ _ -> T.RangeVal <$> makeRange exp
+  Range _ _ _ -> T.RangeVal pos <$> makeRange exp
 
-  App f args -> T.App <$> makeExpr f <*> (mapM $ \arg -> case arg of
-                                           Arg a -> T.Arg <$> makeExpr a
-                                           ImpArg a -> T.ImpArg <$> makeExpr a) args
-  SeqExpr xs -> makeSequence xs
+  App f args -> T.App pos <$> makeExpr f <*> (mapM $ \arg -> case arg of
+                                               Arg a -> T.Arg <$> makeExpr a
+                                               ImpArg a -> T.ImpArg <$> makeExpr a) args
+  SeqExpr xs -> makeSequence pos xs
   DefExpr _ _ -> Left $ ConvertError (makePos exp) ["Unexpected definition outside sequence."]
   StoreExpr loc a -> do loc' <- makeLocation loc
                         a' <- makeExpr a
-                        return $ T.Set loc' a'
+                        return $ T.Set pos loc' a'
 
   Extern _ -> Left $ ConvertError (makePos exp) ["Non-toplevel extern"]
   Static _ -> Left $ ConvertError (makePos exp) ["Non-toplevel static"]
   _ -> Left $ ConvertError (makePos exp) ["Unimplemented expression " ++ show exp]
 
 makeLocation :: Expr -> Either ConvertError (T.Location T.CExpr)
-makeLocation exp@(PExpr _ e') = case e' of
+makeLocation exp@(PExpr pos e') = case e' of
   Field a n -> do a' <- makeExpr a
-                  return $ T.Field' a' n
+                  return $ T.Field a' n
   FieldDeref a n -> do a' <- makeExpr a
-                       return $ T.Deref' $ T.Get $ T.Field' a' n
+                       return $ T.Deref $ T.Get pos $ T.Field a' n
   Index a (PExpr _ (Tuple idxs)) -> do a' <- makeExpr a
                                        idxs' <- mapM makeExpr idxs
-                                       return $ T.Index' a' idxs'
+                                       return $ T.Index a' idxs'
   UnExpr Deref a -> do a' <- makeExpr a
-                       return $ T.Deref' a'
+                       return $ T.Deref a'
   Index a b -> do a' <- makeExpr a
                   idx' <- makeExpr b
-                  return $ T.Index' a' [idx']
+                  return $ T.Index a' [idx']
 
-  Ref v -> return $ T.Ref' T.TypeHole v
+  Ref v -> return $ T.Ref T.TypeHole v
 
   _ -> Left $ ConvertError (makePos exp) ["Expecting location instead of " ++ show exp]
 
 makeRange :: Expr -> Either ConvertError (T.Range T.CExpr)
-makeRange exp@(PExpr _ e') = case e' of
-  Range start stop step -> do start' <- maybe (return 0) makeExpr start
-                              stop' <- maybe (return T.Hole) makeExpr stop
-                              step' <- maybe (return 1) makeExpr step
+makeRange exp@(PExpr pos e') = case e' of
+  Range start stop step -> do start' <- maybe (return $ T.IntLit pos Nothing 0) makeExpr start
+                              stop' <- maybe (return $ T.Hole pos) makeExpr stop
+                              step' <- maybe (return $ T.IntLit pos Nothing 1) makeExpr step
                               return $ T.Range start' stop' step'
   _ -> do ee <- makeExpr exp
-          return $ T.Range 0 ee 1
+          return $ T.Range (T.IntLit pos Nothing 0) ee (T.IntLit pos Nothing 1)
 
-makeSequence :: [Expr] -> Either ConvertError T.CExpr
-makeSequence [] = return $ T.VoidExpr
-makeSequence [x] = makeExpr x
-makeSequence (x@(PExpr pos x') : xs) = case x' of
+makeSequence :: Tag SourcePos -> [Expr] -> Either ConvertError T.CExpr
+makeSequence pos [] = return $ T.VoidExpr pos
+makeSequence pos [x] = makeExpr x
+makeSequence pos (x@(PExpr pos' x') : xs) = case x' of
   (DefExpr (PExpr pos2 a) b) -> case a of
     BinExpr Type av at ->
-      makeSequence ((wrapTag pos $ (DefExpr av (wrapTag pos2 $ BinExpr Type b at)))
-                    : xs)
+      makeSequence pos ((wrapTag pos' $ (DefExpr av (wrapTag pos2 $ BinExpr Type b at)))
+                        : xs)
     Ref v -> do b' <- makeExpr b
-                T.Let v b' <$> makeSequence xs
-  _ -> (T.:>) <$> makeExpr x <*> makeSequence xs
+                T.Let pos' v b' <$> makeSequence pos xs
+  _ -> T.Seq pos <$> makeExpr x <*> makeSequence pos xs
 
 
 makeType :: Expr -> Either ConvertError (T.Type)
@@ -446,15 +446,15 @@ makeType exp@(PExpr _ e') = case e' of
 --  case ee of
 
 makeDefs :: Expr -> Either ConvertError [T.DefBinding]
-makeDefs exp@(PExpr _ pe) = case pe of
+makeDefs exp@(PExpr pos pe) = case pe of
   SeqExpr xs -> fmap join $ mapM makeDefs xs
   Extern a -> fmap (map (\z -> z { T.extern = True })) $ makeDefs a
   Static a -> fmap (map (\z -> z { T.static = True })) $ makeDefs a
   BinExpr Type a b -> do (v, def) <- makeTopType exp Nothing
-                         return $ [T.mkBinding v def]
+                         return $ [T.mkBinding pos v def]
   DefExpr a b -> do b' <- makeExpr b
                     (v, def) <- makeTopType a (Just b')
-                    return $ [T.mkBinding v def]
+                    return $ [T.mkBinding pos v def]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
 
 makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError (T.Variable, T.Definition)
@@ -484,5 +484,7 @@ funArgs ((ImpArg e@(PExpr _ pe)):args) = case pe of
 
 
 makePos :: Expr -> SourcePos
-makePos (PExpr (Tag pos) _) = pos
-makePos (PExpr NoTag _) = newPos "<unknown>" (-1) (-1)
+makePos (PExpr tag _) = makePos' tag
+  where makePos' NoTag = newPos "<unknown>" (-1) (-1)
+        makePos' (Tag a _) = a
+        makePos' (ProvTag _ mt) = makePos' mt

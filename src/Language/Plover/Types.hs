@@ -10,19 +10,18 @@ module Language.Plover.Types where
 import qualified Data.Foldable as F (Foldable)
 import qualified Data.Traversable as T (Traversable)
 --import Control.Monad.Free
-import Data.Functor.Fixedpoint
+--import Data.Functor.Fixedpoint
 import Control.Monad.Trans.Either hiding (left)
 import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
 import Data.String
 import Data.Ratio
+import Text.ParserCombinators.Parsec.Pos (SourcePos)
+import Data.Tag
 
---data Void
---deriving instance Show Void
---deriving instance Eq Void
---deriving instance Ord Void
 
---type Tag = String
+-- Core AST
+
 type Variable = String
 
 data IntType = U8 | S8
@@ -79,7 +78,7 @@ data Expr a
   | StructDecl' Variable StructType
 
   | Let' Variable a a
-  | Seq a a
+  | Seq' a a
 
   -- Function application   TODO change for implicit arguments
   | App' a [Arg a]
@@ -97,14 +96,14 @@ data Expr a
   | Binary' BinOp a a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
-data Location a = Ref' Type Variable
-                | Index' a [a]
-                | Field' a String
-                | Deref' a
+data Location a = Ref Type Variable
+                | Index a [a]
+                | Field a String
+                | Deref a
                 deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
-type CExpr = Fix Expr
-pattern Free x = Fix x
+type CExpr = FixTagged SourcePos Expr
+pattern PExpr pos x = FTag pos x
 
 -- Basic subset of C
 -- Output of reduction compiler is transformed into Line
@@ -175,19 +174,21 @@ vecType t = VecType t NumType
 
 data Definition = FunctionDef (Maybe CExpr) FunctionType
                 | StructDef [(Variable, Type)]
-                | ValueDef (Maybe CExpr) Type -- also used for function prototypes
+                | ValueDef (Maybe CExpr) Type
                 deriving Show
 data DefBinding = DefBinding { binding :: Variable
+                             , bindingPos :: Tag SourcePos
                              , extern :: Bool
                              , static :: Bool
                              , def :: Definition }
                 deriving Show
 
-mkBinding :: Variable -> Definition -> DefBinding
-mkBinding v d = DefBinding { binding = v
-                           , extern = False
-                           , static = False
-                           , def = d }
+mkBinding :: Tag SourcePos -> Variable -> Definition -> DefBinding
+mkBinding pos v d = DefBinding { binding = v
+                               , bindingPos = pos
+                               , extern = False
+                               , static = False
+                               , def = d }
 
 -- Used for module definitions
 -- (name, requirements (eg external parameters, struct defs), type, function body
@@ -284,6 +285,53 @@ normalizeType t = return t
 sep :: (Show a, Show b) => a -> b -> String
 sep s1 s2 = show s1 ++ ", " ++ show s2
 
+pattern Vec tag a b c = PExpr tag (Vec' a b c)
+pattern If tag a b c = PExpr tag (If' a b c)
+pattern RangeVal tag r = PExpr tag (RangeVal' r)
+pattern VoidExpr tag = PExpr tag VoidExpr'
+pattern IntLit tag t a = PExpr tag (IntLit' t a)
+pattern FloatLit tag t a = PExpr tag (FloatLit' t a)
+pattern StrLit tag s = PExpr tag (StrLit' s)
+pattern BoolLit tag s = PExpr tag (BoolLit' s)
+pattern VecLit tag s = PExpr tag (VecLit' s)
+pattern Return tag x = PExpr tag (Return' x)
+pattern Assert tag x = PExpr tag (Assert' x)
+pattern App tag f args = PExpr tag (App' f args)
+pattern ConcreteApp tag f args = PExpr tag (ConcreteApp' f args)
+pattern Call tag a = PExpr tag (App' a [])
+pattern StructDecl tag a b = PExpr tag (StructDecl' a b)
+pattern Unary tag op x = PExpr tag (Unary' op x)
+pattern Binary tag op x y = PExpr tag (Binary' op x y)
+pattern Negate tag x = Unary tag Neg x
+pattern Equal tag a b = Binary tag EqOp a b
+pattern AssertType tag a ty = PExpr tag (AssertType' a ty)
+pattern Hole tag = PExpr tag (Hole')
+pattern Get tag x = PExpr tag (Get' x)
+pattern Set tag l x = PExpr tag (Set' l x)
+pattern Seq tag a b = PExpr tag (Seq' a b)
+pattern Let tag v a b = PExpr tag (Let' v a b)
+--pattern FlatIndex a b c = Fix (FlatIndex' a b c)
+--pattern Ref a = Fix (Ref' a)
+--pattern Sigma x = Fix (Unary' Sum x)
+--pattern For x = Fix (Unary' For x)
+--pattern Ptr x = Fix (Ptr' x)
+--pattern FunctionDef a b c = Fix (FunctionDef' a b c)
+--pattern Extern v t = Fix (Extern' v t)
+--pattern Extension x = Fix (Extension' x)
+--pattern Declare t x = Fix (Declare' t x)
+-- pattern INumLit a = Fix (INumLit' a)
+
+-- Warning: These operators use NoTag, so they cannot be used in a pattern position correctly.
+pattern a :<= b = Set NoTag a b
+pattern a :=: b = Equal NoTag a b
+pattern a :# b = Binary NoTag Concat a b
+pattern a :+ b = Binary NoTag Add a b
+pattern a :* b = Binary NoTag Mul a b
+pattern a :/ b = Binary NoTag Div a b
+pattern a :> b = Seq NoTag a b
+pattern a :$ b = App NoTag a [b]
+--pattern a := b = Fix (Init a b)
+
 -- Syntax
 --infix 4 :=
 infix  4 :<=
@@ -294,69 +342,26 @@ infixl  6 :+, :*
 infixr 6 :#
 infix 7 :!
 infix 8 :., :->
-pattern Vec a b c = Free (Vec' a b c)
-pattern If a b c = Free (If' a b c)
-pattern RangeVal r = Free (RangeVal' r)
---pattern Ref a = Free (Ref' a)
---pattern Sigma x = Free (Unary' Sum x)
---pattern For x = Free (Unary' For x)
---pattern Ptr x = Free (Ptr' x)
-pattern VoidExpr = Free VoidExpr'
-pattern IntLit t a = Free (IntLit' t a)
-pattern FloatLit t a = Free (FloatLit' t a)
--- pattern INumLit a = Free (INumLit' a)
-pattern StrLit s = Free (StrLit' s)
-pattern BoolLit s = Free (BoolLit' s)
-pattern VecLit s = Free (VecLit' s)
---pattern Extension x = Free (Extension' x)
---pattern Declare t x = Free (Declare' t x)
-pattern Return x = Free (Return' x)
-pattern Assert x = Free (Assert' x)
---pattern FunctionDef a b c = Free (FunctionDef' a b c)
---pattern Extern v t = Free (Extern' v t)
-pattern App f args = Free (App' f args)
-pattern ConcreteApp f args = Free (ConcreteApp' f args)
-pattern a :$ b = Free (App' a [b])
-pattern Call a = Free (App' a [])
-pattern StructDecl a b = Free (StructDecl' a b)
-pattern Negate x = Free (Unary' Neg x)
-pattern Equal a b = Free (Binary' EqOp a b)
-pattern Unary tag x = Free (Unary' tag x)
-pattern Binary tag x y = Free (Binary' tag x y)
-pattern AssertType a ty = Free (AssertType' a ty)
-pattern Hole = Free (Hole')
-pattern Get x = Free (Get' x)
-pattern Set l x = Free (Set' l x)
-pattern a :<= b = Free (Set' a b)
---pattern a := b = Free (Init a b)
-pattern a :=: b = Equal a b
-pattern a :# b = Binary Concat a b
-pattern a :+ b = Binary Add a b
-pattern a :* b = Binary Mul a b
-pattern a :/ b = Binary Div a b
---pattern FlatIndex a b c = Free (FlatIndex' a b c)
-pattern a :> b = Free (Seq a b)
-pattern Let v a b = Free (Let' v a b)
+
 
 -- Locations
-pattern a :! b = Index' a b
-pattern Deref a = Deref' a
-pattern a :. b = Field' a b
-pattern a :-> b = Deref (Get (Field' a b))
+pattern a :! b = Index a b
+pattern a :. b = Field a b
+pattern a :-> b = Deref (Get NoTag (Field a b))
 
-instance IsString (Location (Fix Expr)) where
-  fromString = Ref' TypeHole
-instance IsString (Fix Expr) where
-  fromString = Free . Get' . Ref' TypeHole
+instance IsString (Location CExpr) where
+  fromString = Ref TypeHole
+instance IsString CExpr where
+  fromString = untagged . Get' . Ref TypeHole
 
-instance Num (Fix Expr) where
+instance Num CExpr where
   x * y = x :* y
   x + y = x :+ y
-  fromInteger x = (IntLit Nothing $ fromInteger x)
+  fromInteger x = untagged $ IntLit' Nothing $ fromInteger x
   abs = undefined
   signum = undefined
-  negate = Negate
+  negate = untagged . Unary' Neg
 
-instance Fractional (Fix Expr) where
+instance Fractional CExpr where
   x / y = x :/ y
-  fromRational x = FloatLit Nothing $ fromIntegral (numerator x) / fromIntegral (denominator x)
+  fromRational x = untagged $ FloatLit' Nothing $ fromIntegral (numerator x) / fromIntegral (denominator x)
