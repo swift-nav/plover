@@ -90,13 +90,33 @@ tagFromDefs xs = MergeTags $ map bindingPos xs
 reconcileBindings :: DefBinding -> DefBinding -> SemChecker ()
 reconcileBindings oldDef newDef = do
   semAssert (extern oldDef || not (extern newDef)) $
-    SemError (tagFromDefs [oldDef, newDef]) "Conflicting extern modifiers."
+    SemError rtag "Conflicting extern modifiers."
   semAssert (static oldDef || not (static newDef)) $
-    SemError (tagFromDefs [oldDef, newDef]) "Conflicting static modifiers."
+    SemError rtag "Conflicting static modifiers."
   semAssert (not (defHasValue oldDef)) $
-    SemError (tagFromDefs [oldDef, newDef]) "Cannot redefine definition which already has a value or function body."
+    SemError rtag "Cannot redefine definition which already has a value or function body."
   semAssert (not (extern oldDef && defHasValue newDef)) $
-    SemError (tagFromDefs [oldDef, newDef]) "Cannot give value to previous extern definition."
+    SemError rtag "Cannot give value to prototyped extern definition."
+  definition' <- reconcileDefinitions rtag (definition oldDef) (definition newDef)
+  let newDef' = oldDef { bindingPos = rtag
+                       , definition = definition' }
+      v = binding newDef'
+  modify $ \state -> state { globalBindings = M.insert v newDef' (globalBindings state) }
+  where rtag = tagFromDefs [oldDef, newDef]
+
+reconcileDefinitions :: Tag SourcePos -> Definition -> Definition -> SemChecker Definition
+reconcileDefinitions tag (FunctionDef oldMce oldFt) (FunctionDef newMce newFt) = do
+  semAssert (oldFt == newFt) $ SemError tag "Inconsistent function types."
+  return $ FunctionDef (oldMce `mplus` newMce) oldFt
+reconcileDefinitions tag (ValueDef oldMce oldType) (ValueDef newMce newType) = do
+  semAssert (oldType == newType) $ SemError tag "Inconsistent global variable types."
+  return $ ValueDef (oldMce `mplus` newMce) oldType
+reconcileDefinitions tag (StructDef oldMembers) (StructDef newMembers) = do
+  semAssert (oldMembers == newMembers) $ SemError tag "Inconsistent structure definitions."
+  return $ StructDef oldMembers
+reconcileDefinitions tag oldDef newDef = do
+  addError $ SemError tag "Inconsistent types for definition of same name."
+  return oldDef
 
 --  semAssert (extern oldDef
 

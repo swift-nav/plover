@@ -23,6 +23,7 @@ import Control.Monad
 import Control.Monad.Free
 import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
+import qualified Data.Map as M
 import Language.Plover.QuoteTypes
 import Data.Tag
 import Data.List
@@ -96,7 +97,7 @@ runStuff fileName = do source <- readFile fileName
                              case runSemChecker $ condenseBindings defs of
                               Left errs -> forM_ errs $ \err -> do
                                 putStrLn (reportSemErr (lines source) err)
-                              Right v -> putStrLn $ show v
+                              Right v -> putStrLn $ Pr.ppShow (M.elems v)
 
 type Lexer = GenParser Char LexerState
 data LexerState = LexerState {}
@@ -505,7 +506,16 @@ makeDefs exp@(PExpr pos pe) = case pe of
   DefExpr a b -> do b' <- makeExpr b
                     bind <- makeTopType a (Just b')
                     return [bind]
+  Struct v members -> do b <- makeStructDecl pos v members
+                         return [b]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
+
+makeStructDecl :: Tag SourcePos -> Variable -> [Expr] -> Either ConvertError T.DefBinding
+makeStructDecl pos v members = do members' <- mapM makeStructMember members
+                                  return $ T.mkBinding pos v $ T.StructDef members'
+  where makeStructMember (PExpr _ (BinExpr Type (PExpr _ (Ref v)) b)) = do t <- makeType b
+                                                                           return (v, t)
+        makeStructMember exp = Left $ ConvertError (makePos exp) ["Expecting member in struct."]
 
 makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError T.DefBinding
 makeTopType exp@(PExpr _ pe) val = case pe of
