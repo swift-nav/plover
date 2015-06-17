@@ -23,6 +23,8 @@ import Data.Tag
 -- Core AST
 
 type Variable = String
+-- | Unification variable
+type UVar = String
 
 data IntType = U8 | S8
              | U16 | S16
@@ -86,7 +88,7 @@ data Expr a
 
   -- Operators
   -- Symbolic patterns given below
-  | Hole'
+  | Hole' (Maybe UVar)
   | Get' (Location a)
   | Set' (Location a) a
   | AssertType' a Type
@@ -134,8 +136,8 @@ data ExternalDef = External | Generated
  deriving (Show, Eq, Ord)
 
 data StructType = ST
-  { st_extern :: ExternalDef
-  , st_fields :: [(Variable, Type)]
+  { --st_extern :: ExternalDef
+     st_fields :: [(Variable, Type)]
   -- , st_params :: [Type]
   }
  deriving (Show, Eq, Ord)
@@ -158,7 +160,7 @@ data Type' a
   | TypedefType Variable
   -- Concrete ST has name, values for type parameters
   | StructType Variable StructType -- [a]
-  | TypeHole
+  | TypeHole (Maybe UVar)
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type Type = Type' CExpr
@@ -180,7 +182,7 @@ data DefBinding = DefBinding { binding :: Variable
                              , bindingPos :: Tag SourcePos
                              , extern :: Bool
                              , static :: Bool
-                             , def :: Definition }
+                             , definition :: Definition }
                 deriving Show
 
 mkBinding :: Tag SourcePos -> Variable -> Definition -> DefBinding
@@ -188,7 +190,7 @@ mkBinding pos v d = DefBinding { binding = v
                                , bindingPos = pos
                                , extern = False
                                , static = False
-                               , def = d }
+                               , definition = d }
 
 -- Used for module definitions
 -- (name, requirements (eg external parameters, struct defs), type, function body
@@ -305,7 +307,7 @@ pattern Binary tag op x y = PExpr tag (Binary' op x y)
 pattern Negate tag x = Unary tag Neg x
 pattern Equal tag a b = Binary tag EqOp a b
 pattern AssertType tag a ty = PExpr tag (AssertType' a ty)
-pattern Hole tag = PExpr tag (Hole')
+pattern Hole tag muvar= PExpr tag (Hole' muvar)
 pattern Get tag x = PExpr tag (Get' x)
 pattern Set tag l x = PExpr tag (Set' l x)
 pattern Seq tag a b = PExpr tag (Seq' a b)
@@ -350,9 +352,9 @@ pattern a :. b = Field a b
 pattern a :-> b = Deref (Get NoTag (Field a b))
 
 instance IsString (Location CExpr) where
-  fromString = Ref TypeHole
+  fromString = Ref (TypeHole Nothing)
 instance IsString CExpr where
-  fromString = untagged . Get' . Ref TypeHole
+  fromString = untagged . Get' . Ref (TypeHole Nothing)
 
 instance Num CExpr where
   x * y = x :* y

@@ -6,7 +6,7 @@ module Data.Tag
        ( Tag(..), Tagged(..)
        , FixTagged, FixTagged'(..)
        , pattern FTag
-       , untagged, wrapTag, addTag, addProv, newTag, newProv
+       , untagged, wrapTag, wrapTags, addTag, addProv, newTag, newProv, getTags
        , Unique, TagGraph(..), toTagGraph
        ) where
 
@@ -20,6 +20,7 @@ import Control.Monad.State
 data Tag a = NoTag
            | Tag !a (Tag a)
            | ProvTag String (Tag a)
+           | MergeTags [Tag a]
              deriving Show
 
 data Tagged tag x = WithTag { maybeTag :: !(Tag tag)
@@ -72,6 +73,10 @@ untagged x = FTag NoTag x
 wrapTag :: Tag tag -> t (FixTagged tag t) -> FixTagged tag t
 wrapTag = FTag
 
+-- | Lifts an untagged type to the fixed tagged type by adding a number of tags.
+wrapTags :: [Tag tag] -> t (FixTagged tag t) -> FixTagged tag t
+wrapTags tags = FTag (MergeTags tags)
+
 -- | Add a tag of the base tag type to the front of the tag list
 addTag :: tag -> FixTagged tag t -> FixTagged tag t
 addTag tag' (FTag mt x) = FTag (Tag tag' mt) x
@@ -88,7 +93,12 @@ newTag tag x = addTag tag $ untagged x
 newProv :: String -> t (FixTagged tag t) -> FixTagged tag t
 newProv prov x = addProv prov $ untagged x
 
-
+-- | Gets all tags from a tag node
+getTags :: Tag t -> [t]
+getTags NoTag = []
+getTags (Tag t mt) = t : getTags mt
+getTags (ProvTag _ mt) = getTags mt
+getTags (MergeTags tags) = tags >>= getTags
 
 -- Making a graph
 
@@ -106,6 +116,7 @@ instance (Show tag, Show (t Unique)) => Show (TagGraph tag t) where
           show_tag NoTag = ""
           show_tag (Tag pos msp)  = show pos ++ "; " ++ show_tag msp
           show_tag (ProvTag s msp) = show msp ++ "; " ++ show_tag msp
+          show_tag (MergeTags tags) = "Merged: [" ++ intercalate ", " (map show_tag tags) ++ "]"
 
 toTagGraph :: Traversable t => FixTagged tag t -> TagGraph tag t
 toTagGraph x = TagGraph $ evalState (f x >> get) []

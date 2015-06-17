@@ -5,6 +5,7 @@ module Language.Plover.Quote
  ( plover
  ) where
 --import Language.Plover.Unify
+import Language.Plover.SemCheck
 import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
 
 import Language.Haskell.TH as TH
@@ -13,6 +14,7 @@ import Language.Haskell.TH.Quote
 --import Data.Data
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Pos
+import Text.ParserCombinators.Parsec.Error
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
@@ -23,6 +25,7 @@ import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
 import Language.Plover.QuoteTypes
 import Data.Tag
+import Data.List
 
 import qualified Language.Plover.Types as T
 
@@ -47,6 +50,53 @@ ploverQuoteExp s =
       Left e -> do fail ("Parse error " ++ show e) --reportError $ show e
                    --fail "Parse error" --reportError (show e) >> fail "Parse error"
       Right r -> return undefined
+
+reportErr :: [String] -- ^ The lines from the source file
+          -> ParseError
+          -> String
+reportErr ls err
+  = "Parse error at " ++ showLine ls (errorPos err)
+    ++ (showErrorMessages
+        "or" "unknown parse error"
+        "expecting" "unexpected" "end of input"
+        (errorMessages err)) ++ "\n"
+
+reportConvertErr :: [String] -- ^ The lines from the source file
+                 -> ConvertError
+                 -> String
+reportConvertErr ls (ConvertError pos messages)
+  = "Error at " ++ showLine ls pos
+    ++ "\n" ++ (unlines messages)
+
+reportSemErr :: [String]
+             -> SemError
+             -> String
+reportSemErr ls err
+  = case err of
+     SemError tag msg -> "Error " ++ unlines (("at " ++) .  showLine ls <$> sort (getTags tag)) ++ msg ++ "\n"
+
+-- | Gives a carat pointing to a position in a line in a source file
+showLine :: [String] -- ^ the lines from the source file
+         -> SourcePos
+         -> String
+showLine ls pos
+  = show pos ++ ":\n"
+    ++ line ++ "\n"
+    ++ errptr
+  where line = ls !! (sourceLine pos - 1)
+        errptr = replicate (sourceColumn pos - 1) ' ' ++ "^"
+
+runStuff fileName = do source <- readFile fileName
+                       case parse toplevel fileName source of
+                        Left err -> putStrLn (reportErr (lines source) err)
+                        Right expr ->
+                          case makeDefs expr of
+                           Left err -> putStrLn (reportConvertErr (lines source) err)
+                           Right defs ->
+                             case runSemChecker $ condenseBindings defs of
+                              Left errs -> forM_ errs $ \err -> do
+                                putStrLn (reportSemErr (lines source) err)
+                              Right v -> putStrLn $ show v
 
 type Lexer = GenParser Char LexerState
 data LexerState = LexerState {}
@@ -300,10 +350,10 @@ makeExpr exp@(PExpr pos e') = case e' of
   For ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
                          return $ T.Unary pos T.For $ T.Vec pos v rng ee
-  Ref v -> return $ T.Get pos $ T.Ref T.TypeHole v
+  Ref v -> return $ T.Get pos $ T.Ref (T.TypeHole Nothing) v
   VoidExpr -> return $ T.VoidExpr pos
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]
-  Hole -> return $ T.Hole pos
+  Hole -> return $ T.Hole pos Nothing
   IntLit t i -> return $ T.IntLit pos t i
   FloatLit t x -> return $ T.FloatLit pos t x
   BoolLit b -> return $ T.BoolLit pos b
@@ -388,14 +438,14 @@ makeLocation exp@(PExpr pos e') = case e' of
                   idx' <- makeExpr b
                   return $ T.Index a' [idx']
 
-  Ref v -> return $ T.Ref T.TypeHole v
+  Ref v -> return $ T.Ref (T.TypeHole Nothing) v
 
   _ -> Left $ ConvertError (makePos exp) ["Expecting location instead of " ++ show exp]
 
 makeRange :: Expr -> Either ConvertError (T.Range T.CExpr)
 makeRange exp@(PExpr pos e') = case e' of
   Range start stop step -> do start' <- maybe (return $ T.IntLit pos Nothing 0) makeExpr start
-                              stop' <- maybe (return $ T.Hole pos) makeExpr stop
+                              stop' <- maybe (return $ T.Hole pos Nothing) makeExpr stop
                               step' <- maybe (return $ T.IntLit pos Nothing 1) makeExpr step
                               return $ T.Range start' stop' step'
   _ -> do ee <- makeExpr exp
@@ -450,22 +500,22 @@ makeDefs exp@(PExpr pos pe) = case pe of
   SeqExpr xs -> fmap join $ mapM makeDefs xs
   Extern a -> fmap (map (\z -> z { T.extern = True })) $ makeDefs a
   Static a -> fmap (map (\z -> z { T.static = True })) $ makeDefs a
-  BinExpr Type a b -> do (v, def) <- makeTopType exp Nothing
-                         return $ [T.mkBinding pos v def]
+  BinExpr Type a b -> do bind <- makeTopType exp Nothing
+                         return [bind]
   DefExpr a b -> do b' <- makeExpr b
-                    (v, def) <- makeTopType a (Just b')
-                    return $ [T.mkBinding pos v def]
+                    bind <- makeTopType a (Just b')
+                    return [bind]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
 
-makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError (T.Variable, T.Definition)
+makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError T.DefBinding
 makeTopType exp@(PExpr _ pe) val = case pe of
-  BinExpr Type (PExpr _ a) b -> case a of
+  BinExpr Type (PExpr pos a) b -> case a of
     Ref v -> do t <- makeType b
-                return $ (v, T.ValueDef val t)
-    App (PExpr _ f) args -> case f of
+                return $ T.mkBinding pos v $ T.ValueDef val t
+    App (PExpr pos f) args -> case f of
                              Ref v -> do t <- makeType b
                                          at <- funArgs args
-                                         return $ (v, T.FunctionDef val (T.FnT at t))
+                                         return $ T.mkBinding pos v $ T.FunctionDef val (T.FnT at t)
     _ -> Left $ ConvertError (makePos exp) ["Expecting variable or function type definition."]
   _ -> Left $ ConvertError (makePos exp) ["Expecting variable or function type definition (possibly missing return type)."]
 
