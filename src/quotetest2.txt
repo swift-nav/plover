@@ -22,4 +22,15 @@ extern struct navigation_measurement_t (
 );
 
 blah {n :: u8} (x :: navigation_measurement_t[n]) :: double
-  := f x + sum i in n -> x[i].pseudorange
+  := f x + sum i in n -> x[i].pseudorange;
+
+struct LengthedArray (
+  m :: u8;
+  arr :: double[m];
+);
+
+zeros {m :: u8} :: double[m]
+ := vec i in m -> 0;
+
+test_zeros Void :: double
+ := (zeros {5})

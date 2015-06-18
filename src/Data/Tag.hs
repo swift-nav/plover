@@ -21,7 +21,7 @@ data Tag a = NoTag
            | Tag !a (Tag a)
            | ProvTag String (Tag a)
            | MergeTags [Tag a]
-             deriving Show
+             deriving (Show, Eq, Ord)
 
 data Tagged tag x = WithTag { maybeTag :: !(Tag tag)
                             , stripTag :: x }

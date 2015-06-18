@@ -80,6 +80,7 @@ data Expr a
 --  | StructDecl' Variable StructType
 
   | Let' Variable a a
+  | Uninitialized' Type -- Only for using Let to create a new variable to be used as a return value from a function
   | Seq' a a
 
   -- Function application   TODO change for implicit arguments
@@ -91,6 +92,7 @@ data Expr a
   | Hole' (Maybe UVar)
   | Get' (Location a)
   | Set' (Location a) a
+  | Addr' (Location a)
   | AssertType' a Type
 --  | FlatIndex' a a [a]
 --  | Init Variable a
@@ -308,9 +310,11 @@ pattern Equal tag a b = Binary tag EqOp a b
 pattern AssertType tag a ty = PExpr tag (AssertType' a ty)
 pattern Hole tag muvar= PExpr tag (Hole' muvar)
 pattern Get tag x = PExpr tag (Get' x)
+pattern Addr tag x = PExpr tag (Addr' x)
 pattern Set tag l x = PExpr tag (Set' l x)
 pattern Seq tag a b = PExpr tag (Seq' a b)
 pattern Let tag v a b = PExpr tag (Let' v a b)
+pattern Uninitialized tag ty = PExpr tag (Uninitialized' ty)
 --pattern FlatIndex a b c = Fix (FlatIndex' a b c)
 --pattern Ref a = Fix (Ref' a)
 --pattern Sigma x = Fix (Unary' Sum x)

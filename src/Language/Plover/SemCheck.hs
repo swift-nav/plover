@@ -7,13 +7,15 @@ import Data.Map (Map)
 import Data.Tag
 import Data.Function
 import Data.Maybe
+import Control.Monad
 import Control.Monad.State
 import Text.ParserCombinators.Parsec (SourcePos)
+import Debug.Trace
 
 data SemError = SemError (Tag SourcePos) String
               | SemUnbound (Tag SourcePos) Variable
               | SemUnboundType (Tag SourcePos) Variable
-              deriving Show
+              deriving (Show, Eq, Ord)
 
 data SemCheckData = SemCheckData
                     { semErrors :: [SemError]
@@ -43,6 +45,7 @@ addError :: SemError -> SemChecker ()
 addError e = do sd <- get
                 put $ sd { semErrors = semErrors sd ++ [e] }
 
+-- | Adds the error to the error list of the condition is false.
 semAssert :: Bool -> SemError -> SemChecker ()
 semAssert b e = if b then return () else addError e
 
@@ -88,8 +91,8 @@ runSemChecker m = let (v, s) = runState m (newSemCheckData [])
 doSemCheck :: [DefBinding] -> Either [SemError] (Map Variable DefBinding)
 doSemCheck defs = runSemChecker dochecks
   where dochecks = do condenseBindings defs
-                      defs <- M.elems . globalBindings <$> get
                       globalFillHoles
+                      defs <- M.elems . globalBindings <$> get
                       defs' <- mapM fillHoles defs
                       modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defs'] }
                       
@@ -165,6 +168,29 @@ reconcileDefinitions tag oldDef newDef = do
   addError $ SemError tag "Inconsistent types for definition of same name."
   return oldDef
 
+-- | If a function returns a complex type, it must be passed as an
+-- extra argument.  The maybe variable gives the new variable name.
+-- N.B. The new variable name is _deterministically_ chosen.  This
+-- means `getEffectiveFunType` must be what is called whenever one
+-- wants to know the return variable name.
+getEffectiveFunType :: FunctionType -> (FunctionType, Maybe Variable)
+getEffectiveFunType ft@(FnT args retty) = if complexRet retty
+                                          then internReturn args retty
+                                          else (ft, Nothing)
+  where complexRet :: Type -> Bool
+        complexRet (VecType _ _) = True
+        complexRet (TypedefType _) = True
+        complexRet (StructType _ _) = True
+        complexRet _ = False
+
+        internReturn :: [(Variable, Bool, Type)] -> Type -> (FunctionType, Maybe Variable)
+        internReturn args retty = (FnT (args ++ [(retName, True, PtrType retty)]) Void, Just retName)
+          where retName = genName [v | (v, _, _) <- args] "result$"
+                genName :: [Variable] -> Variable -> Variable
+                genName names test = if test `elem` names
+                                     then genName names (test ++ "$")
+                                     else test
+
 -- | This fills the holes of each top-level type.  Later, we fill the
 -- holes inside the expressions themselves.  This is so that type
 -- holes are not propagated into the expressions.
@@ -174,7 +200,11 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                        resetLocalBindings
                        def' <- case (definition defb) of
                          FunctionDef mexp ft -> do FnType ft' <- assertNoTypeHoles (bindingPos defb) (FnType ft)
-                                                   return $ FunctionDef mexp ft'
+                                                   let (_, mretvar) = getEffectiveFunType ft'
+                                                   case mretvar of
+                                                    Just retvar -> trace (show mexp') $ return $ FunctionDef mexp' ft'
+                                                      where mexp' = Set (bindingPos defb) (Ref (TypeHole Nothing) retvar) <$> mexp
+                                                    Nothing -> return $ FunctionDef mexp ft'
                          ValueDef mexp ty -> do ty' <- assertNoTypeHoles (bindingPos defb) ty
                                                 return $ ValueDef mexp ty
                          _ -> assertNoHoles (bindingPos defb) (definition defb)
@@ -192,10 +222,14 @@ fillHoles defb = do resetLocalBindings
   where fillDefHoles :: Definition -> SemChecker Definition  -- Non-extern types may have holes
         fillDefHoles def = case def of
           FunctionDef mexp ft -> do FnType ft' <- assertNoTypeHoles (bindingPos defb) (FnType ft)
-                                    let FnT args _ = ft'
+                                    let (FnT args retty, mretvar) = getEffectiveFunType ft'
                                     mexp' <- case mexp of
                                               Just exp -> withNewScope $ do
-                                                forM_ args $ \(v, _, ty) -> addNewLocalBinding (bindingPos defb) v ty
+                                                forM_ args $ \(v, _, ty) -> do
+                                                  addNewLocalBinding (bindingPos defb) v ty
+                                                case mretvar of
+                                                 Just retvar -> addNewLocalBinding (bindingPos defb) retvar retty
+                                                 Nothing -> return Nothing
                                                 Just <$> fillValHoles exp
                                               Nothing -> do addError $
                                                               SemError (bindingPos defb) "Function missing body."
@@ -234,26 +268,40 @@ fillHoles defb = do resetLocalBindings
               _ <- addNewLocalBinding pos v (TypeHole (Just name))
               expr' <- fillValHoles expr
               return $ Let pos v val' expr'
+          Uninitialized pos ty -> Uninitialized pos <$> fillTypeHoles pos ty
           Seq pos e1 e2 -> Seq pos <$> fillValHoles e1 <*> fillValHoles e2
           App pos fn@(Get _ (Ref _ f)) args -> do
             mf <- lookupGlobalType f
             case mf of
-             Just (FnType ft) -> ConcreteApp pos <$> assertNoValHoles fn <*> (matchArgs pos args ft >>= mapM fillValHoles)
+             Just (FnType ft) -> let (ft', mretvar) = getEffectiveFunType ft
+                                 in case mretvar of
+                                     Just retvar -> do tv <- gensym
+                                                       matched <- matchArgs pos
+                                                                  (args ++ [Arg $ Addr pos (Ref (TypeHole Nothing) tv)])
+                                                                  ft'
+                                                       fillValHoles $ Let pos tv (Uninitialized pos (TypeHole Nothing))
+                                                         (Seq pos (ConcreteApp pos fn matched)
+                                                          (Get pos (Ref (TypeHole Nothing) tv)))
+                                     Nothing -> ConcreteApp pos
+                                                <$> assertNoValHoles fn
+                                                <*> (matchArgs pos args ft >>= mapM fillValHoles)
              Just _ -> do addError $ SemError pos "Cannot call non-function."
                           return exp
-             Nothing -> do addError $ SemError pos "Can only call a global function."
+             Nothing -> do addError $ SemError pos "No such global function."
                            return exp
           App pos _ _ -> do addError $ SemError pos "Cannot call expression."
                             return exp
           ConcreteApp pos fn@(Get _ (Ref _ f)) args -> do
             mf <- lookupGlobalType f
             case mf of
-             Just (FnType (FnT fargs ret)) -> do semAssert (length args == length fargs) $
-                                                   SemError pos "Incorrect number of arguments in function application."
-                                                 ConcreteApp pos <$> assertNoValHoles fn <*> mapM fillValHoles args
+             Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == reqargs) $
+                                                      SemError pos "Incorrect number of arguments in function application."
+                                                    ConcreteApp pos <$> assertNoValHoles fn <*> mapM fillValHoles args
+               where reqargs = let ((FnT fargs' _), mretvar) = getEffectiveFunType ft
+                               in length fargs'
              Just _ -> do addError $ SemError pos "Cannot call non-function."
                           return exp
-             Nothing -> do addError $ SemError pos "Can only call a global function."
+             Nothing -> do addError $ SemError pos "No such global function."
                            return exp
           ConcreteApp pos _ _ -> do addError $ SemError pos "Cannot call expression."
                                     return exp
@@ -261,8 +309,8 @@ fillHoles defb = do resetLocalBindings
                                  return $ Hole pos (Just name)
           Hole _ _ -> return exp
           Get pos loc -> Get pos <$> fillLocHoles pos loc
-          Set pos loc val -> do addError $ SemError pos "Unexpected variable modification"
-                                return exp
+          Addr pos loc -> Addr pos <$> fillLocHoles pos loc
+          Set pos loc val -> Set pos <$> fillLocHoles pos loc <*> fillValHoles val
           AssertType pos v ty -> do ty' <- fillTypeHoles pos ty
                                     v' <- fillValHoles v
                                     return $ AssertType pos v' ty'
@@ -452,7 +500,7 @@ assertNoLocHoles pos loc = case loc of
 
 
 matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
-matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
+matchArgs pos args ft = trace ("***" ++ show ft) $ matchArgs' 1 args fargs
   where matchArgs' i (Arg x : xs) ((v, True, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
         matchArgs' i (Arg x : xs) ((v, False, ty) : fxs) = do name <- gensym
                                                               (Hole pos (Just name) :) <$> matchArgs' i (Arg x : xs) fxs
@@ -469,3 +517,6 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
 
         numReq = length $ filter (\(_, b, _) -> b) fargs
         validRange = "expecting " ++ show numReq ++ " required and " ++ show (length fargs - numReq) ++ " implicit arguments"
+
+--        (ft', mretvar) = getEffectiveFunType ft
+        (FnT fargs _) = ft
