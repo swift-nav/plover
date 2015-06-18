@@ -77,7 +77,7 @@ data Expr a
 --  | Declare' (Type) Variable
 --  | FunctionDef' Variable (FunctionType) a
 --  | Extern' Variable (Type)
-  | StructDecl' Variable StructType
+--  | StructDecl' Variable StructType
 
   | Let' Variable a a
   | Seq' a a
@@ -301,7 +301,6 @@ pattern Assert tag x = PExpr tag (Assert' x)
 pattern App tag f args = PExpr tag (App' f args)
 pattern ConcreteApp tag f args = PExpr tag (ConcreteApp' f args)
 pattern Call tag a = PExpr tag (App' a [])
-pattern StructDecl tag a b = PExpr tag (StructDecl' a b)
 pattern Unary tag op x = PExpr tag (Unary' op x)
 pattern Binary tag op x y = PExpr tag (Binary' op x y)
 pattern Negate tag x = Unary tag Neg x
@@ -322,6 +321,7 @@ pattern Let tag v a b = PExpr tag (Let' v a b)
 --pattern Extension x = Fix (Extension' x)
 --pattern Declare t x = Fix (Declare' t x)
 -- pattern INumLit a = Fix (INumLit' a)
+--pattern StructDecl tag a b = PExpr tag (StructDecl' a b)
 
 -- Warning: These operators use NoTag, so they cannot be used in a pattern position correctly.
 pattern a :<= b = Set NoTag a b

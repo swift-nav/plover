@@ -1,20 +1,25 @@
-extern CONSTANT :: Double;
+extern CONSTANT :: double;
 extern g (x :: double) :: double;
-extern MY_CONST :: Double;
+extern MY_CONST :: double;
 static f {n :: u8} (A :: double[n]) :: double;
 
 f {n :: u8} (A :: double[n]) :: double
-  := sum i in n -> 2 * g a[i] * CONSTANT + MY_CONST;
+  := sum i in n -> 2 * g A[i] * CONSTANT + MY_CONST;
 
 dim {n :: u8} (A :: double[n]) :: u8 := n;
 
+h (x :: double)  :: double
+ := x + x;
+
 mean {n :: u8} (A :: double[n]) :: double
-  := (sum i in n -> A[i]) / dim A;
+ := (sum i in n -> A[i]) / dim A;
+
+quadform {n :: u8} (A :: double[n,n]) (v :: double[n]) :: double
+  := v^T * A * v;
 
 extern struct navigation_measurement_t (
   pseudorange :: double;
-  x;
 );
 
-blah (x :: navigation_measurement_t[22]) :: double
-  := sum i in 22 -> x[i].pseudorange
+blah {n :: u8} (x :: navigation_measurement_t[n]) :: double
+  := f x + sum i in n -> x[i].pseudorange

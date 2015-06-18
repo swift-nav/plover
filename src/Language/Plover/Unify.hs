@@ -59,7 +59,7 @@ allNamesInFunType :: FunctionType -> [Variable]
 allNamesInFunType (FnT args rt) = (args >>= \(v, _, t) -> [v] ++ allNamesInType t) ++ allNamesInType rt
 
 
-
+{-
 type GensymState = ([Variable], Int)
 type Gensym = State GensymState
 
@@ -75,4 +75,4 @@ gensym prefix = do (vs, i) <- get
 runGensym :: Gensym a -> [Variable] -> a
 runGensym x avoids = evalState x (avoids, 0)
 
---dehole :: CExpr -> CExpr
+-}

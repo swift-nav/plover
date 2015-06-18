@@ -74,7 +74,10 @@ reportSemErr :: [String]
              -> String
 reportSemErr ls err
   = case err of
-     SemError tag msg -> "Error " ++ unlines (("at " ++) .  showLine ls <$> sort (getTags tag)) ++ msg ++ "\n"
+     SemError tag msg -> posStuff tag ++ msg ++ "\n"
+     SemUnbound tag v -> posStuff tag ++ "Unbound identifier " ++ show v ++ ".\n"
+     SemUnboundType tag v -> posStuff tag ++ "Unbound type " ++ show v ++ ".\n"
+  where posStuff tag = "Error " ++ unlines (("at " ++) .  showLine ls <$> (sort $ nub $ getTags tag))
 
 -- | Gives a carat pointing to a position in a line in a source file
 showLine :: [String] -- ^ the lines from the source file
@@ -94,10 +97,10 @@ runStuff fileName = do source <- readFile fileName
                           case makeDefs expr of
                            Left err -> putStrLn (reportConvertErr (lines source) err)
                            Right defs ->
-                             case runSemChecker $ condenseBindings defs of
+                             case doSemCheck $ defs of
                               Left errs -> forM_ errs $ \err -> do
                                 putStrLn (reportSemErr (lines source) err)
-                              Right v -> putStrLn $ Pr.ppShow (M.elems v)
+                              Right v -> putStrLn $ Pr.ppShow v
 
 type Lexer = GenParser Char LexerState
 data LexerState = LexerState {}
@@ -491,6 +494,7 @@ makeType exp@(PExpr _ e') = case e' of
     _ -> return $ T.TypedefType v
   UnExpr Deref a -> T.PtrType <$> makeType a
   VoidExpr -> return T.Void
+  Hole -> return $ T.TypeHole Nothing
   _ -> Left $ ConvertError (makePos exp) ["Expecting type instead of " ++ show exp]
 
 --  ee <- makeExpr exp
