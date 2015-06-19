@@ -378,25 +378,6 @@ fillRangeHoles :: Range CExpr -> SemChecker (Range CExpr)
 fillRangeHoles (Range from to step) = do [from', to', step'] <- mapM fillValHoles [from, to, step]
                                          return $ Range from' to' step'
 
--- Extern types and non-function types may not have holes.
-assertNoHoles :: Tag SourcePos -> Definition -> SemChecker Definition
-assertNoHoles pos def = case def of
-  FunctionDef _ ft -> do FnType ft' <- assertNoTypeHoles pos (FnType ft)
-                         return $ FunctionDef Nothing ft'
-  StructDef members -> do
-    members' <- forM members $ \(v,ty) -> do
-      ty' <- assertNoTypeHoles pos ty
-      mtag <- addNewLocalBinding pos v ty
-      case mtag of
-       Just otag -> do
-         addError $ SemError (MergeTags [otag, pos]) $
-           "Redefinition of member " ++ show v ++ " in struct."
-       Nothing -> return ()
-      return (v, ty')
-    return $ StructDef members'
-  ValueDef _ ty -> do ty' <- assertNoTypeHoles pos ty
-                      return $ ValueDef Nothing ty'
-
 assertNoTypeHoles :: Tag SourcePos -> Type -> SemChecker Type
 assertNoTypeHoles pos ty = case ty of
   VecType idxs ety -> do ety' <- assertNoTypeHoles pos ety
