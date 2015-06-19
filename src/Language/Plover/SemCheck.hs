@@ -211,9 +211,9 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
 completeFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
 completeFunType pos ft = do let FnT args rty = ft
                             let (FnT eargs erty, mretvar) = getEffectiveFunType ft
-                            forM_ eargs addArgument
+                            forM_ eargs addArgument -- add the types to the scope
                             rty' <- assertNoTypeHoles pos rty
-                            args' <- forM args $ \(v, req, _) -> do
+                            args' <- forM args $ \(v, req, _) -> do -- then slurp the types back out
                               Just ty' <- lookupType v
                               return (v, req, ty')
                             return $ FnT args' rty'
@@ -305,7 +305,7 @@ fillValHoles exp = case exp of
   App pos _ _ -> do addError $ SemError pos "Cannot call expression."
                     return exp
   ConcreteApp pos fn@(Get _ (Ref _ f)) args -> do
-    mf <- lookupGlobalType f
+    mf <- lookupType f
     case mf of
      Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == reqargs) $
                                               SemError pos "Incorrect number of arguments in function application."
@@ -345,7 +345,7 @@ fillTypeHoles pos ty = case ty of
   BoolType -> return ty
   PtrType ty -> do ty' <- fillTypeHoles pos ty
                    return $ PtrType ty'
-  TypedefType v -> do mty <- lookupGlobalType v
+  TypedefType v -> do mty <- lookupType v
                       case mty of
                        Just ty -> return ty
                        Nothing -> do addError $ SemUnboundType pos v
@@ -395,7 +395,7 @@ assertNoTypeHoles pos ty = case ty of
   BoolType -> return ty
   PtrType ty -> do ty' <- assertNoTypeHoles pos ty
                    return $ PtrType ty'
-  TypedefType v -> do mty <- lookupGlobalType v
+  TypedefType v -> do mty <- lookupType v
                       case mty of
                        Just ty -> return ty
                        Nothing -> do addError $ SemUnboundType pos v
