@@ -32,5 +32,5 @@ struct LengthedArray (
 zeros {m :: u8} :: double[m]
  := vec i in m -> 0;
 
-test_zeros Void :: double
- := (zeros {5})
+test_zeros (n :: u8) :: double[n]
+ := (zeros {n});

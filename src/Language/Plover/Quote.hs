@@ -4,8 +4,8 @@
 module Language.Plover.Quote
  ( plover
  ) where
---import Language.Plover.Unify
 import Language.Plover.SemCheck
+import Language.Plover.Unify
 import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
 
 import Language.Haskell.TH as TH

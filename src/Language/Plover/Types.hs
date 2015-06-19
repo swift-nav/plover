@@ -91,8 +91,8 @@ data Expr a
   -- Symbolic patterns given below
   | Hole' (Maybe UVar)
   | Get' (Location a)
-  | Set' (Location a) a
   | Addr' (Location a)
+  | Set' (Location a) a
   | AssertType' a Type
 --  | FlatIndex' a a [a]
 --  | Init Variable a
@@ -147,6 +147,38 @@ data StructType = ST
 -- Function without implicits or a dependent type
 fnT :: [Type] -> Type -> FunctionType
 fnT params out = FnT [("", True, t) | t <- params] out
+
+
+-- | If a function returns a complex type, it must be passed as an
+-- extra argument.  The maybe variable gives the new variable name.
+-- N.B. The new variable name is _deterministically_ chosen.  This
+-- means `getEffectiveFunType` must be what is called whenever one
+-- wants to know the return variable name.
+-- TODO: returning a tuple? (right now can just return a struct)
+getEffectiveFunType :: FunctionType -> (FunctionType, Maybe (Variable, Type))
+getEffectiveFunType ft@(FnT args retty) = if complexRet retty
+                                          then internReturn args retty
+                                          else (ft, Nothing)
+  where complexRet :: Type -> Bool
+        complexRet (VecType _ _) = True
+        complexRet (TypedefType _) = True
+        complexRet (StructType _ _) = True
+        -- Any mistake in here will just end up causing a "don't know how to program this" message later
+        complexRet _ = False
+
+        -- Puts the return into the argument list.  TODO should it be
+        -- the type itself, or should it be Ptrized?  The semantics of
+        -- type itself seem correct so far.  Perhaps In/Out/InOut are
+        -- in order to record these things better
+        internReturn :: [(Variable, Bool, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
+        internReturn args retty = (FnT (args ++ [(retName, True, retty')]) Void, Just (retName, retty'))
+          where retName = genName [v | (v, _, _) <- args] "result$"
+                genName :: [Variable] -> Variable -> Variable
+                genName names test = if test `elem` names
+                                     then genName names (test ++ "$")
+                                     else test
+                retty' = retty
+
 
 data Type' a
   = VecType [a] (Type' a)
