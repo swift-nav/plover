@@ -194,7 +194,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                                                          _ -> mexp
                                                    return $ FunctionDef mexp' ft'
                          ValueDef mexp ty -> do ty' <- assertNoTypeHoles pos ty
-                                                return $ ValueDef mexp ty
+                                                return $ ValueDef mexp ty'
                          StructDef members -> do
                            members' <- forM members $ \(v,ty) -> do
                              ty' <- assertNoTypeHoles pos ty
