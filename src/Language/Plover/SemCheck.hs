@@ -10,7 +10,6 @@ import Data.Maybe
 import Control.Monad
 import Control.Monad.State
 import Text.ParserCombinators.Parsec (SourcePos)
-import Debug.Trace
 
 data SemError = SemError (Tag SourcePos) String
               | SemUnbound (Tag SourcePos) Variable
@@ -414,8 +413,7 @@ assertNoTypeHoles pos ty = case ty of
 -- function (i.e., the one where a complex return value is a pointer
 -- argument).
 matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
-matchArgs pos args (FnT fargs _) = do res <- matchArgs' 1 args fargs
-                                      return $ trace ("***" ++ show res) res
+matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
   where
     -- A passed argument matches a required argument
     matchArgs' i (Arg x : xs) ((v, True, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
