@@ -348,7 +348,7 @@ fillTypeHoles pos ty = case ty of
                    return $ PtrType ty'
   TypedefType v -> do mty <- lookupType v
                       case mty of
-                       Just (StructType {}) -> return ()
+                       Just (StructType {}) -> return () -- TODO reconsider types being in the same namespace as values.
                        Just _ -> addError $ SemError pos "Non-struct reference used as type."
                        Nothing -> addError $ SemUnboundType pos v
                       return ty
