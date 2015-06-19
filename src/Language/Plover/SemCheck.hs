@@ -21,7 +21,7 @@ data SemCheckData = SemCheckData
                     { semErrors :: [SemError]
                     , gensymState :: [String] -- already-used variables
                     , globalBindings :: Map Variable DefBinding
-                    , localBindings :: Map Variable (Tag SourcePos, Type)
+                    , localBindings :: Map Variable (Tag SourcePos, Variable) -- for α-renaming
                     }
                   deriving Show
 
@@ -50,11 +50,11 @@ doSemCheck defs = runSemChecker dochecks
                       globalBindings <$> get
 
 
-gensym :: SemChecker String
-gensym = do names <- gensymState <$> get
-            gensym' names (length names)
+gensym :: String -> SemChecker String
+gensym prefix = do names <- gensymState <$> get
+                   gensym' names (length names)
   where gensym' :: [String] -> Int -> SemChecker String
-        gensym' names i = let newName = "$" ++ show i
+        gensym' names i = let newName = prefix ++ "$" ++ show i
                           in if newName `elem` names
                              then gensym' names (1 + i)
                              else do modify $ \state -> state { gensymState = newName : gensymState state }
@@ -62,10 +62,10 @@ gensym = do names <- gensymState <$> get
 
 -- | Generates a fresh variable name.
 genVar :: SemChecker Variable
-genVar = gensym
+genVar = gensym ""
 
 genUVar :: SemChecker UVar
-genUVar = gensym
+genUVar = gensym ""
 
 type SemChecker = State SemCheckData
 
@@ -86,11 +86,14 @@ lookupGlobalType v = do bindings <- globalBindings <$> get
                                       ValueDef _ ty -> return $ Just ty
                          Nothing -> return Nothing
 
-lookupType :: Variable -> SemChecker (Maybe Type)
-lookupType v = do bindings <- localBindings <$> get
-                  case M.lookup v bindings of
-                   Just (pos, ty) -> return $ Just ty
-                   Nothing -> lookupGlobalType v
+lookupSym :: Variable -> SemChecker (Maybe (Maybe Type, Variable))
+lookupSym v = do bindings <- localBindings <$> get
+                 case M.lookup v bindings of
+                  Just (pos, v') -> return $ Just (Nothing, v')
+                  Nothing -> do mt <- lookupGlobalType v
+                                case mt of
+                                 Just _ -> return $ Just (mt, v)
+                                 Nothing -> return Nothing
 
 resetLocalBindings :: SemChecker ()
 resetLocalBindings = modify $ \state -> state { localBindings = M.empty }
@@ -101,13 +104,15 @@ withNewScope m = do bindings <- localBindings <$> get
                     modify $ \state -> state { localBindings = bindings }
                     return v
 
--- | adds a new binding, and if one already exists, return the tag for it
-addNewLocalBinding :: Tag SourcePos -> Variable -> Type -> SemChecker (Maybe (Tag SourcePos))
-addNewLocalBinding pos v ty = do bindings <- localBindings <$> get
-                                 modify $ \state -> state { localBindings = M.insert v (pos, ty) bindings }
-                                 return $ case M.lookup v bindings of
-                                           Just (pos, ty) -> Just pos
-                                           Nothing -> Nothing
+-- | adds a new binding, and if one already exists, return the tag for
+-- it.  The v' is for α-renaming, and it should come from gensym.
+addNewLocalBinding :: Tag SourcePos -> Variable -> Variable -> SemChecker (Maybe (Tag SourcePos))
+addNewLocalBinding pos v v' = do bindings <- localBindings <$> get
+                                 modify $ \state -> state { localBindings = M.insert v (pos, v')
+                                                                            bindings }
+                                 case M.lookup v bindings of
+                                  Just (pos, _) -> return $ Just pos
+                                  Nothing -> return Nothing
 
 -- | Take the list of bindings and convert them into a map of
 -- filled-out bindings.  This is to support prototypes.
@@ -193,12 +198,12 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                                                            Set pos (Ref (TypeHole Nothing) rv) <$> mexp
                                                          _ -> mexp
                                                    return $ FunctionDef mexp' ft'
-                         ValueDef mexp ty -> do ty' <- assertNoTypeHoles pos ty
+                         ValueDef mexp ty -> do ty' <- fillTypeHoles pos ty
                                                 return $ ValueDef mexp ty'
                          StructDef members -> do
                            members' <- forM members $ \(v,ty) -> do
-                             ty' <- assertNoTypeHoles pos ty
-                             mtag <- addNewLocalBinding pos v ty
+                             ty' <- fillTypeHoles pos ty
+                             mtag <- addNewLocalBinding pos v v
                              case mtag of
                               Just otag -> do
                                 addError $ SemError (MergeTags [otag, pos]) $
@@ -211,30 +216,32 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
 
 completeFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
 completeFunType pos ft = do let FnT args rty = ft
-                            let (FnT eargs erty, mretvar) = getEffectiveFunType ft
-                            forM_ eargs addArgument -- add the types to the scope
-                            rty' <- assertNoTypeHoles pos rty
-                            args' <- forM args $ \(v, req, _) -> do -- then slurp the types back out
-                              Just ty' <- lookupType v
-                              return (v, req, ty')
+                            args' <- forM args $ \(v, req, vty) -> do
+                              vty' <- fillTypeHoles pos vty
+                              mglob <- lookupGlobalBinding v
+                              when (isJust mglob) $ addError $
+                                SemError (MergeTags [bindingPos (fromJust mglob), pos]) $
+                                "Argument " ++ show v ++ " cannot mask global definition."
+                              mlastpos <- addNewLocalBinding pos v v
+                              case mlastpos of
+                               Just otag -> do
+                                 addError $ SemError (MergeTags [otag, pos]) $
+                                   "Redefinition of argument " ++ show v ++ " in function type."
+                               Nothing -> return ()
+                              return (v, req, vty')
+                            rty' <- fillTypeHoles pos rty
                             return $ FnT args' rty'
-  where addArgument (v, req, vty) = do vty' <- assertNoTypeHoles pos vty
-                                       mlastpos <- addNewLocalBinding pos v vty
-                                       case mlastpos of
-                                        Just otag -> do
-                                          addError $ SemError (MergeTags [otag, pos]) $
-                                            "Redefinition of argument " ++ show v ++ " in function type."
-                                        Nothing -> return ()
                                        
 -- | Initializes the scope so that it has all of a functions parameters
 withinFun :: Tag SourcePos -> FunctionType -> SemChecker a -> SemChecker a
 withinFun pos ft m = withNewScope $ do
   let (FnT args rty, _) = getEffectiveFunType ft
   forM_ args $ \(v, req, vty) -> do
-    void $ addNewLocalBinding pos v vty
+    void $ addNewLocalBinding pos v v
   m
 
--- | Fill holes in AST, add implicit arguments, check for undefined variables
+-- | Fill holes in AST, add implicit arguments, check for undefined
+-- variables, and α-rename.
 fillHoles :: DefBinding -> SemChecker DefBinding
 fillHoles defb = do resetLocalBindings
                     newDef <- if extern defb
@@ -262,10 +269,11 @@ fillValHoles :: CExpr -> SemChecker CExpr
 fillValHoles exp = case exp of
   Vec pos v range expr ->
     withNewScope $ do
+      v' <- gensym v
       range' <- fillRangeHoles range
-      _ <- addNewLocalBinding pos v (IntType Nothing)
+      _ <- addNewLocalBinding pos v v'
       expr' <- fillValHoles expr
-      return $ Vec pos v range' expr'
+      return $ Vec pos v' range' expr'
   Return pos v -> Return pos <$> fillValHoles v
   Assert pos a -> Assert pos <$> fillValHoles a
   RangeVal pos range -> RangeVal pos <$> fillRangeHoles range
@@ -280,14 +288,14 @@ fillValHoles exp = case exp of
   Let pos v val expr -> do
     val' <- fillValHoles val
     withNewScope $ do
-      name <- genUVar
-      mlastpos <- addNewLocalBinding pos v (TypeHole (Just name))
+      v' <- gensym v
+      _ <- addNewLocalBinding pos v v'
       expr' <- fillValHoles expr
-      return $ Let pos v val' expr'
+      return $ Let pos v' val' expr'
   Uninitialized pos ty -> Uninitialized pos <$> fillTypeHoles pos ty
   Seq pos e1 e2 -> Seq pos <$> fillValHoles e1 <*> fillValHoles e2
   App pos fn@(Get _ (Ref _ f)) args -> do
-    mf <- lookupType f
+    mf <- lookupGlobalType f
     case mf of
      Just (FnType ft) -> let (ft', mretvar) = getEffectiveFunType ft
                          in case mretvar of
@@ -306,7 +314,7 @@ fillValHoles exp = case exp of
   App pos _ _ -> do addError $ SemError pos "Cannot call expression."
                     return exp
   ConcreteApp pos fn@(Get _ (Ref _ f)) args -> do
-    mf <- lookupType f
+    mf <- lookupGlobalType f
     case mf of
      Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == reqargs) $
                                               SemError pos "Incorrect number of arguments in function application."
@@ -346,13 +354,13 @@ fillTypeHoles pos ty = case ty of
   BoolType -> return ty
   PtrType ty -> do ty' <- fillTypeHoles pos ty
                    return $ PtrType ty'
-  TypedefType v -> do mty <- lookupType v
+  TypedefType v -> do mty <- lookupGlobalType v
                       case mty of
                        Just (StructType {}) -> return () -- TODO reconsider types being in the same namespace as values.
                        Just _ -> addError $ SemError pos "Non-struct reference used as type."
                        Nothing -> addError $ SemUnboundType pos v
                       return ty
-  StructType v st -> do mty <- lookupType v
+  StructType v st -> do mty <- lookupGlobalType v
                         case mty of
                          Just ty -> semAssert ((StructType v st) == ty) $
                                     SemError pos "COMPILER ERROR. Struct type differs from looked up type."
@@ -364,10 +372,10 @@ fillTypeHoles pos ty = case ty of
 
 fillLocHoles :: Tag SourcePos -> Location CExpr -> SemChecker (Location CExpr)
 fillLocHoles pos loc = case loc of
-  Ref ty v -> do mty' <- lookupType v
-                 case mty' of
-                  Just _ -> do ty' <- fillTypeHoles pos ty
-                               return $ Ref ty' v
+  Ref ty v -> do mv' <- lookupSym v
+                 case mv' of
+                  Just (_, v') -> do ty' <- fillTypeHoles pos ty
+                                     return $ Ref ty' v'
                   Nothing -> do addError $ SemUnbound pos v
                                 return loc
   Index a idxs -> do a' <- fillValHoles a
@@ -381,32 +389,12 @@ fillRangeHoles :: Range CExpr -> SemChecker (Range CExpr)
 fillRangeHoles (Range from to step) = do [from', to', step'] <- mapM fillValHoles [from, to, step]
                                          return $ Range from' to' step'
 
-assertNoTypeHoles :: Tag SourcePos -> Type -> SemChecker Type
-assertNoTypeHoles pos ty = case ty of
-  VecType idxs ety -> do ety' <- assertNoTypeHoles pos ety
-                         idxs' <- mapM fillValHoles idxs
-                         return $ VecType idxs' ety'
-  FnType ft -> do addError $ SemError pos "COMPILER ERROR. Scoping issues when filling type holes of function type."
-                  return ty
-  NumType -> do addError $ SemError pos "Non-specific number type."
-                return ty
-  IntType mt -> do when (isNothing mt) $ addError $ SemError pos "Non-specific integer type."
-                   return $ ty
-  FloatType mt -> do when (isNothing mt) $ addError $ SemError pos "Non-specific floating-point type."
-                     return $ ty
-  PtrType ty -> do ty' <- assertNoTypeHoles pos ty
-                   return $ PtrType ty'
-  TypeHole _ -> do addError $ SemError pos "Type hole."
-                   return $ ty
-  _ -> fillTypeHoles pos ty
-
 -- | Match the arguments with the formal parameters for making a
 -- ConcreteApp.  Note that this expects the effective type of the
 -- function (i.e., the one where a complex return value is a pointer
 -- argument).
 matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
-matchArgs pos args (FnT fargs _) = do res <- matchArgs' 1 args fargs
-                                      return $ trace ("***" ++ show res) res
+matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
   where
     -- A passed argument matches a required argument
     matchArgs' i (Arg x : xs) ((v, True, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs

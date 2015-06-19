@@ -8,3 +8,6 @@ test_zeros (n :: u8) :: double[n]
 
 N :: u8  := 3;
 extern arr :: double[N];
+
+sigma {n :: u8} (A :: double[n]) :: double
+ := sum i in 0:n -> n[i];
