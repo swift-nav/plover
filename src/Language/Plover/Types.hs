@@ -226,6 +226,12 @@ mkBinding pos v d = DefBinding { binding = v
                                , static = False
                                , definition = d }
 
+definitionType :: DefBinding -> Type
+definitionType def = case definition def of
+  FunctionDef _ ft -> FnType ft
+  StructDef fields -> StructType (binding def) $ ST fields
+  ValueDef _ ty -> ty
+
 -- Used for module definitions
 -- (name, requirements (eg external parameters, struct defs), type, function body
 --type FunctionDefinition = (Variable, FunctionType, CExpr)

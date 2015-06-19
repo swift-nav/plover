@@ -3,6 +3,7 @@ module Language.Plover.SemCheck where
 import Debug.Trace
 import Language.Plover.Types
 import Language.Plover.UsedNames
+import Language.Plover.Unify hiding (gensym)
 import qualified Data.Map as M
 import Data.Map (Map)
 import Data.Tag
@@ -15,6 +16,7 @@ import Text.ParserCombinators.Parsec (SourcePos)
 data SemError = SemError (Tag SourcePos) String
               | SemUnbound (Tag SourcePos) Variable
               | SemUnboundType (Tag SourcePos) Variable
+              | SemUniError UnificationError
               deriving (Show, Eq, Ord)
 
 data SemCheckData = SemCheckData
@@ -47,6 +49,10 @@ doSemCheck defs = runSemChecker dochecks
                       globalFillHoles
                       defs' <- (M.elems . globalBindings <$> get) >>= mapM fillHoles
                       modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defs'] }
+                      defs' <- M.elems . globalBindings <$> get
+                      case runUM defs' (typeCheckToplevel defs') of
+                       Right vs -> return ()
+                       Left errs -> mapM_ (addError . SemUniError) errs
                       globalBindings <$> get
 
 
@@ -80,10 +86,7 @@ semAssert b e = if b then return () else addError e
 lookupGlobalType :: Variable -> SemChecker (Maybe Type)
 lookupGlobalType v = do bindings <- globalBindings <$> get
                         case M.lookup v bindings of
-                         Just def -> case definition def of
-                                      FunctionDef _ ft -> return $ Just $ FnType ft
-                                      StructDef fields -> return $ Just $ StructType v $ ST fields
-                                      ValueDef _ ty -> return $ Just ty
+                         Just def -> return $ Just $ definitionType def
                          Nothing -> return Nothing
 
 lookupSym :: Variable -> SemChecker (Maybe (Maybe Type, Variable))
