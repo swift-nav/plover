@@ -336,7 +336,8 @@ fillTypeHoles pos ty = case ty of
                          idxs' <- mapM fillValHoles idxs
                          return $ VecType idxs' ety'
   Void -> return ty
-  FnType (FnT args ret) -> assertNoTypeHoles pos ty -- Will this ever actually show up?
+  FnType (FnT args ret) -> do addError $ SemError pos "COMPILER ERROR. Scoping issues when filling type holes of function type."
+                              return ty
   NumType -> return ty
   IntType mt -> return ty
   FloatType mt -> return ty
