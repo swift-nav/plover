@@ -1,0 +1,7 @@
+zeros {m :: u8} :: double[m];
+
+zeros {m :: u8} :: double[m]
+ := vec i in m -> 0;
+
+test_zeros (n :: u8) :: double[n]
+ := (zeros {n});

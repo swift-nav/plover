@@ -1,5 +1,6 @@
 module Language.Plover.SemCheck where
 
+import Debug.Trace
 import Language.Plover.Types
 import Language.Plover.UsedNames
 import qualified Data.Map as M
@@ -189,7 +190,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                          FunctionDef mexp ft -> do ft' <- completeFunType pos ft
                                                    let mexp' = case getEffectiveFunType ft of
                                                          (_, Just (rv, rty)) ->
-                                                           Set pos (Ref rty rv) <$> mexp
+                                                           Set pos (Ref (TypeHole Nothing) rv) <$> mexp
                                                          _ -> mexp
                                                    return $ FunctionDef mexp' ft'
                          ValueDef mexp ty -> do ty' <- assertNoTypeHoles pos ty
@@ -292,7 +293,7 @@ fillValHoles exp = case exp of
                          in case mretvar of
                              Just (retvar, ty) -> do tv <- genVar
                                                      matched <- matchArgs pos
-                                                                (args ++ [Arg $ Get pos (Ref ty tv)])
+                                                                (args ++ [Arg $ Get pos (Ref (TypeHole Nothing) tv)])
                                                                 ft'
                                                      fillValHoles $ Let pos tv (Uninitialized pos (TypeHole Nothing))
                                                        (Seq pos (ConcreteApp pos fn matched)
@@ -347,15 +348,16 @@ fillTypeHoles pos ty = case ty of
                    return $ PtrType ty'
   TypedefType v -> do mty <- lookupType v
                       case mty of
-                       Just ty -> return ty
-                       Nothing -> do addError $ SemUnboundType pos v
-                                     return $ TypedefType v
+                       Just (StructType {}) -> return ()
+                       Just _ -> addError $ SemError pos "Non-struct reference used as type."
+                       Nothing -> addError $ SemUnboundType pos v
+                      return ty
   StructType v st -> do mty <- lookupType v
                         case mty of
                          Just ty -> semAssert ((StructType v st) == ty) $
                                     SemError pos "COMPILER ERROR. Struct type differs from looked up type."
                          Nothing -> addError $ SemError pos "COMPILER ERROR. Struct type exists for non-existant type."
-                        return $ StructType v st
+                        return ty
   TypeHole Nothing -> do name <- genUVar
                          return $ TypeHole (Just name)
   TypeHole _ -> return ty
@@ -364,7 +366,8 @@ fillLocHoles :: Tag SourcePos -> Location CExpr -> SemChecker (Location CExpr)
 fillLocHoles pos loc = case loc of
   Ref ty v -> do mty' <- lookupType v
                  case mty' of
-                  Just ty' -> return $ Ref ty' v
+                  Just _ -> do ty' <- fillTypeHoles pos ty
+                               return $ Ref ty' v
                   Nothing -> do addError $ SemUnbound pos v
                                 return loc
   Index a idxs -> do a' <- fillValHoles a
@@ -383,38 +386,27 @@ assertNoTypeHoles pos ty = case ty of
   VecType idxs ety -> do ety' <- assertNoTypeHoles pos ety
                          idxs' <- mapM fillValHoles idxs
                          return $ VecType idxs' ety'
-  Void -> return ty
-  FnType ft -> FnType <$> completeFunType pos ft
+  FnType ft -> do addError $ SemError pos "COMPILER ERROR. Scoping issues when filling type holes of function type."
+                  return ty
   NumType -> do addError $ SemError pos "Non-specific number type."
                 return ty
   IntType mt -> do when (isNothing mt) $ addError $ SemError pos "Non-specific integer type."
                    return $ ty
   FloatType mt -> do when (isNothing mt) $ addError $ SemError pos "Non-specific floating-point type."
                      return $ ty
-  StringType -> return ty
-  BoolType -> return ty
   PtrType ty -> do ty' <- assertNoTypeHoles pos ty
                    return $ PtrType ty'
-  TypedefType v -> do mty <- lookupType v
-                      case mty of
-                       Just ty -> return ty
-                       Nothing -> do addError $ SemUnboundType pos v
-                                     return $ TypedefType v
-  StructType v st -> do mty <- lookupType v
-                        case mty of
-                         Just ty -> semAssert ((StructType v st) == ty) $
-                                    SemError pos "COMPILER ERROR. Struct type differs from looked up type."
-                         Nothing -> addError $ SemError pos "COMPILER ERROR. Struct type exists for non-existant type."
-                        return $ StructType v st
   TypeHole _ -> do addError $ SemError pos "Type hole."
                    return $ ty
+  _ -> fillTypeHoles pos ty
 
 -- | Match the arguments with the formal parameters for making a
 -- ConcreteApp.  Note that this expects the effective type of the
 -- function (i.e., the one where a complex return value is a pointer
 -- argument).
 matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
-matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
+matchArgs pos args (FnT fargs _) = do res <- matchArgs' 1 args fargs
+                                      return $ trace ("***" ++ show res) res
   where
     -- A passed argument matches a required argument
     matchArgs' i (Arg x : xs) ((v, True, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
