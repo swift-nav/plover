@@ -77,6 +77,19 @@ reportSemErr ls err
      SemError tag msg -> posStuff tag ++ msg ++ "\n"
      SemUnbound tag v -> posStuff tag ++ "Unbound identifier " ++ show v ++ ".\n"
      SemUnboundType tag v -> posStuff tag ++ "Unbound type " ++ show v ++ ".\n"
+     SemUniError err -> case err of
+       UError tag msg -> posStuff tag ++ msg ++ "\n"
+       UTyFailure tag t1 t2 -> posStuff tag ++ "Could not unify type\n  "
+                               ++ show t1 ++ "\nwith type\n  " ++ show t2 ++ "\n"
+       UExFailure tag e1 e2 -> posStuff tag ++ "Could not unify expression\n  "
+                               ++ show e1 ++ "\nwith expression\n  " ++ show e2 ++ "\n"
+       ULocFailure tag l1 l2 -> posStuff tag ++ "Could not unify location\n  "
+                                ++ show l1 ++ "\nwith location\n  " ++ show l2 ++ "\n"
+       UTyOccurs tag v ty -> posStuff tag ++ "Occurs check error for " ++ show v
+                             ++ " in type\n  " ++ show ty ++ "\n"
+       UExOccurs tag v ex -> posStuff tag ++ "Occurs check error for " ++ show v
+                             ++ " in expression\n  " ++ show ex ++ "\n"
+       UNoField tag v -> posStuff tag ++ "No such field " ++ show v ++ "\n"
   where posStuff tag = "Error " ++ unlines (("at " ++) .  showLine ls <$> (sort $ nub $ getTags tag))
 
 -- | Gives a carat pointing to a position in a line in a source file
@@ -371,7 +384,7 @@ makeExpr exp@(PExpr pos e') = case e' of
   UnExpr Deref a -> do a' <- makeExpr a
                        return $ T.Get pos $ T.Deref a'
   UnExpr Pos a -> do a' <- makeExpr a
-                     return $ T.AssertType pos a' T.NumType
+                     return $ T.AssertType pos a' T.NumType -- This is just an assertion, and will be removed after unification
   UnExpr op a -> do a' <- makeExpr a
                     return $ T.Unary pos (tr op) a'
     where tr Neg = T.Neg
@@ -448,12 +461,12 @@ makeLocation exp@(PExpr pos e') = case e' of
 
 makeRange :: Expr -> Either ConvertError (T.Range T.CExpr)
 makeRange exp@(PExpr pos e') = case e' of
-  Range start stop step -> do start' <- maybe (return $ T.IntLit pos Nothing 0) makeExpr start
+  Range start stop step -> do start' <- maybe (return $ T.IntLit pos T.defaultIntType 0) makeExpr start
                               stop' <- maybe (return $ T.Hole pos Nothing) makeExpr stop
-                              step' <- maybe (return $ T.IntLit pos Nothing 1) makeExpr step
+                              step' <- maybe (return $ T.IntLit pos T.defaultIntType 1) makeExpr step
                               return $ T.Range start' stop' step'
   _ -> do ee <- makeExpr exp
-          return $ T.Range (T.IntLit pos Nothing 0) ee (T.IntLit pos Nothing 1)
+          return $ T.Range (T.IntLit pos T.defaultIntType 0) ee (T.IntLit pos T.defaultIntType 1)
 
 makeSequence :: Tag SourcePos -> [Expr] -> Either ConvertError T.CExpr
 makeSequence pos [] = return $ T.VoidExpr pos
@@ -478,19 +491,18 @@ makeType exp@(PExpr _ e') = case e' of
                   return $ T.VecType [b'] a'
   -- (no way to write the type of a function.)
   Ref v -> case v of
-    "u8" -> return $ T.IntType (Just T.U8)
-    "s8" -> return $ T.IntType (Just T.S8)
-    "u16" -> return $ T.IntType (Just T.U16)
-    "s16" -> return $ T.IntType (Just T.S16)
-    "u32" -> return $ T.IntType (Just T.U32)
-    "s32" -> return $ T.IntType (Just T.S32)
-    "u64" -> return $ T.IntType (Just T.U64)
-    "s64" -> return $ T.IntType (Just T.S64)
-    "float" -> return $ T.FloatType (Just T.Float)
-    "double" -> return $ T.FloatType (Just T.Double)
-    "Int" -> return $ T.IntType Nothing
+    "u8" -> return $ T.IntType T.U8
+    "s8" -> return $ T.IntType T.S8
+    "u16" -> return $ T.IntType T.U16
+    "s16" -> return $ T.IntType T.S16
+    "u32" -> return $ T.IntType T.U32
+    "s32" -> return $ T.IntType T.S32
+    "u64" -> return $ T.IntType T.U64
+    "s64" -> return $ T.IntType T.S64
+    "float" -> return $ T.FloatType T.Float
+    "double" -> return $ T.FloatType T.Double
     "String" -> return $ T.StringType
-    "Bool" -> return $ T.StringType
+    "Bool" -> return $ T.BoolType
     _ -> return $ T.TypedefType v
   UnExpr Deref a -> T.PtrType <$> makeType a
   VoidExpr -> return T.Void

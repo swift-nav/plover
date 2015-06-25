@@ -1,9 +1,14 @@
+struct Foo (
+  n :: u8;
+  A :: double[n];
+);
+
 zeros {m :: u8} :: double[m];
 
 zeros {m :: u8} :: double[m]
  := vec i in m -> 0;
 
-test_zeros (n :: u8) :: double[n]
+test_zeros (n :: u8) (x :: Foo) :: double[n]
  := (zeros {n});
 
 N :: u8  := 3;

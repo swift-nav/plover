@@ -21,21 +21,13 @@ import Text.PrettyPrint
 import Data.Tag
 import Data.Functor.Fixedpoint
 
-import Language.Plover.Types (IntType, FloatType)
+import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFloatType)
 
 type Expr = FixTagged SourcePos Expr'
 pattern PExpr tag a = FTag tag a
 
 wrapPos :: SourcePos -> Expr' Expr -> Expr
 wrapPos = newTag
-
--- data IntType = U8 | I8
---              | U16 | I16
---              | U32 | I32
---              | U64 | I64
---              deriving (Eq, Show)
--- data FloatType = Float | Double
---                deriving (Eq, Show)
 
 type Variable = String
 
@@ -72,8 +64,8 @@ data Expr' a = Vec [(Variable,a)] a
           | VoidExpr
           | T
           | Hole
-          | IntLit (Maybe IntType) Integer
-          | FloatLit (Maybe FloatType) Double
+          | IntLit IntType Integer
+          | FloatLit FloatType Double
           | BoolLit Bool
           | StrLit String
           | VecLit [a]
@@ -114,10 +106,10 @@ data Arg a = ImpArg a
 
 
 integer :: Integer -> Expr' a
-integer x = IntLit Nothing x
+integer x = IntLit IDefault x
 
 float :: Double -> Expr' a
-float x = FloatLit Nothing x
+float x = FloatLit defaultFloatType x
 
 class PP a where
   pretty :: a -> Doc
@@ -136,10 +128,8 @@ instance PP a => PP (Expr' a) where
   pretty VoidExpr = text "Void"
   pretty T = text "T"
   pretty Hole = text "_"
-  pretty (IntLit Nothing x) = parens $ text $ "IntLit " ++ show x
-  pretty (IntLit (Just t) x) = parens $ text $ "IntLit " ++ show t ++ " " ++ show x
-  pretty (FloatLit Nothing x) = parens $ text $ "FloatLit " ++ show x
-  pretty (FloatLit (Just t) x) = parens $ text $ "(FloatLit " ++ show t ++ " " ++ show x
+  pretty (IntLit t x) = parens $ text $ "IntLit " ++ show t ++ " " ++ show x
+  pretty (FloatLit t x) = parens $ text $ "(FloatLit " ++ show t ++ " " ++ show x
   pretty (BoolLit b) = parens $ text $ "BoolLit " ++ show b
   pretty (StrLit s) = parens $ text $ "StrLit " ++ show s
   pretty (VecLit xs) = parens $ text "VecLit" <+> sep (map pretty xs)

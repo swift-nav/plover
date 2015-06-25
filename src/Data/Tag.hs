@@ -6,7 +6,7 @@ module Data.Tag
        ( Tag(..), Tagged(..)
        , FixTagged, FixTagged'(..)
        , pattern FTag
-       , untagged, wrapTag, wrapTags, addTag, addProv, newTag, newProv, getTags
+       , untagged, wrapTag, wrapTags, addTag, addProv, newTag, newProv, getTag, getTags
        , Unique, TagGraph(..), toTagGraph
        ) where
 
@@ -92,6 +92,9 @@ newTag tag x = addTag tag $ untagged x
 -- | Add provenance to an untagged tree
 newProv :: String -> t (FixTagged tag t) -> FixTagged tag t
 newProv prov x = addProv prov $ untagged x
+
+getTag :: FixTagged tag t -> Tag tag
+getTag (FTag mt _) = mt
 
 -- | Gets all tags from a tag node
 getTags :: Tag t -> [t]

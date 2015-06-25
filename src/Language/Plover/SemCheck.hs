@@ -42,7 +42,7 @@ runSemChecker m = let (v, s) = runState m (newSemCheckData [])
                       [] -> Right v
                       errs -> Left errs
 
-doSemCheck :: [DefBinding] -> Either [SemError] (Map Variable DefBinding)
+doSemCheck :: [DefBinding] -> Either [SemError] [DefBinding]
 doSemCheck defs = runSemChecker dochecks
   where dochecks = do modify $ \state -> state { gensymState = allToplevelNames defs }
                       condenseBindings defs
@@ -51,9 +51,10 @@ doSemCheck defs = runSemChecker dochecks
                       modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defs'] }
                       defs' <- M.elems . globalBindings <$> get
                       case runUM defs' (typeCheckToplevel defs') of
-                       Right vs -> return ()
-                       Left errs -> mapM_ (addError . SemUniError) errs
-                      globalBindings <$> get
+                       Right defs'' -> return defs''
+                       Left errs -> do mapM_ (addError . SemUniError) errs
+                                       return []
+--                      globalBindings <$> get
 
 
 gensym :: String -> SemChecker String
@@ -355,6 +356,7 @@ fillTypeHoles pos ty = case ty of
   FloatType mt -> return ty
   StringType -> return ty
   BoolType -> return ty
+  RangeType _ -> return ty
   PtrType ty -> do ty' <- fillTypeHoles pos ty
                    return $ PtrType ty'
   TypedefType v -> do mty <- lookupGlobalType v

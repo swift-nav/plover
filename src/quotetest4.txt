@@ -1,0 +1,8 @@
+g {n :: u8} (A :: double[n]) :: double
+  := A[1];
+
+extern B :: double[5];
+
+zeros {n :: u8} :: double[n] := vec i in n -> 0;
+
+f Void :: double  := g (vec i in 5 -> i);

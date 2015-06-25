@@ -30,9 +30,23 @@ data IntType = U8 | S8
              | U16 | S16
              | U32 | S32
              | U64 | S64
+             | IDefault
              deriving (Eq, Ord, Show)
 data FloatType = Float | Double
+               | FDefault
                deriving (Eq, Ord, Show)
+
+defaultIntType :: IntType
+defaultIntType = IDefault
+
+actualDefaultIntType :: IntType
+actualDefaultIntType = S32
+
+defaultFloatType :: FloatType
+defaultFloatType = FDefault
+
+actualDefaultFloatType :: FloatType
+actualDefaultFloatType = Double
 
 data UnOp = Neg | Not
           | Transpose | Inverse
@@ -66,8 +80,8 @@ data Expr a
 
   -- Elementary expressions
   | VoidExpr'
-  | IntLit' (Maybe IntType) Integer
-  | FloatLit' (Maybe FloatType) Double
+  | IntLit' IntType Integer
+  | FloatLit' FloatType Double
   | StrLit' String
   | BoolLit' Bool
   | VecLit' [a]
@@ -186,10 +200,11 @@ data Type' a
   | FnType FunctionType
 --  | Dimension a
   | NumType -- some kind of number.  temporary; must become concrete numeric type
-  | IntType (Maybe IntType)
-  | FloatType (Maybe FloatType)
+  | IntType IntType
+  | FloatType FloatType
   | StringType -- null-terminated C string
   | BoolType
+  | RangeType IntType
   | PtrType (Type' a)
   | TypedefType Variable
   -- Concrete ST has name, values for type parameters
@@ -376,6 +391,9 @@ pattern a :> b = Seq NoTag a b
 pattern a :$ b = App NoTag a [b]
 --pattern a := b = Fix (Init a b)
 
+pattern HoleJ pos a = Hole pos (Just a)
+pattern TypeHoleJ a = TypeHole (Just a)
+
 -- Syntax
 --infix 4 :=
 infix  4 :<=
@@ -401,11 +419,119 @@ instance IsString CExpr where
 instance Num CExpr where
   x * y = x :* y
   x + y = x :+ y
-  fromInteger x = untagged $ IntLit' Nothing $ fromInteger x
+  fromInteger x = untagged $ IntLit' defaultIntType $ fromInteger x
   abs = undefined
   signum = undefined
   negate = untagged . Unary' Neg
 
 instance Fractional CExpr where
   x / y = x :/ y
-  fromRational x = untagged $ FloatLit' Nothing $ fromIntegral (numerator x) / fromIntegral (denominator x)
+  fromRational x = untagged $ FloatLit' defaultFloatType $ fromIntegral (numerator x) / fromIntegral (denominator x)
+
+
+
+
+class TermMappable a where
+  mapTerm :: (Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
+          -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
+          -> a -> m a
+  termMapper :: (Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
+             -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
+             -> a -> m a
+
+instance TermMappable Type where
+  mapTerm tty texp tloc trng ty = case ty of
+    VecType idxs ety -> VecType <$> mapM texp idxs <*> tty ety
+    PtrType pty -> PtrType <$> tty pty
+    FnType (FnT args retty) -> do
+      args' <- forM args $ \(v, b, ty) -> do
+        ty' <- tty ty
+        return (v, b, ty')
+      retty' <- tty retty
+      return $ FnType $ FnT args' retty'
+    _ -> return ty
+  termMapper tty texp tloc trng = tty
+
+instance TermMappable CExpr where
+  mapTerm tty texp tloc trng exp = case exp of
+    Vec pos v range expr -> Vec pos v <$> trng range <*> texp expr
+    Return pos v -> Return pos <$> texp v
+    Assert pos v -> Assert pos <$> texp v
+    RangeVal pos range -> RangeVal pos <$> trng range
+    If pos a b c -> If pos <$> texp a <*> texp b <*> texp c
+    VecLit pos exprs -> VecLit pos <$> mapM texp exprs
+    Let pos v val expr -> Let pos v <$> texp val <*> texp expr
+    Uninitialized pos ty -> Uninitialized pos <$> tty ty
+    Seq pos p1 p2 -> Seq pos <$> texp p1 <*> texp p2
+    App pos fn args -> App pos <$> texp fn <*> mapM targ args
+      where targ (Arg a) = Arg <$> texp a
+            targ (ImpArg a) = ImpArg <$> texp a
+    ConcreteApp pos fn args -> ConcreteApp pos <$> texp fn <*> mapM texp args
+    Get pos loc -> Get pos <$> tloc loc
+    Addr pos loc -> Addr pos <$> tloc loc
+    Set pos loc val -> Set pos <$> tloc loc <*> texp val
+    AssertType pos v ty -> AssertType pos <$> texp v <*> tty ty
+    Unary pos op v -> Unary pos op <$> texp v
+    Binary pos op v1 v2 -> Binary pos op <$> texp v1 <*> texp v2
+    _ -> return exp
+  termMapper tty texp tloc trng = texp
+
+instance TermMappable (Location CExpr) where
+  mapTerm tty texp tloc trng loc = case loc of
+    Ref ty v -> Ref <$> tty ty <*> pure v
+    Index a idxs -> Index <$> texp a <*> mapM texp idxs
+    Field a member -> Field <$> texp a <*> pure member
+    Deref a -> Deref <$> texp a
+  termMapper tty texp tloc trng = tloc
+
+instance TermMappable (Range CExpr) where
+  mapTerm tty texp tloc trng (Range from to step) =
+    Range <$> texp from <*> texp to <*> texp step
+  termMapper tty texp tloc trng = trng
+
+traverseTerm :: (Monad m, TermMappable a) => (Type -> m Type) -> (CExpr -> m CExpr)
+             -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
+             -> a -> m a
+traverseTerm fty fexp floc frng x = mapTerm tty texp tloc trng x >>= termMapper fty fexp floc frng
+  where tty = traverseTerm fty fexp floc frng
+        texp = traverseTerm fty fexp floc frng
+        tloc = traverseTerm fty fexp floc frng
+        trng = traverseTerm fty fexp floc frng
+
+
+intUnsigned :: IntType -> Bool
+intUnsigned IDefault = intUnsigned actualDefaultIntType
+intUnsigned U8 = True
+intUnsigned U16 = True
+intUnsigned U32 = True
+intUnsigned U64 = True
+intUnsigned _ = False
+
+intBits :: IntType -> Int
+intBits IDefault = intBits actualDefaultIntType
+intBits U8 = 8
+intBits S8 = 8
+intBits U16 = 16
+intBits S16 = 16
+intBits U32 = 32
+intBits S32 = 32
+intBits U64 = 64
+intBits S64 = 64
+
+intPromotePreserveBits :: IntType -> IntType -> Maybe IntType
+intPromotePreserveBits IDefault y = Just y
+intPromotePreserveBits x IDefault = Just x
+intPromotePreserveBits x y
+  | x == y  = Just x
+  | intBits x > intBits y  = intPromotePreserveBits y x
+  | intUnsigned x == intUnsigned y  = Just y -- y has more bits and signedness is the same
+  | intBits x == intBits y  = Nothing -- signedness different
+  | intUnsigned x  = Just y  -- then x surely fits
+  | otherwise  = Nothing
+
+floatPromote :: FloatType -> FloatType -> FloatType
+floatPromote FDefault y = y
+floatPromote x FDefault = x
+floatPromote Float y = y
+floatPromote x Float = x
+floatPromote x y = Double
