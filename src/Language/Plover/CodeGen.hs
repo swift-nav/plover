@@ -12,6 +12,8 @@ import qualified Data.Map as M
 
 import Language.Plover.Types
 
+import Data.Loc (SrcLoc(SrcLoc), Loc(NoLoc))
+
 data CodeGenState = CodeGenState
                     { bindings :: M.Map String String
                     }
@@ -54,26 +56,43 @@ genName :: String -> CM String
 genName v = newName "temp" v
 
 compileType :: Type -> C.Type
-compileType (VecType _ ty) = [cty|$ty:(compileType ty)*|] -- make sure type is normalized
-compileType Void = [cty|void|]
-compileType (IntType IDefault) = compileType (IntType actualDefaultIntType)
-compileType (IntType U8) = [cty|typename u8|]
-compileType (IntType S8) = [cty|typename s8|]
-compileType (IntType U16) = [cty|typename u16|]
-compileType (IntType S16) = [cty|typename s16|]
-compileType (IntType U32) = [cty|typename u32|]
-compileType (IntType S32) = [cty|typename s32|]
-compileType (IntType U64) = [cty|typename u64|]
-compileType (IntType S64) = [cty|typename s64|]
-compileType (FloatType FDefault) = compileType (FloatType actualDefaultFloatType)
-compileType (FloatType Float) = [cty|float|]
-compileType (FloatType Double) = [cty|double|]
-compileType StringType = [cty|char*|]
-compileType BoolType = [cty|typename bool|]
-compileType (PtrType ty) = [cty|$ty:(compileType ty)*|]
-compileType (TypedefType v) = [cty|typename $id:v|]
-compileType (StructType v _) = [cty|typename $id:v|]
-compileType (TypeHole _) = error "No type holes allowed."
+compileType = compileType' . normalizeTypes
+
+compileType' :: Type -> C.Type
+compileType' (VecType _ ty) = [cty|$ty:(compileType ty)*|] -- make sure type is normalized
+compileType' Void = [cty|void|]
+compileType' (IntType IDefault) = compileType (IntType actualDefaultIntType)
+compileType' (IntType U8) = [cty|typename u8|]
+compileType' (IntType S8) = [cty|typename s8|]
+compileType' (IntType U16) = [cty|typename u16|]
+compileType' (IntType S16) = [cty|typename s16|]
+compileType' (IntType U32) = [cty|typename u32|]
+compileType' (IntType S32) = [cty|typename s32|]
+compileType' (IntType U64) = [cty|typename u64|]
+compileType' (IntType S64) = [cty|typename s64|]
+compileType' (FloatType FDefault) = compileType (FloatType actualDefaultFloatType)
+compileType' (FloatType Float) = [cty|float|]
+compileType' (FloatType Double) = [cty|double|]
+compileType' StringType = [cty|char*|]
+compileType' BoolType = [cty|typename bool|]
+compileType' (PtrType ty) = [cty|$ty:(compileType ty)*|]
+compileType' (TypedefType v) = [cty|typename $id:v*|]
+--compileType' (StructType v _) = [cty|typename $id:v|]  -- structs are weird
+compileType' (TypeHole _) = error "No type holes allowed."
+
+-- When initializing a variable, need things like the length of the
+-- array rather than just a pointer
+compileInitType :: Type -> CM ([C.BlockItem], C.Type)
+compileInitType ty = compileInitType' (normalizeTypes ty)
+
+compileInitType' :: Type -> CM ([C.BlockItem], C.Type)
+compileInitType' (VecType idxs base) = do size <- compileStat (foldr1 (*) idxs)
+                                          (sizebl, sizeex) <- withValue size
+                                          (basebl, basety) <- compileInitType base
+                                          return (sizebl ++ basebl,
+                                                  [cty|$ty:basety[$sizeex] |])
+--compileInitType' -- structs are weird
+compileInitType' t = return ([], compileType t)
 
 data Compiled = Compiled { noResult :: CM [C.BlockItem]
                          , withDest :: String -> CM [C.BlockItem]
@@ -99,7 +118,7 @@ testCompileExpr :: CExpr -> String
 testCompileExpr exp = let (blks, v) = evalState (compileStat exp >>= withValue) (CodeGenState M.empty)
                           item = if null blks
                                  then [citem| { return $v; } |]
-                                 else [citem| { $items:blks; return $v; } |]
+                                 else [citem| { $items:blks return $v; } |]
                       in show $ ppr item
 
 compileStat :: CExpr -> CM Compiled
@@ -120,8 +139,9 @@ compileStat (If _ a b c) = do a' <- compileStat a
                                 , withValue = do v <- genName "v"
                                                  bbl <- withDest b' v
                                                  cbl <- withDest c' v
-                                                 return (abl ++
-                                                     [ [citem| typename FIXME $id:(v); |]
+                                                 (vbl, vty) <- compileInitType (getType b) -- c same
+                                                 return (abl ++ vbl ++
+                                                     [ [citem| $ty:vty $id:v; |]
                                                        , [citem| if ($(aexp)) { $items:bbl } else { $items:cbl } |] ]
                                                      , [cexp| $id:v |])
                                  }
@@ -136,6 +156,45 @@ compileStat (BoolLit _ b) = return $ pureExpr [cexp| $id:lit |]
   where lit :: String
         lit = if b then "TRUE" else "FALSE"
 
+-- compileStat (VecLit pos []) = compileStat (VoidExpr pos)
+-- compileStat v@(VecLit pos xs) = do xs' <- mapM compileStat xs
+--                                    let xty = compileType $ getType (head xs)
+--                                    return $ Compiled
+--                                      { noResult = concat <$> mapM noResult xs'
+--                                      , withDest = \v -> do (xsbl, vec) <- mkVecLit xty xs'
+--                                                            return $ xsbl ++ [
+--                                                              [citem| $id:v = $vec; |] ]
+--                                      , withValue =  mkVecLit xty xs'
+--                                      }
+--   where mkVecLit xty xs' = do xs'' <- mapM withValue xs'
+--                               let xsbl = concat $ map fst xs''
+--                               let xsex = map snd xs''
+--                               let xsex' = map (\x -> C.ExpInitializer x (SrcLoc NoLoc)) xsex
+--                               return $ (xsbl, [cexp| ($ty:xty*) { $inits:(xsex') } |])
+
+compileStat (Let _ v val x) = do x' <- compileStat x
+                                 return $ Compiled
+                                   { noResult = compileLet $ \bbl -> do
+                                      x'' <- noResult x'
+                                      return $ bbl ++ x''
+                                   , withDest = \w -> compileLet $ \bbl -> do
+                                        x'' <- withDest x' w
+                                        return $ bbl ++ x''
+                                   , withValue = compileLet $ \bbl -> do
+                                        (x'', xv) <- withValue x'
+                                        return $ (bbl ++ x'', xv)
+                                   }
+  where compileLet f = newScope $ do
+          v' <- newName "v" v
+          val'' <- case val of
+                    Uninitialized {} -> return []
+                    _ -> do val' <- compileStat val
+                            withDest val' v'
+          (vbl, vty) <- compileInitType $ getType val
+          f (vbl ++ [ [citem| $ty:vty $id:(v'); |] ] ++ val'')
+
+-- skipping Uninitialized
+
 compileStat (Seq _ a b)  = do a' <- compileStat a
                               b' <- compileStat b
                               return $ Compiled
@@ -149,3 +208,5 @@ compileStat (Seq _ a b)  = do a' <- compileStat a
                                                  (bbl, bexp) <- withValue b'
                                                  return (abl ++ bbl, bexp)
                                 }
+
+--compileStat (ConcreteApp f args) = let args' = [a |

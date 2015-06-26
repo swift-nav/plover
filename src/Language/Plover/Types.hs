@@ -67,6 +67,11 @@ data BinOp = Add | Sub | Mul | Div
 data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
              deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
+rangeLength :: Tag SourcePos -> Range CExpr -> CExpr
+rangeLength pos (Range (IntLit _ _ 0) to (IntLit _ _ 1)) = to
+rangeLength pos (Range from to (IntLit _ _ 1)) = Binary pos Sub to from
+rangeLength pos (Range from to step) = Binary pos Div (Binary pos Sub to from) step
+
 data Arg a = Arg a
            | ImpArg a
            deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
@@ -629,3 +634,45 @@ instance PP a => PP (Location a) where
   pretty (Index ty idxs) = pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
   pretty (Field a field) = pretty a <> text ("." ++ field)
   pretty (Deref a) = parens $ hang (text "*") 2 (pretty a)
+
+
+getType :: CExpr -> Type
+getType (Vec pos _ range base) = VecType [rangeLength pos range] (getType base)
+-- getType (Return ) -- what type?
+-- getType (Assert )
+getType (RangeVal pos range) = VecType [rangeLength pos range] (IntType IDefault)
+getType (If pos a b c) = getType b
+getType (VoidExpr pos) = Void
+getType (IntLit pos t _) = IntType t
+getType (FloatLit pos t _) = FloatType t
+getType (StrLit {}) = StringType
+getType (BoolLit {}) = BoolType
+getType (VecLit pos []) = Void
+getType (VecLit pos (x:xs)) = getType x
+getType (Let pos v x body) = getType body
+getType (Uninitialized pos ty) = ty
+getType (Seq pos a b) = getType b
+getType (ConcreteApp pos f args) = let FnType fn = getType f
+                                       (FnT params retty, _) = getEffectiveFunType fn
+                                   in retty
+getType (App {}) = error "App should not be here"
+getType (Hole pos Nothing) = error "Hole should not be here"
+getType (Hole pos (Just (ty, _))) = ty
+getType (Get pos loc) = getLocType loc
+getType (Addr pos loc) = PtrType (getLocType loc)
+getType (Set {}) = Void
+getType (AssertType _ _ ty) = ty
+--getType (Unary
+--getType (Binary
+
+getLocType :: Location CExpr -> Type
+getLocType (Ref ty v) = ty
+getLocType (Index a idxs) = getTypeIdx idxs (normalizeTypes $ getType a)
+  where getTypeIdx [] aty = normalizeTypes aty
+        getTypeIdx (idx:idxs) (VecType (ibnd:ibnds) bty) =
+          case normalizeTypes (getType idx) of
+           IntType _ -> getTypeIdx idxs (VecType ibnds bty)
+           VecType idxs' idxtybase -> VecType idxs' (getTypeIdx ibnds bty)
+getLocType (Field a field) = error "getLocType field not implemented"
+getLocType (Deref a) = let (PtrType a') = getType a
+                       in a'

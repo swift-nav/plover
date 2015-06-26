@@ -418,7 +418,7 @@ typeCheck (Vec pos v range body) = do
   -- alpha renamed, so can just add v to scope
   addBinding pos v (IntType rt)
   bt <- typeCheck body
-  return $ VecType [rangeSize pos range] bt
+  return $ VecType [rangeLength pos range] bt
 typeCheck (Return pos a) = do
   typeCheck a
   return Void
@@ -427,7 +427,7 @@ typeCheck (Assert pos a) = do
   return Void
 typeCheck (RangeVal pos range) = do
   rt <- typeCheckRange pos range
-  return $ VecType [rangeSize pos range] (IntType rt)
+  return $ VecType [rangeLength pos range] (IntType rt)
 typeCheck (If pos a b c) = do
   tya <- typeCheck a
   expectBool pos tya
@@ -553,10 +553,6 @@ typeCheckLoc pos (Deref a) = do
   case aty of
    PtrType dty -> return dty
    _ -> return (TypeHoleJ g)
-
-rangeSize :: Tag SourcePos -> Range CExpr -> CExpr
-rangeSize pos (Range (IntLit _ _ 0) to (IntLit _ _ 1)) = to
-rangeSize pos (Range from to step) = Binary pos Div (Binary pos Sub to from) step
 
 data FunctionEnv = FnEnv [(Variable, Type)] Type
                  deriving Show
