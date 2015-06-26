@@ -69,6 +69,9 @@ library
                    , unification-fd
                    , pretty-show
 
+                   , mainland-pretty
+                   , language-c-quote == 0.10.2.2
+
   hs-source-dirs:    src/
   ghc-options:
               -- -Wall -Werror

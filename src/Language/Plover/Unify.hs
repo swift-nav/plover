@@ -513,27 +513,30 @@ typeCheckLoc pos (Index a idxs) = do
   where typeCheckIdx oty [] aty = normalizeTypesM aty
         typeCheckIdx oty (idx:idxs) (VecType (ibnd:ibnds) bty) = do
           -- idx is next index value, ibnd is next vec bound
-          idxty <- typeCheck idx
+          unifyRangeIndex pos idx ibnd
+          idxty <- normalizeTypes <$> typeCheck idx
           case idxty of
            IntType _ -> typeCheckIdx oty idxs (VecType ibnds bty)
-           VecType [idx'] (IntType _) -> do
-             case idx of
-               -- N.B. this is a special case so that ranges with
-               -- unbounded top are unified to the length of the
-               -- underlying vector. Otherwise, the unbounded slice
-               -- will have a length determined by uses of the vector
-               -- slice.
-               RangeVal rpos (Range { rangeTo = h@(HoleJ {}) } ) -> unify (MergeTags [pos, rpos]) h ibnd >> return ()
-               _ -> return ()
+           VecType idxs' idxtybase -> do -- result shape equals shape of index
+             expectInt pos idxtybase
              bty' <- typeCheckIdx oty idxs (VecType ibnds bty)
-             return $ VecType [idx'] bty'
-           _ -> do unify pos (IntType IDefault) idxty
+             return $ VecType idxs' bty'
+           _ -> do unify pos (IntType IDefault) idxty -- probably should be int by default?
                    hole <- gensym "hole"
                    return $ TypeHoleJ hole
         typeCheckIdx oty (idx:idxs) ty = do
           addUError $ UGenTyError pos oty "Too many indices on expression of type"
           hole <- gensym "hole"
           return $ TypeHoleJ hole
+        unifyRangeIndex pos idx ibound = do
+          case idx of
+            -- N.B. this is a special case so that ranges with
+            -- unbounded top are unified to the length of the
+            -- underlying vector. Otherwise, the unbounded slice will
+            -- have a length determined by uses of the vector slice.
+           RangeVal rpos (Range { rangeTo = h@(HoleJ {}) }) ->
+             unify (MergeTags [pos, rpos]) h ibound >> return ()
+           _ -> return ()
 typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
   case aty of

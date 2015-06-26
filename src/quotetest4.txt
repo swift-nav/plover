@@ -22,4 +22,5 @@
 
 -- foo (x :: *u8) :: Void  := (*x <- 22);
 
-foo {n :: u8} (A :: double[n,n]) :: double[n] := A[2,:];
+foo {n :: u8} (_A :: double[n]) :: double[6] := _A[vec i in 5, j in 6 -> i][2];
+
