@@ -32,6 +32,7 @@ data UnificationError = UError (Tag SourcePos) String
                       | UTyOccurs (Tag SourcePos) Variable Type
                       | UExOccurs (Tag SourcePos) Variable CExpr
                       | UNoField (Tag SourcePos) Variable
+                      | UGenTyError (Tag SourcePos) Type String -- ^ A generic type error with a message
                       deriving (Show, Eq, Ord)
 
 type UM = State UnifierData
@@ -97,7 +98,8 @@ expandTerm term = do tenv <- uTypes <$> get
                      let tty (TypeHole (Just v)) | Just (_, ty') <- M.lookup v tenv  = expand ty'
                          tty ty = return ty
 
-                         texp (Hole pos (Just v)) | Just (_, exp') <- M.lookup v eenv  = expand exp'
+                         -- TODO maybe unify ty against exp'
+                         texp (HoleJ pos ty v) | Just (_, exp') <- M.lookup v eenv  = expand exp'
                          texp exp = return exp
 
                          tloc = return
@@ -106,9 +108,8 @@ expandTerm term = do tenv <- uTypes <$> get
                          expand = traverseTerm tty texp tloc trng
                      return $ runIdentity $ expand term
 
-
-normalizeTypes :: TermMappable a => a -> UM a
-normalizeTypes = traverseTerm tty texp tloc trng
+normalizeTypesM :: TermMappable a => a -> UM a
+normalizeTypesM term = normalizeTypes <$> traverseTerm tty texp tloc trng term
   where tty ty = case ty of
           TypedefType name -> do mty' <- getBinding name
                                  case mty' of
@@ -116,7 +117,9 @@ normalizeTypes = traverseTerm tty texp tloc trng
                                   _ -> do addUError $ UError NoTag $
                                             "COMPILER ERROR: The typedef " ++ show name
                                             ++ " should be defined."
-                                          return ty
+                                          g <- gensym "typedef"
+                                          return $ TypeHoleJ g
+          _ -> return ty
         texp = return
         tloc = return
         trng = return
@@ -136,7 +139,7 @@ exprOccursIn :: TermMappable a => Variable -> a -> Bool
 exprOccursIn v exp = isNothing $ traverseTerm tty texp tloc trng exp
   where tty = return
 
-        texp exp@(Hole pos (Just v')) | v == v'  = Nothing
+        texp exp@(HoleJ pos _ v') | v == v'  = Nothing
         texp exp = Just exp
 
         tloc = return
@@ -149,7 +152,8 @@ typeCheckToplevel defbs = do
   defbs' <- forM defbs $ \def -> do
     withNewUScope $ typeCheckDefBinding def
   s <- get
-  trace (show s) $ return defbs'
+  --trace (show s) $
+  return defbs'
 
 withNewUScope :: UM a -> UM a
 withNewUScope m = do
@@ -162,9 +166,9 @@ typeCheckDefBinding :: DefBinding -> UM DefBinding
 typeCheckDefBinding def = do
   d' <- case definition def of
     FunctionDef mexp ft -> let (FnT args retty, _) = getEffectiveFunType ft
-                           in do (FnType (FnT args' retty')) <- typeCheckType (bindingPos def) (FnType $ FnT args retty)
+                           in do (FnType (FnT _ _)) <- typeCheckType (bindingPos def) (FnType $ FnT args retty)
                                  case mexp of
-                                  Just exp -> do
+                                  Just exp | not (extern def) -> do
                                     expty <- typeCheck exp
                                     unify (bindingPos def) expty retty
                                   
@@ -174,11 +178,11 @@ typeCheckDefBinding def = do
                                       return (v, b, ty')
                                     retty' <- expandTerm retty
                                     return $ FunctionDef (Just exp') (FnT args' retty)
-                                  Nothing -> do args' <- forM args $ \(v, b, ty) -> do
-                                                  ty' <- expandTerm ty
-                                                  return (v, b, ty')
-                                                retty' <- expandTerm retty
-                                                return $ FunctionDef Nothing (FnT args' retty')
+                                  _ -> do args' <- forM args $ \(v, b, ty) -> do
+                                            ty' <- expandTerm ty
+                                            return (v, b, ty')
+                                          retty' <- expandTerm retty
+                                          return $ FunctionDef Nothing (FnT args' retty')
     StructDef fields -> return $ StructDef fields
     ValueDef mexp ty -> do ty' <- typeCheckType (bindingPos def) ty
                            case mexp of
@@ -197,10 +201,10 @@ typeCheckDefBinding def = do
 class Unifiable a where
   unify :: Tag SourcePos -> a -> a -> UM a
 
-unifyN :: TermMappable a => Tag SourcePos -> a -> a -> UM a
-unifyN pos x y = do x' <- normalizeTypes x
-                    y' <- normalizeTypes y
-                    unifyN pos x' y'
+unifyN :: (Unifiable a, TermMappable a) => Tag SourcePos -> a -> a -> UM a
+unifyN pos x y = do x' <- normalizeTypesM x
+                    y' <- normalizeTypesM y
+                    unify pos x' y'
 
 instance Unifiable Type where
   unify pos (TypeHoleJ v) y = unifyTVar pos v y
@@ -227,7 +231,6 @@ instance Unifiable Type where
   
   unify pos StringType StringType = return StringType
   unify pos BoolType BoolType = return BoolType
-  unify pos x@(RangeType {}) y@(RangeType {}) | x == y  = return x
 
   unify pos (PtrType a1) (PtrType a2) = do
     a' <- unify pos a1 a2
@@ -239,8 +242,11 @@ instance Unifiable Type where
                      return x
 
 instance Unifiable CExpr where
-  unify pos (HoleJ pos1 v) y = unifyEVar (MergeTags [pos, pos1]) v y
-  unify pos x (HoleJ pos2 v) = unifyEVar (MergeTags [pos, pos2]) v x
+  unify pos (HoleJ pos1 ty1 v) y = do ex <- unifyEVar (MergeTags [pos, pos1]) v y
+                                      exty <- typeCheck ex
+                                      unify pos ty1 exty
+                                      return ex
+  unify pos x y@(HoleJ {}) = unify pos y x
 
   -- skipping Vec
   -- skipping Return/Assert
@@ -343,19 +349,19 @@ unifyTVar pos v1 t = do mb1 <- getUTypeBinding v1
 
 
 unifyEVar :: Tag SourcePos -> Variable -> CExpr -> UM CExpr
-unifyEVar pos v1 (HoleJ posv2 v2)
-  | v1 == v2  = return (HoleJ (MergeTags [pos, posv2]) v1)
+unifyEVar pos v1 (HoleJ posv2 ty2 v2)
+  | v1 == v2  = return (HoleJ (MergeTags [pos, posv2]) ty2 v1)
   | otherwise = do mb1 <- getUExprBinding v1
                    case mb1 of
                     Just (pos1, b1) -> unify (MergeTags [pos, posv2, pos1])
-                                       b1 (HoleJ posv2 v2)
+                                       b1 (HoleJ posv2 ty2 v2)
                     Nothing ->
                       do mb2 <- getUExprBinding v2
                          case mb2 of
                           Just (pos2, b2) -> unify (MergeTags [pos, posv2, pos2])
-                                             (HoleJ (MergeTags [pos, posv2, pos2]) v1) b2
-                          Nothing -> do addUExprBinding pos v1 (HoleJ (MergeTags [pos, posv2]) v2)
-                                        return $ HoleJ (MergeTags [pos, posv2]) v2
+                                             (HoleJ (MergeTags [pos, posv2, pos2]) ty2 v1) b2
+                          Nothing -> do addUExprBinding pos v1 (HoleJ (MergeTags [pos, posv2]) ty2 v2)
+                                        return $ HoleJ (MergeTags [pos, posv2]) ty2 v2
 unifyEVar pos v1 t = do mb1 <- getUExprBinding v1
                         case mb1 of
                          Just (pos1, b1) -> unify (MergeTags [pos, pos1])
@@ -400,11 +406,10 @@ typeCheckType pos t@(IntType {}) = return t
 typeCheckType pos t@(FloatType {}) = return t
 typeCheckType pos StringType = return StringType
 typeCheckType pos BoolType = return BoolType
-typeCheckType pos t@(RangeType {}) = return t
 typeCheckType pos (PtrType ty) = PtrType <$> typeCheckType pos ty
-typeCheckType pos t@(TypedefType _) = normalizeTypes t >>= typeCheckType pos
+typeCheckType pos t@(TypedefType _) = normalizeTypesM t >>= typeCheckType pos
 typeCheckType pos t@(StructType v (ST fields)) = return t
-typeCheckType pos t@(TypeHole {}) = return t
+typeCheckType pos t@(TypeHole {}) = expandTerm t
 --typeCheckType pos ty = return ty
 
 typeCheck :: CExpr -> UM Type
@@ -422,7 +427,7 @@ typeCheck (Assert pos a) = do
   return Void
 typeCheck (RangeVal pos range) = do
   rt <- typeCheckRange pos range
-  return $ RangeType rt
+  return $ VecType [rangeSize pos range] (IntType rt)
 typeCheck (If pos a b c) = do
   tya <- typeCheck a
   expectBool pos tya
@@ -458,13 +463,16 @@ typeCheck (ConcreteApp pos (Get _ (Ref ty v)) args) = do
   when (length args /= length fargs) $ do
     addUError $ UError (MergeTags [pos, gpos]) "COMPILER ERROR. Incorrect number of arguments."
   forM_ (zip args fargs) $ \(arg, (v, vty)) -> do
-    unify (MergeTags [pos, gpos]) arg (HoleJ pos v)
+    unify (MergeTags [pos, gpos]) arg (HoleJ pos vty v)
     tyarg <- typeCheck arg
     unify (MergeTags [pos, gpos]) tyarg vty
   return ret
-typeCheck (Hole _ _) = do -- TODO i don't actually know how to deal with this yet (lookup expression?)
-  g <- gensym "hole"
-  return $ TypeHoleJ g
+typeCheck t@(HoleJ pos ty _) = do t' <- expandTerm t
+                                  case t' of
+                                   HoleJ pos' ty' _ -> typeCheckType (MergeTags [pos, pos']) ty'
+                                   _ -> do ty' <- typeCheck t'
+                                           unify pos ty ty'
+                                           return ty'
 typeCheck (Get pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return tyloc
@@ -472,8 +480,8 @@ typeCheck (Addr pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return $ PtrType tyloc
 typeCheck (Set pos loc v) = do
-  tyloc <- typeCheckLoc pos loc
-  tyv <- typeCheck v
+  tyloc <- typeCheckLoc pos loc >>= normalizeTypesM
+  tyv <- typeCheck v >>= normalizeTypesM
   unify pos tyloc tyv
   return $ Void
 typeCheck (AssertType pos v ty) = do
@@ -500,17 +508,32 @@ typeCheckLoc pos (Ref ty v) = do
   ty' <- unify (MergeTags [pos, vpos]) ty vty
   return ty'
 typeCheckLoc pos (Index a idxs) = do
-  aty <- typeCheck a
-  idxs' <- forM idxs $ \idx -> do
-    idxty <- typeCheck idx
-    expectInt pos idxty
-    gi <- gensym "idx"
-    return $ HoleJ (MergeTags [pos, getTag idx]) gi
-  g <- gensym "vecbase"
-  vectype <- unify pos aty (VecType idxs' (TypeHoleJ g))
-  case vectype of
-   VecType _ vecbase -> return vecbase
-   _ -> return $ TypeHoleJ g -- well, it's something
+  aty <- typeCheck a >>= normalizeTypesM
+  trace ("***" ++ show idxs ++ "\n  --" ++ show aty) $ typeCheckIdx aty idxs aty
+  where typeCheckIdx oty [] aty = normalizeTypesM aty
+        typeCheckIdx oty (idx:idxs) (VecType (ibnd:ibnds) bty) = do
+          -- idx is next index value, ibnd is next vec bound
+          idxty <- typeCheck idx
+          case idxty of
+           IntType _ -> typeCheckIdx oty idxs (VecType ibnds bty)
+           VecType [idx'] (IntType _) -> do
+             case idx of
+               -- N.B. this is a special case so that ranges with
+               -- unbounded top are unified to the length of the
+               -- underlying vector. Otherwise, the unbounded slice
+               -- will have a length determined by uses of the vector
+               -- slice.
+               RangeVal rpos (Range { rangeTo = h@(HoleJ {}) } ) -> unify (MergeTags [pos, rpos]) h ibnd >> return ()
+               _ -> return ()
+             bty' <- typeCheckIdx oty idxs (VecType ibnds bty)
+             return $ VecType [idx'] bty'
+           _ -> do unify pos (IntType IDefault) idxty
+                   hole <- gensym "hole"
+                   return $ TypeHoleJ hole
+        typeCheckIdx oty (idx:idxs) ty = do
+          addUError $ UGenTyError pos oty "Too many indices on expression of type"
+          hole <- gensym "hole"
+          return $ TypeHoleJ hole
 typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
   case aty of
@@ -559,7 +582,8 @@ universalizeTypeVars repMap ty = runIdentity $ traverseTerm tty texp tloc trng t
   where tty = return
         texp expr = case expr of
           Get pos (Ref ty v) -> case M.lookup v repMap of
-            Just v' -> return $ Hole pos (Just v')
+            Just v' -> return $ HoleJ pos ty v'
             Nothing -> return expr
+          _ -> return expr
         tloc = return
         trng = return

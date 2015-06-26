@@ -7,6 +7,7 @@ module Language.Plover.Quote
 import Language.Plover.SemCheck
 import Language.Plover.Unify
 import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
+import qualified Text.PrettyPrint as PP
 
 import Language.Haskell.TH as TH
 import Language.Haskell.TH.Quote
@@ -79,18 +80,21 @@ reportSemErr ls err
      SemUnboundType tag v -> posStuff tag ++ "Unbound type " ++ show v ++ ".\n"
      SemUniError err -> case err of
        UError tag msg -> posStuff tag ++ msg ++ "\n"
-       UTyFailure tag t1 t2 -> posStuff tag ++ "Could not unify type\n  "
-                               ++ show t1 ++ "\nwith type\n  " ++ show t2 ++ "\n"
-       UExFailure tag e1 e2 -> posStuff tag ++ "Could not unify expression\n  "
-                               ++ show e1 ++ "\nwith expression\n  " ++ show e2 ++ "\n"
-       ULocFailure tag l1 l2 -> posStuff tag ++ "Could not unify location\n  "
-                                ++ show l1 ++ "\nwith location\n  " ++ show l2 ++ "\n"
+       UTyFailure tag t1 t2 -> posStuff tag ++ "Could not unify type\n"
+                               ++ nice t1 ++ "\nwith type\n" ++ nice t2 ++ "\n"
+       UExFailure tag e1 e2 -> posStuff tag ++ "Could not unify expression\n"
+                               ++ nice e1 ++ "\nwith expression\n" ++ nice e2 ++ "\n"
+       ULocFailure tag l1 l2 -> posStuff tag ++ "Could not unify location\n"
+                                ++ show l1 ++ "\nwith location\n" ++ show l2 ++ "\n"
        UTyOccurs tag v ty -> posStuff tag ++ "Occurs check error for " ++ show v
-                             ++ " in type\n  " ++ show ty ++ "\n"
+                             ++ " in type\n" ++ nice ty ++ "\n"
        UExOccurs tag v ex -> posStuff tag ++ "Occurs check error for " ++ show v
-                             ++ " in expression\n  " ++ show ex ++ "\n"
+                             ++ " in expression\n" ++ nice ex ++ "\n"
        UNoField tag v -> posStuff tag ++ "No such field " ++ show v ++ "\n"
+       UGenTyError tag ty msg -> posStuff tag ++ msg ++ "\n" ++ nice ty ++ "\n"
   where posStuff tag = "Error " ++ unlines (("at " ++) .  showLine ls <$> (sort $ nub $ getTags tag))
+        nice :: T.PP a => a -> String
+        nice t = show $ PP.nest 3 (T.pretty t)
 
 -- | Gives a carat pointing to a position in a line in a source file
 showLine :: [String] -- ^ the lines from the source file
@@ -184,7 +188,7 @@ store = do pos <- getPosition
 -- Parse tuples
 tuple :: Parser Expr
 tuple = do pos <- getPosition
-           ts <- tupleSep range (reservedOp ",")
+           ts <- tupleSep range (symbol ",")
            case ts of
             Right v -> return v
             Left vs -> return $ wrapPos pos $ Tuple vs
@@ -282,7 +286,10 @@ literal = voidlit <|> holelit <|> transposelit <|> numlit <|> binlit <|> strlit
                <?> "boolean"
           return $ BoolLit b
         strlit = withPos $ StrLit <$> stringLiteral
-        parenGroup = symbol "(" *> mstatements <* symbol ")"
+        parenGroup = do pos <- getPosition
+                        symbol "("
+                        (symbol ")" >> (return $ wrapPos pos VoidExpr))
+                          <|> (mstatements <* symbol ")")
         veclit = -- basically match tuple. TODO better vec literal?
           withPos $ do
             try (reserved "vec" >> symbol "(")
@@ -357,7 +364,7 @@ makeExpr :: Expr -> Either ConvertError T.CExpr
 makeExpr exp@(PExpr pos e') = case e' of
   Vec [] e -> makeExpr e
   Vec ((v,r):bs) e -> do rng <- makeRange r
-                         ee <- makeExpr e
+                         ee <- makeExpr (PExpr pos (Vec bs e))
                          return $ T.Vec pos v rng ee
   Sum [] e -> makeExpr e
   Sum ((v,r):bs) e -> do rng <- makeRange r

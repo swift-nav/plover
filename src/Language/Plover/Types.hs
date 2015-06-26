@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -14,10 +16,14 @@ import qualified Data.Traversable as T (Traversable)
 import Control.Monad.Trans.Either hiding (left)
 import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
+import Control.Monad.Identity
 import Data.String
 import Data.Ratio
 import Text.ParserCombinators.Parsec.Pos (SourcePos)
 import Data.Tag
+import Data.Functor.Fixedpoint
+import Data.Char
+import Text.PrettyPrint
 
 
 -- Core AST
@@ -103,7 +109,7 @@ data Expr a
 
   -- Operators
   -- Symbolic patterns given below
-  | Hole' (Maybe UVar)
+  | Hole' (Maybe (Type, UVar)) -- type and value hole
   | Get' (Location a)
   | Addr' (Location a)
   | Set' (Location a) a
@@ -171,14 +177,16 @@ fnT params out = FnT [("", True, t) | t <- params] out
 -- TODO: returning a tuple? (right now can just return a struct)
 getEffectiveFunType :: FunctionType -> (FunctionType, Maybe (Variable, Type))
 getEffectiveFunType ft@(FnT args retty) = if complexRet retty
-                                          then internReturn args retty
-                                          else (ft, Nothing)
+                                          then internReturn args' retty
+                                          else ((FnT args' retty), Nothing)
   where complexRet :: Type -> Bool
         complexRet (VecType _ _) = True
         complexRet (TypedefType _) = True
         complexRet (StructType _ _) = True
         -- Any mistake in here will just end up causing a "don't know how to program this" message later
         complexRet _ = False
+
+        args' = maybeAddVoid args
 
         -- Puts the return into the argument list.  TODO should it be
         -- the type itself, or should it be Ptrized?  The semantics of
@@ -193,6 +201,13 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                      else test
                 retty' = retty
 
+-- Checks that there is at least one required argument
+maybeAddVoid :: [(Variable, Bool, Type)] -> [(Variable, Bool, Type)]
+maybeAddVoid args | null [True | (_,r,_) <- args, r]  = args ++ [("", True, Void)]
+                  | otherwise                         = args
+
+withPossibleVoid :: FunctionType -> FunctionType
+withPossibleVoid (FnT args retty) = (FnT (maybeAddVoid args) retty)
 
 data Type' a
   = VecType [a] (Type' a)
@@ -204,7 +219,6 @@ data Type' a
   | FloatType FloatType
   | StringType -- null-terminated C string
   | BoolType
-  | RangeType IntType
   | PtrType (Type' a)
   | TypedefType Variable
   -- Concrete ST has name, values for type parameters
@@ -339,8 +353,8 @@ normalizeType (TypedefType name) = typedefType name >>= normalizeType
 normalizeType (VecType [] t) = return t
 normalizeType t = return t
 
-sep :: (Show a, Show b) => a -> b -> String
-sep s1 s2 = show s1 ++ ", " ++ show s2
+--sep :: (Show a, Show b) => a -> b -> String
+--sep s1 s2 = show s1 ++ ", " ++ show s2
 
 pattern Vec tag a b c = PExpr tag (Vec' a b c)
 pattern If tag a b c = PExpr tag (If' a b c)
@@ -391,7 +405,7 @@ pattern a :> b = Seq NoTag a b
 pattern a :$ b = App NoTag a [b]
 --pattern a := b = Fix (Init a b)
 
-pattern HoleJ pos a = Hole pos (Just a)
+pattern HoleJ pos ty a = Hole pos (Just (ty, a))
 pattern TypeHoleJ a = TypeHole (Just a)
 
 -- Syntax
@@ -518,6 +532,7 @@ intBits S32 = 32
 intBits U64 = 64
 intBits S64 = 64
 
+-- | Gets the int type (of the two) which can hold both ints (maybe).
 intPromotePreserveBits :: IntType -> IntType -> Maybe IntType
 intPromotePreserveBits IDefault y = Just y
 intPromotePreserveBits x IDefault = Just x
@@ -535,3 +550,82 @@ floatPromote x FDefault = x
 floatPromote Float y = y
 floatPromote x Float = x
 floatPromote x y = Double
+
+-- | Determines whether a location of the first int type can comfortably
+-- hold a location of the second.
+intCanHold :: IntType -> IntType -> Bool
+intCanHold _ IDefault = True
+intCanHold d s
+  | intBits d < intBits s = False
+  | intUnsigned d = intUnsigned s
+  | otherwise = not (intUnsigned s) || intBits d > intBits s
+
+-- | Determines whether a location of the first float type can
+-- comfortably hold a location of the second.
+floatCanHold :: FloatType -> FloatType -> Bool
+floatCanHold _ FDefault = True
+floatCanHold Float Double = False
+floatCanHold _ _ = True
+
+
+normalizeTypes :: TermMappable a => a -> a
+normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
+  where tty ty = case ty of
+          VecType [] ty -> return ty
+          VecType idxs1 (VecType idxs2 ty) -> return $ VecType (idxs1 ++ idxs2) ty
+          _ -> return ty
+        texp = return
+        tloc = return
+        trng = return
+
+
+class PP a where
+  pretty :: a -> Doc
+
+instance PP (t a) => PP (FixTagged' tag t a) where
+  pretty (FixTagged' x) = pretty (stripTag x)
+
+instance PP (a (Fix a)) => PP (Fix a) where
+  pretty (Fix x) = pretty x
+
+
+instance PP Type where
+  pretty v@(VecType {}) = case normalizeTypes v of
+                           VecType idxs ty -> pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
+                           ty' -> pretty ty'
+  pretty Void = text "Void"
+  pretty (FnType (FnT args retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
+    where prarg (v, req, ty) = (rqimp req) (sep $ punctuate (text "::") [text v, pretty ty])
+          rqimp True = parens
+          rqimp False = braces
+  pretty NumType = text "Num"
+  pretty (IntType IDefault) = text "int"
+  pretty (IntType t) = text $ map toLower $ show t
+  pretty (FloatType FDefault) = text "double"
+  pretty (FloatType t) = text $ map toLower $ show t
+  pretty StringType = text "string"
+  pretty BoolType = text "bool"
+  pretty (PtrType t) = parens $ hang (text "*") 2 (pretty t)
+  pretty (TypedefType v) = text v
+  pretty (StructType v _) = text v
+  pretty (TypeHole (Just v)) = parens (text $ "TypeHole " ++ show v)
+  pretty (TypeHole Nothing) = parens (text "TypeHole")
+--  pretty x = text $ show x
+
+instance (Show a, PP a) => PP (Expr a) where
+  pretty (VoidExpr') = text "Void"
+  pretty (IntLit' _ x) = text $ show x
+  pretty (FloatLit' _ x) = text $ show x
+  pretty (StrLit' x) = text $ show x
+  pretty (BoolLit' x) = text $ show x
+  pretty (Hole' (Just (_, v))) = parens $ text $ "Hole " ++ v
+  pretty (Hole' Nothing) = parens $ text "Hole"
+  pretty (Get' loc) = pretty loc
+  pretty (Addr' loc) = parens $ hang (text "&") 2 (pretty loc)
+  pretty x = text $ show x
+
+instance PP a => PP (Location a) where
+  pretty (Ref _ v) = text v
+  pretty (Index ty idxs) = pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
+  pretty (Field a field) = pretty a <> text ("." ++ field)
+  pretty (Deref a) = parens $ hang (text "*") 2 (pretty a)

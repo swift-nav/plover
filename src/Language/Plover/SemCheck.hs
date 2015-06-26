@@ -50,10 +50,14 @@ doSemCheck defs = runSemChecker dochecks
                       defs' <- (M.elems . globalBindings <$> get) >>= mapM fillHoles
                       modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defs'] }
                       defs' <- M.elems . globalBindings <$> get
-                      case runUM defs' (typeCheckToplevel defs') of
-                       Right defs'' -> return defs''
-                       Left errs -> do mapM_ (addError . SemUniError) errs
-                                       return []
+
+                      he <- hasErrors
+                      if not he
+                        then case runUM defs' (typeCheckToplevel defs') of
+                              Right defs'' -> return defs''
+                              Left errs -> do mapM_ (addError . SemUniError) errs
+                                              return []
+                        else return []
 --                      globalBindings <$> get
 
 
@@ -79,6 +83,9 @@ type SemChecker = State SemCheckData
 addError :: SemError -> SemChecker ()
 addError e = do sd <- get
                 put $ sd { semErrors = semErrors sd ++ [e] }
+
+hasErrors :: SemChecker Bool
+hasErrors = not . null . semErrors <$> get
 
 -- | Adds the error to the error list of the condition is false.
 semAssert :: Bool -> SemError -> SemChecker ()
@@ -310,7 +317,7 @@ fillValHoles exp = case exp of
                                                      fillValHoles $ Let pos tv (Uninitialized pos (TypeHole Nothing))
                                                        (Seq pos (ConcreteApp pos fn matched)
                                                         (Get pos (Ref (TypeHole Nothing) tv)))
-                             Nothing -> (ConcreteApp pos fn <$> matchArgs pos args ft) >>= fillValHoles
+                             Nothing -> (ConcreteApp pos fn <$> matchArgs pos args (withPossibleVoid ft)) >>= fillValHoles
      Just _ -> do addError $ SemError pos "Cannot call non-function."
                   return exp
      Nothing -> do addError $ SemError pos "No such global function."
@@ -332,7 +339,8 @@ fillValHoles exp = case exp of
   ConcreteApp pos _ _ -> do addError $ SemError pos "Cannot call expression."
                             return exp
   Hole pos Nothing -> do name <- genUVar
-                         return $ Hole pos (Just name)
+                         ty <- genUVar
+                         return $ HoleJ pos (TypeHoleJ ty) name
   Hole _ _ -> return exp
   Get pos loc -> Get pos <$> fillLocHoles pos loc
   Addr pos loc -> Addr pos <$> fillLocHoles pos loc
@@ -356,7 +364,6 @@ fillTypeHoles pos ty = case ty of
   FloatType mt -> return ty
   StringType -> return ty
   BoolType -> return ty
-  RangeType _ -> return ty
   PtrType ty -> do ty' <- fillTypeHoles pos ty
                    return $ PtrType ty'
   TypedefType v -> do mty <- lookupGlobalType v
@@ -405,7 +412,8 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
     matchArgs' i (Arg x : xs) ((v, True, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- An omitted implicit argument is filled with a value hole
     matchArgs' i (Arg x : xs) ((v, False, ty) : fxs) = do name <- genUVar
-                                                          (Hole pos (Just name) :) <$> matchArgs' i (Arg x : xs) fxs
+                                                          ty <- genUVar
+                                                          (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i (Arg x : xs) fxs
     -- (error) An implicit argument where a required argument is expected
     matchArgs' i (ImpArg x : xs) ((v, True, ty) : fxs) = do
       addError $ SemError pos $ "Unexpected implicit argument in position " ++ show i ++ "."
@@ -415,7 +423,8 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
     -- (error) Fewer arguments than parameters
     matchArgs' i [] (fx : fxs) = do addError $ SemError pos $ "Not enough arguments.  Given " ++ show i ++ "."
                                     name <- genUVar -- try to recover for error message's sake
-                                    (Hole pos (Just name) :) <$> matchArgs' i [] fxs
+                                    ty <- genUVar
+                                    (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i [] fxs
     -- Exactly the correct number of arguments
     matchArgs' i [] [] = return []
     matchArgs' i xs [] = do addError $ SemError pos $ "Too many arguments.  Given " ++ show i ++ ", " ++ validRange ++ "."

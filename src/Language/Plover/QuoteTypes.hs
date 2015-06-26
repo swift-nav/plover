@@ -21,7 +21,7 @@ import Text.PrettyPrint
 import Data.Tag
 import Data.Functor.Fixedpoint
 
-import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFloatType)
+import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFloatType, PP(..))
 
 type Expr = FixTagged SourcePos Expr'
 pattern PExpr tag a = FTag tag a
@@ -110,15 +110,6 @@ integer x = IntLit IDefault x
 
 float :: Double -> Expr' a
 float x = FloatLit defaultFloatType x
-
-class PP a where
-  pretty :: a -> Doc
-
-instance PP (t a) => PP (FixTagged' tag t a) where
-  pretty (FixTagged' x) = pretty (stripTag x)
-
-instance PP (a (Fix a)) => PP (Fix a) where
-  pretty (Fix x) = pretty x
 
 --instance PP a => PP (PosExpr' a) where
 --  pretty (PosExpr' x) = pretty x

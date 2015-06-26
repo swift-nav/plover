@@ -1,8 +1,25 @@
-g {n :: u8} (A :: double[n]) :: double
-  := A[1];
+-- g {n :: u8} (A :: double[2]) :: double
+--   := A[2];
 
-extern B :: double[5];
+-- --extern B :: double[5];
 
-zeros {n :: u8} :: double[n] := vec i in n -> 0;
+-- zeros {n :: u8} :: double[n] := vec i in n -> 0;
 
-f Void :: double  := g (vec i in 5 -> i);
+-- --f() :: double  := g (vec i in 5 -> i);
+
+-- extern dot {n :: u8} (A :: double[n]) (B :: double[n]) :: double;
+
+-- h (n :: u8) :: double := dot (vec i in n -> i) (zeros());
+
+-- -- struct Array (
+-- --   maxlen :: u8;
+-- --   len :: u8;
+-- --   assert (len <= maxlen);
+-- --   space :: double[maxlen];
+-- -- );
+
+-- N :: u8  := (0:100)[22];
+
+-- foo (x :: *u8) :: Void  := (*x <- 22);
+
+foo {n :: u8} (A :: double[n,n]) :: double[n] := A[2,:];

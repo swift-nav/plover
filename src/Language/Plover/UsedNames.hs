@@ -32,7 +32,7 @@ allNames (App _ f args) = allNames f ++ (args >>= allNames . unarg)
   where unarg (Arg x) = x
         unarg (ImpArg x) = x
 allNames (ConcreteApp _ f args) = allNames f ++ (args >>= allNames)
-allNames (Hole _ (Just v)) = [v]
+allNames (HoleJ _ ty v) = allNamesInType ty ++ [v]
 allNames (Get _ loc) = allNamesInLocation loc
 allNames (Addr _ loc) = allNamesInLocation loc
 allNames (Set _ loc v) = allNamesInLocation loc ++ allNames v
