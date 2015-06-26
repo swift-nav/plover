@@ -6,8 +6,10 @@ module Language.Plover.Quote
  ) where
 import Language.Plover.SemCheck
 import Language.Plover.Unify
+import Language.Plover.CodeGen (compileTopLevel, runCM)
 import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
 import qualified Text.PrettyPrint as PP
+import qualified Text.PrettyPrint.Mainland as Mainland
 
 import Language.Haskell.TH as TH
 import Language.Haskell.TH.Quote
@@ -117,7 +119,10 @@ runStuff fileName = do source <- readFile fileName
                              case doSemCheck $ defs of
                               Left errs -> forM_ errs $ \err -> do
                                 putStrLn (reportSemErr (lines source) err)
-                              Right v -> putStrLn $ Pr.ppShow v
+                              Right v -> do let cdefs = runCM (compileTopLevel v)
+                                            putStrLn "\n\nCompilation unit:\n"
+                                            putStrLn $ show $ Mainland.ppr cdefs
+--                                                   return defs''putStrLn $ Pr.ppShow v
 
 type Lexer = GenParser Char LexerState
 data LexerState = LexerState {}

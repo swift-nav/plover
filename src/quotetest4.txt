@@ -3,7 +3,7 @@
 
 -- --extern B :: double[5];
 
--- zeros {n :: u8} :: double[n] := vec i in n -> 0;
+zeros {n :: u8} :: double[n] := vec i in n -> i;
 
 -- --f() :: double  := g (vec i in 5 -> i);
 
@@ -22,5 +22,8 @@
 
 -- foo (x :: *u8) :: Void  := (*x <- 22);
 
-foo {n :: u8} (_A :: double[n]) :: double[6] := _A[vec i in 5, j in 6 -> i][2];
+--foo {n :: u8} (_A :: double[n]) :: double[n] :=
+  --  zeros();
+
+--_A[vec i in 5, j in 6 -> i][2];
 
