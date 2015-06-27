@@ -22,8 +22,14 @@ zeros {n :: u8} :: double[n] := vec i in n -> i;
 
 -- foo (x :: *u8) :: Void  := (*x <- 22);
 
---foo {n :: u8} (_A :: double[n]) :: double[n] :=
-  --  zeros();
+foo {n :: u8} (_A :: double[n]) :: double[n] := zeros();
 
 --_A[vec i in 5, j in 6 -> i][2];
 
+And (a :: Bool) (b :: Bool) :: Bool  := if a then b else False ;
+
+
+-- foo n result :
+--   result <- let temp = new array[n]
+--             in zeros(temp)
+--                temp
