@@ -1,0 +1,4 @@
+foo (n :: u8) (A :: u8[n,n]) (B :: u8[n,n]) :: u8  := (
+  A <- B;
+--  B <- vec i in n, j in n -> i;
+  1;2;3); -- if True then n else if True then n else n;
