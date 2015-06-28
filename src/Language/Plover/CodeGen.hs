@@ -694,7 +694,9 @@ compileLoc' (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
         mkIndex aloc (idx:idxs) =  case normalizeTypes (getType idx) of
           VecType ibnds ibty -> do
             (idxbl, idxloc) <- asLoc $ compileStat idx
-            return (idxbl, composeLocs aloc (length ibnds) idxloc)
+            let aloc' = composeLocs aloc (length ibnds) idxloc
+            (bl'', loc'') <- mkIndex aloc' idxs
+            return (idxbl ++ bl'', loc'')
                                 
           ty -> do (idxbl, idxex) <- withValue $ compileStat idx
                    (abl', aloc') <- apIndex aloc idxex
