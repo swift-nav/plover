@@ -389,7 +389,7 @@ makeExpr exp@(PExpr pos e') = case e' of
   BoolLit b -> return $ T.BoolLit pos b
   StrLit s -> return $ T.StrLit pos s
   VecLit es -> do es' <- mapM makeExpr es
-                  return $ T.VecLit pos es'
+                  return $ T.VecLit pos (T.TypeHole Nothing) es'
   If a b c -> do a' <- makeExpr a
                  b' <- makeExpr b
                  c' <- makeExpr c

@@ -265,9 +265,10 @@ instance Unifiable CExpr where
   unify pos x@(StrLit {}) y@(StrLit {}) | x == y = return x
   unify pos x@(BoolLit {}) y@(BoolLit {}) | x == y = return x
 
-  unify pos (VecLit pos1 xs1) (VecLit pos2 xs2)  | length xs1 == length xs2 = do
+  unify pos (VecLit pos1 ty1 xs1) (VecLit pos2 ty2 xs2)  | length xs1 == length xs2 = do
+    ty' <- unify pos' ty1 ty2
     xs' <- forM (zip xs1 xs2) $ \(x1, x2) -> unify pos' x1 x2
-    return $ VecLit pos' xs'
+    return $ VecLit pos' ty' xs'
     where pos' = MergeTags [pos, pos1, pos2]
 
   -- skipping Let
@@ -439,13 +440,11 @@ typeCheck (IntLit pos ty _) = return $ IntType ty
 typeCheck (FloatLit pos ty _) = return $ FloatType ty
 typeCheck (StrLit {}) = return $ StringType
 typeCheck (BoolLit {}) = return $ BoolType
-typeCheck (VecLit pos []) = return $ Void -- TODO is this correct? (probably not)
-typeCheck (VecLit pos (x:xs)) = do
-  xty <- typeCheck x
-  forM_ xs $ \y -> do
-    yty <- typeCheck y
-    unify pos xty yty
-  return $ VecType [IntLit pos defaultIntType (fromIntegral $ 1 + length xs)] xty
+typeCheck (VecLit pos ty xs) = do
+  forM_ xs $ \x -> do
+    xty <- typeCheck x
+    unify pos ty xty
+  return $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
   addBinding pos v tyx

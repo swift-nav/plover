@@ -295,7 +295,7 @@ fillValHoles exp = case exp of
   FloatLit _ _ _ -> return exp
   StrLit _ _ -> return exp
   BoolLit _ _ -> return exp
-  VecLit pos exprs -> VecLit pos <$> mapM fillValHoles exprs
+  VecLit pos ty exprs -> VecLit pos <$> fillTypeHoles pos ty <*> mapM fillValHoles exprs
   Let pos v val expr -> do
     val' <- fillValHoles val
     withNewScope $ do

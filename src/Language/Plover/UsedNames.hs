@@ -25,7 +25,7 @@ allNames (Return _ x) = allNames x
 allNames (Assert _ x) = allNames x
 allNames (RangeVal _ rng) = allNamesInRange rng
 allNames (If _ a b c) = [a, b, c] >>= allNames
-allNames (VecLit _ xs) = xs >>= allNames
+allNames (VecLit _ ty xs) = allNamesInType ty ++ (xs >>= allNames)
 allNames (Let _ v d x) = [v] ++ allNames d ++ allNames x
 allNames (Seq _ a b) = [a, b] >>= allNames
 allNames (App _ f args) = allNames f ++ (args >>= allNames . unarg)

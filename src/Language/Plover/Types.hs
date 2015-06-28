@@ -95,7 +95,7 @@ data Expr a
   | FloatLit' FloatType Double
   | StrLit' String
   | BoolLit' Bool
-  | VecLit' [a]
+  | VecLit' Type [a] -- the type is the base type of the vector (for 0-element case)
 
   -- Things that change the context
 --  | Extension' a
@@ -369,7 +369,7 @@ pattern IntLit tag t a = PExpr tag (IntLit' t a)
 pattern FloatLit tag t a = PExpr tag (FloatLit' t a)
 pattern StrLit tag s = PExpr tag (StrLit' s)
 pattern BoolLit tag s = PExpr tag (BoolLit' s)
-pattern VecLit tag s = PExpr tag (VecLit' s)
+pattern VecLit tag ty s = PExpr tag (VecLit' ty s)
 pattern Return tag x = PExpr tag (Return' x)
 pattern Assert tag x = PExpr tag (Assert' x)
 pattern App tag f args = PExpr tag (App' f args)
@@ -478,7 +478,7 @@ instance TermMappable CExpr where
     Assert pos v -> Assert pos <$> texp v
     RangeVal pos range -> RangeVal pos <$> trng range
     If pos a b c -> If pos <$> texp a <*> texp b <*> texp c
-    VecLit pos exprs -> VecLit pos <$> mapM texp exprs
+    VecLit pos ty exprs -> VecLit pos <$> tty ty <*> mapM texp exprs
     Let pos v val expr -> Let pos v <$> texp val <*> texp expr
     Uninitialized pos ty -> Uninitialized pos <$> tty ty
     Seq pos p1 p2 -> Seq pos <$> texp p1 <*> texp p2
@@ -647,8 +647,7 @@ getType (IntLit pos t _) = IntType t
 getType (FloatLit pos t _) = FloatType t
 getType (StrLit {}) = StringType
 getType (BoolLit {}) = BoolType
-getType (VecLit pos []) = Void
-getType (VecLit pos (x:xs)) = VecType [IntLit pos IDefault (fromIntegral $ 1 + length xs)] (getType x)
+getType (VecLit pos ty xs) = VecType [IntLit pos IDefault (fromIntegral $ length xs)] ty
 getType (Let pos v x body) = getType body
 getType (Uninitialized pos ty) = ty
 getType (Seq pos a b) = getType b

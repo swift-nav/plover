@@ -258,54 +258,18 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
                                                            collapseIdx [cexp| $bndex * $accidx + $idx |]
                                                              idxs bnds (blks ++ bndbl)
 
--- | Takes two locs so that (composeLocs loca locb)[i] =
--- loca[locb[i]].  The type is the base type for loca, and the integer
--- is the number of dimensions on locb.  Type is the type of the
--- resulting composition.
-composeLocs :: CmLoc -> Int -> CmLoc -> CmLoc
-composeLocs loca nbnds locb = composeLocs' nbnds locb
-  where composeLocs' :: Int -> CmLoc -> CmLoc
-        composeLocs' 0 locb = loc
-          where loc = CmLoc
-                      { apIndex = \idx -> do (bl, loca') <- indexed
-                                             (bl', loca'') <- apIndex loca' idx
-                                             return (bl ++ bl', loca'')
-                      , store = \exp -> do (bl, loca') <- indexed
-                                           st <- store loca' exp
-                                           return (bl ++ st)
-                      , asRValue = comp
-                      , asArgument = error "asArgument for composeLocs TODO"
-                      }
-                comp = Compiled
-                       { noValue = do (bl, _) <- indexed
-                                      return bl
-                       , withDest = \dest -> do (bl, loca') <- indexed
-                                                st <- withDest (asRValue loca') dest
-                                                return (bl ++ st)
-                       , withValue = do (bl, loca') <- indexed
-                                        (bl', v) <- withValue $ asRValue loca'
-                                        return (bl ++ bl', v)
-                       , asLoc = return ([], loc)
-                       }
-                indexed :: CM ([C.BlockItem], CmLoc)
-                indexed = do (blv, v) <- withValue $ asRValue locb
-                             (locabl', loca') <- apIndex loca v
-                             return (blv ++ locabl', loca')
-        composeLocs' n locb =
-          CmLoc
-          { apIndex = \idx -> do (bbl', locb') <- apIndex locb idx
-                                 return (bbl', composeLocs' (n - 1) locb')
-          , store = error "Cannot store into composeLocs"
-          , asRValue = error "Cannot get composeLocs as R value"
-          , asArgument = error "asArgument for composeLocs TODO"
-          }
-        apIndices :: CmLoc -> [C.Exp] -> CM ([C.BlockItem], CmLoc)
-        apIndices loc [] = return ([], loc)
-        apIndices loc (idx:idxs) = do (bl', loc') <- apIndex loc idx
-                                      (bl'', loc'') <- apIndices loc' idxs
+deferLoc :: CmLoc -> Int -> (CmLoc -> CM ([C.BlockItem], CmLoc)) -> CM ([C.BlockItem], CmLoc)
+deferLoc loc 0 f = f loc
+deferLoc loc n f = return ([], dloc)
+  where dloc = CmLoc
+               { apIndex = \idx -> do (bl', loc') <- apIndex loc idx
+                                      (bl'', loc'') <- deferLoc loc' (n - 1) f
                                       return (bl' ++ bl'', loc'')
---composeLocs baseTy loca nbnds locb = CmLoc
---                                     { apIndex = \idx -> return 
+               , store = error "Cannot store into deferLoc"
+               , asRValue = comp
+               , asArgument = error "TODO asArgument for deferLoc"
+               }
+        comp = error "TODO asRValue for deferLoc"
 
 -- | uses withValue, executing exp as a statement.
 defaultNoValue :: Type -> Compiled -> CM [C.BlockItem]
@@ -517,8 +481,7 @@ compileStat (BoolLit _ b) = compPureExpr BoolType $ return [cexp| $id:lit |]
   where lit :: String
         lit = if b then "TRUE" else "FALSE"
 
-compileStat (VecLit pos []) = error "Unimplemented VecLit [] -- TODO has no type."
-compileStat v@(VecLit pos xs) = comp
+compileStat v@(VecLit pos ty xs) = comp
   where comp = Compiled
                { noValue = defaultNoValue vty comp
                , withDest = \dest -> fmap concat $ forM (zip [0..] xs) $ \(i,x) -> do
@@ -673,32 +636,34 @@ compileStat (Binary _ Mul a b) = comp
 
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
-flattenLoc :: Location CExpr -> Location CExpr
-flattenLoc (Index (Get _ (Index a idxs1)) idxs2) = flattenLoc $ Index a (idxs1 ++ idxs2)
-flattenLoc loc = loc
-
-compileLoc loc = compileLoc' (flattenLoc loc)
-
-compileLoc' :: Location CExpr -> CM ([C.BlockItem], CmLoc)
-compileLoc' (Ref ty v) =  case normalizeTypes ty of
+compileLoc :: Location CExpr -> CM ([C.BlockItem], CmLoc)
+compileLoc (Ref ty v) =  case normalizeTypes ty of
   VecType idxs bty -> do v <- lookupName "v" v
                          return $ ([], mkVecLoc bty [cexp| $id:v |] idxs)
   _ -> do v' <- lookupName "v" v
           return $ ([], refLoc ty v')
 
-compileLoc' (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
-                                (bl, loc) <- mkIndex aloc idxs
-                                return (abl ++ bl, loc)
-  where mkIndex :: CmLoc -> [CExpr] -> CM ([C.BlockItem], CmLoc)
-        mkIndex aloc [] = return ([], aloc)
-        mkIndex aloc (idx:idxs) =  case normalizeTypes (getType idx) of
+compileLoc (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
+                               cidxs' <- mapM mkIndex idxs
+                               let idxbl = concat $ map fst cidxs'
+                               (abl', aloc') <- mkLoc aloc (map snd cidxs')
+                               return (abl ++ idxbl ++ abl', aloc')
+  where mkIndex :: CExpr -> CM ([C.BlockItem], Either (Int, CmLoc) C.Exp) -- TODO tuple
+        mkIndex idx = case normalizeTypes (getType idx) of
           VecType ibnds ibty -> do
             (idxbl, idxloc) <- asLoc $ compileStat idx
-            let aloc' = composeLocs aloc (length ibnds) idxloc
-            (bl'', loc'') <- mkIndex aloc' idxs
-            return (idxbl ++ bl'', loc'')
-                                
-          ty -> do (idxbl, idxex) <- withValue $ compileStat idx
-                   (abl', aloc') <- apIndex aloc idxex
-                   (bl'', loc'') <- mkIndex aloc' idxs
-                   return (idxbl ++ abl' ++ bl'', loc'')
+            return $ (idxbl, Left (length ibnds, idxloc))
+          ty -> do
+            (idxbl, idxex) <- withValue $ compileStat idx
+            return $ (idxbl, Right idxex)
+
+        mkLoc :: CmLoc -> [Either (Int, CmLoc) C.Exp] -> CM ([C.BlockItem], CmLoc)
+        mkLoc aloc [] = return ([], aloc)
+        mkLoc aloc ((Right exp):idxs) = do (bl', aloc') <- apIndex aloc exp
+                                           (bl'', aloc'') <- mkLoc aloc' idxs
+                                           return (bl' ++ bl'', aloc'')
+        mkLoc aloc ((Left (n, iloc)):idxs) = deferLoc iloc n $ \iloc' -> do
+          (ilocbl, ilocex) <- withValue $ asRValue iloc'
+          (abl', aloc') <- apIndex aloc ilocex -- TODO tuples
+          (bl'', aloc'') <- mkLoc aloc' idxs
+          return (ilocbl ++ abl' ++ bl'', aloc'')
