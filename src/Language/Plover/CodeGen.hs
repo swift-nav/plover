@@ -21,6 +21,9 @@ import Language.Plover.Types hiding (freshName)
 import Data.Loc (SrcLoc(SrcLoc), Loc(NoLoc))
 
 import Debug.Trace
+strace :: Show a => a -> a
+strace x = trace ("@@@ " ++ show x) x
+
 
 data CodeGenState = CodeGenState
                     { bindings :: M.Map String String
@@ -101,7 +104,9 @@ compileTopLevel defbs = do forM_ defbs $ \defb ->
 compileFunctionDecl :: String -> FunctionType -> CM [C.Definition]
 compileFunctionDecl name ft = do
   args'' <- compileParams args'
-  return [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')); |] ]
+  return $ case args'' of
+    [] -> [ [cedecl| $ty:(compileType retty) $id:(name)(void); |] ]
+    _ ->  [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')); |] ]
   where (FnT args retty, _) = getEffectiveFunType ft
         nonVoid ty = case ty of
                       Void -> False
@@ -115,7 +120,9 @@ compileFunction name ft exp = do
     Void -> noValue $ compileStat exp
     _ -> do (expbl, expex) <- withValue $ compileStat exp
             return (expbl ++ [ [citem| return $expex; |] ])
-  return [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')) { $items:blks } |] ]
+  return $ case args'' of
+    [] -> [ [cedecl| $ty:(compileType retty) $id:(name)(void) { $items:blks } |] ]
+    _ ->  [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')) { $items:blks } |] ]
   where (FnT args retty, _) = getEffectiveFunType ft
         nonVoid ty = case ty of
                       Void -> False
@@ -179,9 +186,18 @@ data Compiled = Compiled { noValue :: CM [C.BlockItem]
 --                    (bl, exp) <- asRValue loc
 --                    return (prep ++ bl, exp)
 
-data CmLoc = CmLoc { apIndex :: C.Exp -> CM ([C.BlockItem], CmLoc) -- ^ apply an index to a vector location
-                   , store :: C.Exp -> CM [C.BlockItem] -- ^ store an expression if this is a simple (i.e, non-vector) location
-                   , asRValue :: Compiled -- ^ get the compiled simple (i.e., non-vector) expression
+data CmLoc = CmLoc { apIndex :: C.Exp -> CM ([C.BlockItem], CmLoc)
+                     -- ^ apply an index to a vector location
+                   , store :: C.Exp -> CM [C.BlockItem]
+                     -- ^ store an expression if this is a simple (i.e, non-vector) location
+                   , asRValue :: Compiled
+                     -- ^ get the compiled simple (i.e., non-vector) expression
+                   , asArgument :: CM ([C.BlockItem], C.Exp, [C.BlockItem])
+                     -- ^ get a representation of the location (of any
+                     -- type) which can be passed as an argument to a
+                     -- function.  The third argument is code to let
+                     -- changes to the location be reflected in the
+                     -- original object, if that is what is wanted.
                    }
 
 
@@ -190,6 +206,7 @@ expLoc :: Type -> C.Exp -> CmLoc
 expLoc ty exp = CmLoc { apIndex = error "Cannot apIndex expLoc"
                       , store = \v -> return $ [ [citem| $exp = $v; |] ]
                       , asRValue = compPureExpr ty $ return exp
+                      , asArgument = return ([], exp, [])
                       }
 
 -- | takes a C identifier and makes a simple-valued location
@@ -222,12 +239,18 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
           , asRValue = compImpureExpr baseTy $
                        do (blks, idxc) <- collapseIdx idx idxs bnds []
                           return (blks, [cexp| $vec[$idxc] |])
+          , asArgument = do (blks, idxc) <- collapseIdx idx idxs bnds []
+                            return (blks, [cexp| $vec[$idxc] |], [])
           }
           where (idx:idxs, bnds) = unzip acc
         mkVecLoc' acc (bnd:bnds) = CmLoc {
           apIndex = \idx -> return ([], mkVecLoc' (acc ++ [(idx, bnd)]) bnds)
           , store = error "Cannot do simple store into vector"
-          , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return vec
+          , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return vec -- TODO ?
+          , asArgument = case acc of
+              [] -> return ([], vec, [])
+              _ -> do (blks, exp) <- withValue $ compPureExpr (VecType (bnd:bnds) baseTy) $ return vec
+                      return (blks, exp, [])
         }
         collapseIdx :: C.Exp -> [C.Exp] -> [CExpr] -> [C.BlockItem] -> CM ([C.BlockItem], C.Exp)
         collapseIdx accidx [] _ blks = return (blks, accidx)
@@ -306,7 +329,7 @@ compLoc ty mloc = comp
                               bbl' <- noValue $ asRValue loc
                               return $ bbl ++ bbl'
                , withDest = \dest -> do (bbl, loc) <- mloc
-                                        bbl' <- withDest (asRValue loc) dest
+                                        bbl' <- storeLoc ty dest loc
                                         return $ bbl ++ bbl'
                , withValue = do (bbl, loc) <- mloc
                                 (bbl', exp) <- withValue $ asRValue loc
@@ -420,9 +443,8 @@ compileStat v@(VecLit pos xs) = comp
                { noValue = defaultNoValue vty comp
                , withDest = \dest -> fmap concat $ forM (zip [0..] xs) $ \(i,x) -> do
                     (dstbl, xdst) <- apIndex dest [cexp| $int:i |]
-                    (xbl, xloc) <- asLoc $ compileStat x
-                    xstbl <- storeLoc (getType x) xdst xloc
-                    return $ dstbl ++ xbl ++ xstbl
+                    xbl <- withDest (compileStat x) xdst
+                    return $ dstbl ++ xbl
                , withValue = defaultWithValue vty comp
                , asLoc = defaultAsLoc vty comp
                }
@@ -430,43 +452,25 @@ compileStat v@(VecLit pos xs) = comp
 
 compileStat (Let _ v val x) = comp
   where comp = Compiled
-               { withDest = \dest -> newBlocklessScope $ do
-                    v' <- newName "let" v
-                    (locbl, loc) <- makeLoc v' (getType val)
-                    valbl <- withDest (compileStat val) loc -- TODO this is inside the new scope 
-                    xbl <- withDest (compileStat x) dest
-                    return $ locbl ++ valbl ++ xbl
-               , noValue = defaultNoValue xty comp
-               , withValue = defaultWithValue xty comp -- TODO get these things better
+               { withDest = \dest -> makeLet $ \bbl -> do
+                  xbl <- withDest (compileStat x) dest
+                  return $ bbl ++ xbl
+               , noValue = makeLet $ \bbl -> do
+                    xbl <- noValue $ compileStat x
+                    return $ bbl ++ xbl
+               , withValue = makeLet $ \bbl -> do
+                    (xbl, xex) <- withValue (compileStat x)
+                    return $ (bbl ++ xbl, xex)
                , asLoc = defaultAsLoc xty comp
                }
         xty = normalizeTypes $ getType x
-
--- compileStat (Let _ v val x) = Compiled
---                               { noResult = compileLet $ \bbl -> do
---                                    x' <- noResult $ compileStat x
---                                    return $ bbl ++ x'
---                               , withDest = \dest -> compileLet $ \bbl -> do
---                                    x' <- withDest (compileStat x) dest
---                                    return $ bbl ++ x'
---                               , asLoc = do bbl <- compileLet $ \bbl -> do -- not sure about this one...
---                                              return bbl
---                                              (vbl, x') <- genLoc "temp" (getType x)
---                                            cx <- withDest (compileStat x) x'
---                                            return $ blockLoc (return $ bbl ++ vbl ++ cx) x'
--- --                                   sto <- genStore x' 
--- --                                   return $ scopeBlockLoc (\idx -> do return bbl) (asLoc $ compileStat x)
---                               }
---   where compileLet f = newScope $ do
---           v' <- newName "let" v
---           (vbl, vty) <- compileInitType (getType ty)
-          
-          
---           (vbl, v') <- newLoc v (getType val)
---           val'' <- case val of
---                     Uninitialized {} -> return []
---                     _ -> do withDest (compileStat) v'
---           f (vbl ++ val'')
+        makeLet f = newBlocklessScope $ do
+          v' <- newName "let" v
+          (locbl, loc) <- makeLoc v' (getType val)
+          valbl <- case val of
+            Uninitialized {} -> return []
+            _ -> withDest (compileStat val) loc -- TODO this is wrongly inside the new scope 
+          f (locbl ++ valbl)
 
 -- -- skipping Uninitialized
 
@@ -485,8 +489,49 @@ compileStat (Seq _ a b) = comp
                             (bbl, bloc) <- asLoc $ compileStat b
                             return (abl ++ bbl, bloc)
                }
-               
--- compileStat (ConcreteApp pos (Get _ (Ref fty f)) args) =
+
+compileStat (ConcreteApp pos (Get _ (Ref fty f)) args) = comp
+  where comp = Compiled
+               { withValue = do (bbl, fexp, bbl') <- theCall f args
+                                case bbl' of
+                                 [] -> return (bbl, fexp)
+                                 _ -> do ret <- freshName "ret"
+                                         (ctybl, cty) <- compileInitType retty
+                                         return (bbl ++ ctybl ++ [[citem| $ty:cty $id:ret = $fexp; |]],
+                                                 [cexp| $id:ret |])
+               , withDest = \dest -> do (bbl, fexp, bbl') <- theCall f args
+                                        stbl <- storeExp retty dest fexp
+                                        return (bbl ++ stbl ++ bbl')
+               , noValue = do (bbl, fexp, bbl') <- theCall f args
+                              return (bbl ++ [[citem| $fexp; |]] ++ bbl')
+               , asLoc = defaultAsLoc retty comp
+               }
+
+        FnType (FnT _ retty) = fty
+
+        -- | Returns what to do before the call, the call, and what to do after the call
+        theCall :: String -> [CExpr] -> CM ([C.BlockItem], C.Exp, [C.BlockItem])
+        theCall f args = do
+          args' <- forM args $ \a ->
+            case voidType a of
+             True -> do c' <- noValue $ compileStat a
+                        return $ Left c'
+             False -> do (abl, aloc) <- asLoc $ compileStat a
+                         (argbl, arg, argbl') <- asArgument aloc
+                         return $ Right (abl ++ argbl, arg, argbl')
+          let bbl = concat $ flip map args' $ \x -> case x of
+                                                     Left bl -> bl
+                                                     Right (bl, _, _) -> bl
+              args'' = map (\(_,x,_) -> x) $ rights args'
+              bbl' = concat $ flip map args' $ \x -> case x of
+                                                      Left _ -> []
+                                                      Right (_, _, bl) -> bl
+              fexp = [cexp| $id:(f)($args:(args'')) |]
+          return (bbl, fexp, bbl')
+        voidType :: CExpr -> Bool
+        voidType exp = case normalizeTypes $ getType exp of
+          Void -> True
+          _ -> False
 --     Compiled
 --     { noResult = do (fbl, fex) <- theCall f args (map compileStat args)
 --                     return $ fbl ++ [ [citem| $fex; |] ]
@@ -524,25 +569,27 @@ compileStat (Set pos loc v) = comp
                { noValue = do (bloc, loc) <- compileLoc loc
                               stbl <- withDest (compileStat v) loc
                               return $ bloc ++ stbl
-               , withDest = \dst -> do bl <- noValue comp
+               , withDest = \dst -> do bl <- noValue comp -- Shouldn't happen, but just in case...
                                        return bl
                , withValue = do bl <- noValue comp
                                 return (bl, error "Cannot get Set as value.")
                , asLoc = error "Set is not a location"
                }
--- compileStat (Set pos loc v) = Compiled
---                               { noResult = do loc' <- compileLoc loc
---                                               src' <- asLoc $ compileStat v
---                                               genStore loc' src' (getType v)
---                               , withDest = error "Set has no destination"
---                               , asLoc = error "Set is not a location"
---                               }
 
--- compileStat (Hole {}) = error "No holes allowed"
--- -- compileStat (AssertType pos a ty) = compileStat a
+compileStat (Hole {}) = error "No holes allowed"
+compileStat (AssertType pos a ty) = compileStat a
 
 -- -- unary
 -- -- binary
+
+compileStat (Binary _ Mul a b) = comp
+  where comp = Compiled
+               { noValue = return []
+               , withValue =  do -- TODO fix this of course! (i.e., vectors)
+                    (abl, aex) <- withValue $ compileStat a
+                    (bbl, bex) <- withValue $ compileStat b
+                    return (abl ++ bbl, [cexp| $aex * $bex |])
+               }
 
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
@@ -559,4 +606,13 @@ compileLoc' (Ref ty v) =  case normalizeTypes ty of
   _ -> do v' <- lookupName "v" v
           return $ ([], refLoc ty v')
 
--- --compileLoc (Index a idxs)
+compileLoc' (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
+                                (bl, loc) <- mkIndex aloc idxs
+                                return (abl ++ bl, loc)
+  where mkIndex aloc [] = return ([], aloc)
+        mkIndex aloc (idx:idxs) =  case normalizeTypes (getType idx) of
+          VecType ibnds ibty -> error "not yet"
+          ty -> do (idxbl, idxex) <- withValue $ compileStat idx
+                   (abl', aloc') <- apIndex aloc idxex
+                   (bl'', loc'') <- mkIndex aloc' idxs
+                   return (idxbl ++ abl' ++ bl'', loc'')

@@ -671,8 +671,8 @@ getLocType (Index a idxs) = getTypeIdx idxs (normalizeTypes $ getType a)
   where getTypeIdx [] aty = normalizeTypes aty
         getTypeIdx (idx:idxs) (VecType (ibnd:ibnds) bty) =
           case normalizeTypes (getType idx) of
-           IntType _ -> getTypeIdx idxs (VecType ibnds bty)
-           VecType idxs' idxtybase -> VecType idxs' (getTypeIdx ibnds bty)
+           IntType _               ->                getTypeIdx idxs (VecType ibnds bty)
+           VecType idxs' idxtybase -> VecType idxs' (getTypeIdx idxs (VecType ibnds bty))
 getLocType (Field a field) = error "getLocType field not implemented"
 getLocType (Deref a) = let (PtrType a') = getType a
                        in a'
