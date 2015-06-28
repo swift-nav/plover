@@ -15,5 +15,5 @@
 
 -- foo2 {n :: u8} (_A :: double[n,n]) :: double[n,n] := zeros2();
 
-g {n :: u8} (A :: double[n,n]) :: Void
-  := (A[2] <- A[10]);
+g {n :: u8} (A :: double[n,n]) (B :: u8[2,2]) :: Void
+  := (A[B] <- A[B]);

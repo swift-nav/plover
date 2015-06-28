@@ -258,6 +258,55 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
                                                            collapseIdx [cexp| $bndex * $accidx + $idx |]
                                                              idxs bnds (blks ++ bndbl)
 
+-- | Takes two locs so that (composeLocs loca locb)[i] =
+-- loca[locb[i]].  The type is the base type for loca, and the integer
+-- is the number of dimensions on locb.  Type is the type of the
+-- resulting composition.
+composeLocs :: CmLoc -> Int -> CmLoc -> CmLoc
+composeLocs loca nbnds locb = composeLocs' nbnds locb
+  where composeLocs' :: Int -> CmLoc -> CmLoc
+        composeLocs' 0 locb = loc
+          where loc = CmLoc
+                      { apIndex = \idx -> do (bl, loca') <- indexed
+                                             (bl', loca'') <- apIndex loca' idx
+                                             return (bl ++ bl', loca'')
+                      , store = \exp -> do (bl, loca') <- indexed
+                                           st <- store loca' exp
+                                           return (bl ++ st)
+                      , asRValue = comp
+                      , asArgument = error "asArgument for composeLocs TODO"
+                      }
+                comp = Compiled
+                       { noValue = do (bl, _) <- indexed
+                                      return bl
+                       , withDest = \dest -> do (bl, loca') <- indexed
+                                                st <- withDest (asRValue loca') dest
+                                                return (bl ++ st)
+                       , withValue = do (bl, loca') <- indexed
+                                        (bl', v) <- withValue $ asRValue loca'
+                                        return (bl ++ bl', v)
+                       , asLoc = return ([], loc)
+                       }
+                indexed :: CM ([C.BlockItem], CmLoc)
+                indexed = do (blv, v) <- withValue $ asRValue locb
+                             (locabl', loca') <- apIndex loca v
+                             return (blv ++ locabl', loca')
+        composeLocs' n locb =
+          CmLoc
+          { apIndex = \idx -> do (bbl', locb') <- apIndex locb idx
+                                 return (bbl', composeLocs' (n - 1) locb')
+          , store = error "Cannot store into composeLocs"
+          , asRValue = error "Cannot get composeLocs as R value"
+          , asArgument = error "asArgument for composeLocs TODO"
+          }
+        apIndices :: CmLoc -> [C.Exp] -> CM ([C.BlockItem], CmLoc)
+        apIndices loc [] = return ([], loc)
+        apIndices loc (idx:idxs) = do (bl', loc') <- apIndex loc idx
+                                      (bl'', loc'') <- apIndices loc' idxs
+                                      return (bl' ++ bl'', loc'')
+--composeLocs baseTy loca nbnds locb = CmLoc
+--                                     { apIndex = \idx -> return 
+
 -- | uses withValue, executing exp as a statement.
 defaultNoValue :: Type -> Compiled -> CM [C.BlockItem]
 defaultNoValue ty comp = do (bbl, exp) <- withValue comp
@@ -609,9 +658,13 @@ compileLoc' (Ref ty v) =  case normalizeTypes ty of
 compileLoc' (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
                                 (bl, loc) <- mkIndex aloc idxs
                                 return (abl ++ bl, loc)
-  where mkIndex aloc [] = return ([], aloc)
+  where mkIndex :: CmLoc -> [CExpr] -> CM ([C.BlockItem], CmLoc)
+        mkIndex aloc [] = return ([], aloc)
         mkIndex aloc (idx:idxs) =  case normalizeTypes (getType idx) of
-          VecType ibnds ibty -> error "not yet"
+          VecType ibnds ibty -> do
+            (idxbl, idxloc) <- asLoc $ compileStat idx
+            return (idxbl, composeLocs aloc (length ibnds) idxloc)
+                                
           ty -> do (idxbl, idxex) <- withValue $ compileStat idx
                    (abl', aloc') <- apIndex aloc idxex
                    (bl'', loc'') <- mkIndex aloc' idxs
