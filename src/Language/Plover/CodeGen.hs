@@ -440,6 +440,37 @@ compileStat v@(Vec _ i range exp) = comp
 --                  }
 --   in compiled
 
+compileStat exp@(RangeVal _ range) = comp
+  where comp = Compiled
+               { noValue = defaultNoValue ty comp
+               , withDest = \dest -> do (bll, loc) <- asLoc comp
+                                        st <- storeLoc ty dest loc
+                                        return $ bll ++ st
+               , withValue = defaultWithValue ty comp
+               , asLoc = return ([], loc)
+               }
+        ty@(VecType _ bty) = normalizeTypes $ getType exp
+        
+        loc = CmLoc
+              { apIndex = \idx -> do (bl, exp) <- rngExp idx
+                                     return (bl, expLoc bty exp)
+              , store = error "Cannot store into rangeval"
+              , asRValue = error "cannot asRValue rangeval"
+              , asArgument = do (bl, ex) <- withValue comp
+                                return (bl, ex, [])
+              }
+
+        rngExp idx = case range of
+          Range (IntLit _ _ 0) end (IntLit _ _ 1) -> return ([], idx)
+          Range start end (IntLit _ _ 1) -> do (stblk, stex) <- withValue $ compileStat start
+                                               return (stblk, [cexp| $stex + $idx |])
+          Range (IntLit _ _ 0) end step -> do (stepblk, stepex) <- withValue $ compileStat step
+                                              return (stepblk, [cexp| $stepex * $idx |])
+          Range start end step -> do (stblk, stex) <- withValue $ compileStat start
+                                     (stepblk, stepex) <- withValue $ compileStat step
+                                     return (stblk ++ stepblk, [cexp| $stex + $idx * $stepex |])
+
+
 compileStat (If _ a b c) = comp
   where comp = Compiled
                { noValue = do (abl, aexp) <- withValue $ compileStat a
