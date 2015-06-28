@@ -91,12 +91,13 @@ newName def v = do v' <- freshName (getOkIdentifier def v)
                    return v'
 
 compileTopLevel :: [DefBinding] -> CM [C.Definition]
-compileTopLevel defbs = do forM_ defbs $ \defb ->
+compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
+                           forM_ defbs' $ \defb ->
                              lookupName (error "Invalid top-level name") (binding defb)
-                           d1 <- fmap concat $ forM defbs $ \defb -> newScope $ case definition defb of
+                           d1 <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef mexp ft -> compileFunctionDecl (binding defb) ft
                              _ -> return []
-                           d2 <- fmap concat $ forM defbs $ \defb -> newScope $ case definition defb of
+                           d2 <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
                              _ -> return []
                            return (d1 ++ d2)
@@ -258,18 +259,31 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
                                                            collapseIdx [cexp| $bndex * $accidx + $idx |]
                                                              idxs bnds (blks ++ bndbl)
 
-deferLoc :: CmLoc -> Int -> (CmLoc -> CM ([C.BlockItem], CmLoc)) -> CM ([C.BlockItem], CmLoc)
-deferLoc loc 0 f = f loc
-deferLoc loc n f = return ([], dloc)
+deferLoc :: Type -> CmLoc -> Int -> (CmLoc -> CM ([C.BlockItem], CmLoc))
+            -> CM ([C.BlockItem], CmLoc)
+deferLoc ty loc 0 f = f loc
+deferLoc ty loc n f = return ([], dloc)
   where dloc = CmLoc
                { apIndex = \idx -> do (bl', loc') <- apIndex loc idx
-                                      (bl'', loc'') <- deferLoc loc' (n - 1) f
+                                      (bl'', loc'') <- deferLoc ty' loc' (n - 1) f
                                       return (bl' ++ bl'', loc'')
                , store = error "Cannot store into deferLoc"
                , asRValue = comp
-               , asArgument = error "TODO asArgument for deferLoc"
+               , asArgument = do (locbl, loc) <- freshLoc "arg" ty
+                                 st <- storeLoc ty loc dloc
+                                 (locbl', locex) <- withValue $ asRValue loc 
+                                 str <- storeLoc ty dloc loc
+                                 return (locbl ++ st ++ locbl', locex, str)
                }
-        comp = error "TODO asRValue for deferLoc"
+        comp = Compiled
+               { withDest = \dest -> storeLoc ty dest dloc
+               , withValue = defaultWithValue ty comp
+               , noValue = defaultNoValue ty comp
+               , asLoc = return ([], dloc)
+               }
+
+        VecType (bnd:bnds) bty = normalizeTypes ty
+        ty' = VecType bnds bty
 
 -- | uses withValue, executing exp as a statement.
 defaultNoValue :: Type -> Compiled -> CM [C.BlockItem]
@@ -552,7 +566,7 @@ compileStat (ConcreteApp pos (Get _ (Ref fty f)) args) = comp
 
         FnType (FnT _ retty) = fty
 
-        -- | Returns what to do before the call, the call, and what to do after the call
+        -- | Returns what to do before the call, the argument, and what to do after the call
         theCall :: String -> [CExpr] -> CM ([C.BlockItem], C.Exp, [C.BlockItem])
         theCall f args = do
           args' <- forM args $ \a ->
@@ -575,37 +589,22 @@ compileStat (ConcreteApp pos (Get _ (Ref fty f)) args) = comp
         voidType exp = case normalizeTypes $ getType exp of
           Void -> True
           _ -> False
---     Compiled
---     { noResult = do (fbl, fex) <- theCall f args (map compileStat args)
---                     return $ fbl ++ [ [citem| $fex; |] ]
---     , withDest = \v -> do (fbl, fex) <- theCall f args (map compileStat args)
---                           let FnType (FnT _ retty) = fty
---                           sto <- genStore v (exprLoc (return ([], fex))) retty
---                           return $ fbl ++ sto
---     , asLoc = return $ exprLoc $ theCall f args (map compileStat args)
---     }
-  
---   where nonVoid a = case getType a of
---                      Void -> False
---                      _ -> True
---         theCall :: String -> [CExpr] -> [Compiled] -> CM ([C.BlockItem], C.Exp)
---         theCall f args args' = do
---           args'' <- forM (zip args args') $ \(a, a') ->
---             case nonVoid a of
---              False -> do c' <- noResult a'
---                          return $ Left c'
---              True -> do (cbl, cex) <- withValue a'
---                         return $ Right (cbl, cex)
---           let bbl = concat $ flip map args'' $ \x -> case x of
---                                                       Left c' -> c'
---                                                       Right (c', _) -> c'
---           let args''' = map snd $ rights args''
---           return (bbl, [cexp| $id:(f)( $args:(args''') ) |])
+
+compileStat (Hole {}) = error "No holes allowed"
 
 compileStat (Get pos (Index a [])) = compileStat a
 compileStat v@(Get pos loc) = compLoc (getType v) (compileLoc loc)
 
--- -- compileStat (Addr pos loc) = error "Addr not impl"
+compileStat v@(Addr pos loc) = comp
+  where comp = Compiled
+               { withValue = do (bloc, loc) <- compileLoc loc
+                                (bl, exp) <- withValue $ asRValue loc
+                                return (bloc ++ bl, [cexp| & $exp |])
+               , noValue = defaultNoValue (getType v) comp
+               , withDest = defaultWithDest (getType v) comp
+               , asLoc = do (bl, ex) <- withValue $ comp
+                            return (bl, expLoc (getType v) ex)
+               }
 
 compileStat (Set pos loc v) = comp
   where comp = Compiled
@@ -619,7 +618,6 @@ compileStat (Set pos loc v) = comp
                , asLoc = error "Set is not a location"
                }
 
-compileStat (Hole {}) = error "No holes allowed"
 compileStat (AssertType pos a ty) = compileStat a
 
 -- -- unary
@@ -646,7 +644,8 @@ compileLoc (Ref ty v) =  case normalizeTypes ty of
 compileLoc (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
                                cidxs' <- mapM mkIndex idxs
                                let idxbl = concat $ map fst cidxs'
-                               (abl', aloc') <- mkLoc aloc (map snd cidxs')
+                                   ty = normalizeTypes $ getType a
+                               (abl', aloc') <- mkLoc ty aloc (map snd cidxs')
                                return (abl ++ idxbl ++ abl', aloc')
   where mkIndex :: CExpr -> CM ([C.BlockItem], Either (Int, CmLoc) C.Exp) -- TODO tuple
         mkIndex idx = case normalizeTypes (getType idx) of
@@ -657,13 +656,19 @@ compileLoc (Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
             (idxbl, idxex) <- withValue $ compileStat idx
             return $ (idxbl, Right idxex)
 
-        mkLoc :: CmLoc -> [Either (Int, CmLoc) C.Exp] -> CM ([C.BlockItem], CmLoc)
-        mkLoc aloc [] = return ([], aloc)
-        mkLoc aloc ((Right exp):idxs) = do (bl', aloc') <- apIndex aloc exp
-                                           (bl'', aloc'') <- mkLoc aloc' idxs
-                                           return (bl' ++ bl'', aloc'')
-        mkLoc aloc ((Left (n, iloc)):idxs) = deferLoc iloc n $ \iloc' -> do
+        mkLoc :: Type -> CmLoc -> [Either (Int, CmLoc) C.Exp] -> CM ([C.BlockItem], CmLoc)
+        mkLoc ty aloc [] = return ([], aloc)
+        mkLoc ty aloc ((Right exp):idxs) = do (bl', aloc') <- apIndex aloc exp
+                                              let ty' = stripType 1 ty
+                                              (bl'', aloc'') <- mkLoc ty' aloc' idxs
+                                              return (bl' ++ bl'', aloc'')
+        mkLoc ty aloc ((Left (n, iloc)):idxs) = deferLoc ty iloc n $ \iloc' -> do
           (ilocbl, ilocex) <- withValue $ asRValue iloc'
           (abl', aloc') <- apIndex aloc ilocex -- TODO tuples
-          (bl'', aloc'') <- mkLoc aloc' idxs
+          let ty' = stripType n ty
+          (bl'', aloc'') <- mkLoc ty' aloc' idxs
           return (ilocbl ++ abl' ++ bl'', aloc'')
+
+        stripType :: Int -> Type -> Type
+        stripType 0 ty = ty
+        stripType n (VecType (bnd:bnds) bty) = stripType (n - 1) (VecType bnds bty)

@@ -222,6 +222,7 @@ operators = buildExpressionParser ops application
   where
     -- NB prefix operators at same precedence cannot appear together (like "-*x"; do "-(*x)")
     ops = [ [ Prefix (un Deref (reservedOp "*"))
+            , Prefix (un Addr (reservedOp "&"))
             ]
           , [ Prefix (un Neg (reservedOp "-"))
             , Prefix (un Pos (reservedOp "+"))
@@ -230,7 +231,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin Mul (reservedOp "*")) AssocLeft
             , Infix (bin Div (reservedOp "/")) AssocLeft
             ]
-          , [ Infix (bin Concat (reservedOp "&")) AssocLeft ]
+          , [ Infix (bin Concat (reservedOp "#")) AssocLeft ]
           , [ Infix (bin Add (reservedOp "+")) AssocLeft
             , Infix (bin Sub (reservedOp "-")) AssocLeft
             ]
@@ -396,6 +397,8 @@ makeExpr exp@(PExpr pos e') = case e' of
                  return $ T.If pos a' b' c'
   UnExpr Deref a -> do a' <- makeExpr a
                        return $ T.Get pos $ T.Deref a'
+  UnExpr Addr a -> do a' <- makeLocation a
+                      return $ T.Addr pos a'
   UnExpr Pos a -> do a' <- makeExpr a
                      return $ T.AssertType pos a' T.NumType -- This is just an assertion, and will be removed after unification
   UnExpr op a -> do a' <- makeExpr a

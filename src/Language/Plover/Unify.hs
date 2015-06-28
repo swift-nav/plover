@@ -487,8 +487,8 @@ typeCheck (AssertType pos v ty) = do
   vty <- typeCheck v
   ty' <- typeCheckType pos ty
   unify pos vty ty'
-typeCheck (Unary pos op a) = do error "not implemented"
-typeCheck (Binary pos op a b) = do error "not implemented"
+typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
+typeCheck (Binary pos op a b) = do error $ "binary " ++ show op ++ " not implemented"
 
 typeCheckRange :: Tag SourcePos -> Range CExpr -> UM IntType
 typeCheckRange pos (Range from to step) = do

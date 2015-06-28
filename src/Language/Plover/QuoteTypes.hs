@@ -35,6 +35,7 @@ type Variable = String
 data UnOp = Neg
           | Pos
           | Deref
+          | Addr
           | Transpose
           | Inverse
           | Not

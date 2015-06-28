@@ -1,8 +1,10 @@
 --test Void :: u8 := (A := vec(1.2,2.2,3); A[1]);
 
 zeros {n :: u32} :: double[n]  := vec i in : -> 0;
-zeros2 {m :: u32} {n :: u32} :: double[m,n]
-  := vec i in :, j in : -> 0;
+--zeros2 {m :: u32} {n :: u32} :: double[m,n]
+--  := vec i in :, j in : -> 0;
+
+extern dostuff {n :: u32} (A :: *double[n])  :: u8;
 
 -- foo (l :: u8) (m :: u8) (n :: u8) (A :: u8[3]) (B :: u8[3,n]) :: u8  := (
 -- --  A <- B;
@@ -15,5 +17,10 @@ zeros2 {m :: u32} {n :: u32} :: double[m,n]
 
 -- foo2 {n :: u8} (_A :: double[n,n]) :: double[n,n] := zeros2();
 
-g {n :: u8} {m :: u8} (A :: double[n,n]) (B :: u8[m,n]) :: Void
-  := (A[B,1][2] <- A[3,B][4]; A[1,:] <- A[2,:]; A[1] <- A[2]);
+--g {n :: u8} {m :: u8} (A :: double[n,n]) (B :: u8[m,n]) :: Void
+--  := (A[B,1][2] <- A[3,B][4]; A[1,:] <- A[2,:]; A[1] <- A[2]);
+
+-- h {n :: u8} {m :: u8} (A :: double[n,m]) :: Void
+--  := (A[1,:] <- zeros(); dostuff A[2,:]; B := A[22,:]; dostuff B; ());
+
+test() :: u8  := (A := vec i in 5 -> i; dostuff (&A[:]));
