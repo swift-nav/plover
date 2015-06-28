@@ -119,7 +119,8 @@ runStuff fileName = do source <- readFile fileName
                              case doSemCheck $ defs of
                               Left errs -> forM_ errs $ \err -> do
                                 putStrLn (reportSemErr (lines source) err)
-                              Right v -> do let cdefs = runCM (compileTopLevel v)
+                              Right v -> do --putStrLn $ Pr.ppShow v
+                                            let cdefs = runCM (compileTopLevel v)
                                             putStrLn "\n\nCompilation unit:\n"
                                             putStrLn $ show $ Mainland.ppr cdefs
 --                                                   return defs''putStrLn $ Pr.ppShow v

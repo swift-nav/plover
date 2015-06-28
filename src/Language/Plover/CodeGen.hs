@@ -179,7 +179,7 @@ data Compiled = Compiled { noValue :: CM [C.BlockItem]
 --                    (bl, exp) <- asRValue loc
 --                    return (prep ++ bl, exp)
 
-data CmLoc = CmLoc { apIndex :: C.Exp -> CmLoc -- ^ apply an index to a vector location
+data CmLoc = CmLoc { apIndex :: C.Exp -> CM ([C.BlockItem], CmLoc) -- ^ apply an index to a vector location
                    , store :: C.Exp -> CM [C.BlockItem] -- ^ store an expression if this is a simple (i.e, non-vector) location
                    , asRValue :: Compiled -- ^ get the compiled simple (i.e., non-vector) expression
                    }
@@ -225,7 +225,7 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
           }
           where (idx:idxs, bnds) = unzip acc
         mkVecLoc' acc (bnd:bnds) = CmLoc {
-          apIndex = \idx -> mkVecLoc' (acc ++ [(idx, bnd)]) bnds
+          apIndex = \idx -> return ([], mkVecLoc' (acc ++ [(idx, bnd)]) bnds)
           , store = error "Cannot do simple store into vector"
           , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return vec
         }
@@ -271,20 +271,10 @@ storeLoc ty dst src = case normalizeTypes ty of
     let itty = compileType $ getType idx
     i <- freshName "idx"
     (boundBl, boundEx) <- withValue $ compileStat idx
-    substore <- storeLoc (VecType idxs bty)
-                (apIndex dst [cexp| $id:i |]) (apIndex src [cexp| $id:i|])
-    return $ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:substore } |] ]
-  _ -> withDest (asRValue src) dst
-
-storeIdxExp :: Type -> CmLoc -> CmLoc -> CM [C.BlockItem]
-storeIdxExp ty dst src = case normalizeTypes ty of
-  VecType (idx:idxs) bty -> newScope $ do
-    let itty = compileType $ getType idx
-    i <- freshName "idx"
-    (boundBl, boundEx) <- withValue $ compileStat idx
-    substore <- storeLoc (VecType idxs bty)
-                (apIndex dst [cexp| $id:i |]) (apIndex src [cexp| $id:i|])
-    return $ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:substore } |] ]
+    (dstbl, dst') <- apIndex dst [cexp| $id:i |]
+    (srcbl, src') <- apIndex src [cexp| $id:i |]
+    substore <- storeLoc (VecType idxs bty) dst' src'
+    return $ boundBl ++ dstbl ++ srcbl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:substore } |] ]
   _ -> withDest (asRValue src) dst
 
 -- | an expression with no side effects does not need to be computed
@@ -345,8 +335,10 @@ compileStat v@(Vec _ i range exp) = comp
                     (srcbl, src) <- asLoc $ compileStat exp
                     let cvidx = [cexp|$id:vidx|]
                     (ccvidxbl, ccvidx) <- rngExp cvidx
-                    stbl <- storeLoc (getType exp) (apIndex dest cvidx) src
-                    return $ srcbl ++ boundBl ++ mkFor itty vidx boundEx (ccvidxbl ++ stbl)
+                    (destbl, dest') <- apIndex dest cvidx
+                    stbl <- storeLoc (getType exp) dest' src
+                    return $ destbl ++ boundBl
+                      ++ mkFor itty vidx boundEx (ccvidxbl ++ srcbl ++ stbl)
                , withValue = defaultWithValue (getType v) comp
                , asLoc = defaultAsLoc (getType v) comp
                }
@@ -422,26 +414,33 @@ compileStat (BoolLit _ b) = compPureExpr BoolType $ return [cexp| $id:lit |]
   where lit :: String
         lit = if b then "TRUE" else "FALSE"
 
--- -- compileStat (VecLit pos []) = compileStat (VoidExpr pos)
--- -- compileStat v@(VecLit pos xs) = let xs' = map compileStat xs
--- --                                     xty = getType (head xs)
--- --                                    case xty of
--- --                                     VecType {} -> error "TODO compile VecLit of vecs"
--- --                                     _ -> return ()
--- --                                    xty' <- compileInitType $ xty
--- --                                    return $ Compiled
--- --                                      { noResult = concat <$> mapM noResult xs'
--- --                                      , withDest = \v -> do (xsbl, vec) <- mkVecLit xty xty' xs'
--- --                                                            return $ xsbl ++ [
--- --                                                              [citem| $v = $vec; |] ]
--- --                                      , withValue =  mkVecLit xty xty' xs'
--- --                                      }
--- --   where mkVecLit xty (xtybl, xty') xs' = do
--- --           xs'' <- mapM withValue xs'
--- --           let xsbl = concat $ map fst xs''
--- --           let xsex = map snd xs''
--- --           let xsex' = map (\x -> C.ExpInitializer x (SrcLoc NoLoc)) xsex
--- --           return $ (xtybl ++ xsbl, [cexp| ($ty:xty'[]) { $inits:(xsex') } |])
+compileStat (VecLit pos []) = error "Unimplemented VecLit [] -- TODO has no type."
+compileStat v@(VecLit pos xs) = comp
+  where comp = Compiled
+               { noValue = defaultNoValue vty comp
+               , withDest = \dest -> fmap concat $ forM (zip [0..] xs) $ \(i,x) -> do
+                    (dstbl, xdst) <- apIndex dest [cexp| $int:i |]
+                    (xbl, xloc) <- asLoc $ compileStat x
+                    xstbl <- storeLoc (getType x) xdst xloc
+                    return $ dstbl ++ xbl ++ xstbl
+               , withValue = defaultWithValue vty comp
+               , asLoc = defaultAsLoc vty comp
+               }
+        vty = normalizeTypes $ getType v
+
+compileStat (Let _ v val x) = comp
+  where comp = Compiled
+               { withDest = \dest -> newBlocklessScope $ do
+                    v' <- newName "let" v
+                    (locbl, loc) <- makeLoc v' (getType val)
+                    valbl <- withDest (compileStat val) loc -- TODO this is inside the new scope 
+                    xbl <- withDest (compileStat x) dest
+                    return $ locbl ++ valbl ++ xbl
+               , noValue = defaultNoValue xty comp
+               , withValue = defaultWithValue xty comp -- TODO get these things better
+               , asLoc = defaultAsLoc xty comp
+               }
+        xty = normalizeTypes $ getType x
 
 -- compileStat (Let _ v val x) = Compiled
 --                               { noResult = compileLet $ \bbl -> do
@@ -545,7 +544,7 @@ compileStat (Set pos loc v) = comp
 -- -- unary
 -- -- binary
 
--- compileStat v = error $ "compileStat not implemented: " ++ show v
+compileStat v = error $ "compileStat not implemented: " ++ show v
 
 flattenLoc :: Location CExpr -> Location CExpr
 flattenLoc (Index (Get _ (Index a idxs1)) idxs2) = flattenLoc $ Index a (idxs1 ++ idxs2)

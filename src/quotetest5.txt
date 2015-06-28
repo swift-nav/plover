@@ -1,4 +1,8 @@
-foo (n :: u8) (A :: u8[n,n]) (B :: u8[n,n]) :: u8  := (
-  A <- B;
---  B <- vec i in n, j in n -> i;
+zeros {n :: u32} :: double[n]  := vec i in : -> 0;
+
+foo (l :: u8) (m :: u8) (n :: u8) (A :: u8[3]) (B :: u8[3,n]) :: u8  := (
+--  A <- B;
+--  B <- vec i in 0: -> i;
+  B <- vec((vec i in : -> 1), (vec i in : -> i), (vec i in : -> 22));
+  C := vec i in 5 -> 222;
   1;2;3); -- if True then n else if True then n else n;
