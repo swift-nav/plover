@@ -303,7 +303,7 @@ instance Unifiable CExpr where
   unify pos (Unary pos1 op1 a1) (Unary pos2 op2 a2) | op1 == op2 = Unary pos' op1 <$> unify pos' a1 a2
     where pos' = MergeTags [pos, pos1, pos2]
   unify pos (Binary pos1 op1 a1 b1) (Binary pos2 op2 a2 b2) | op1 == op2 =
-    Binary pos' op1 <$> unify pos' a1 a2 <*> unify pos' a2 b2
+    Binary pos' op1 <$> unify pos' a1 a2 <*> unify pos' b1 b2
     where pos' = MergeTags [pos, pos1, pos2]
 
   unify pos x y = do addUError $ UExFailure pos x y
@@ -550,7 +550,8 @@ typeCheckLoc pos (Ref ty v) = do
   return ty'
 typeCheckLoc pos (Index a idxs) = do
   aty <- typeCheck a >>= normalizeTypesM
-  trace ("***" ++ show idxs ++ "\n  --" ++ show aty) $ typeCheckIdx aty idxs aty
+  --trace ("***" ++ show idxs ++ "\n  --" ++ show aty) $
+  typeCheckIdx aty idxs aty
   where typeCheckIdx oty [] aty = normalizeTypesM aty
         typeCheckIdx oty (idx:idxs) (VecType (ibnd:ibnds) bty) = do
           -- idx is next index value, ibnd is next vec bound

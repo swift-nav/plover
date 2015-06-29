@@ -3,3 +3,6 @@ extern foo {m :: u8} (M :: double[m,m]) :: double[m,m];
 blah22 {n :: u8} (A :: double[n,n]) (B :: double[n,n])
    :: double[n,n]
  := foo (A + B[:,2]);
+
+test {n :: u8} (A :: double[n]) :: double[n-1]
+  := vec i in : -> i + 2.2;
