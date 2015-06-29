@@ -173,14 +173,14 @@ typeCheckDefBinding def = do
                                     unify (bindingPos def) expty retty
                                   
                                     exp' <- expandTerm exp
-                                    args' <- forM args $ \(v, b, ty) -> do
+                                    args' <- forM args $ \(v, b, dir, ty) -> do
                                       ty' <- expandTerm ty
-                                      return (v, b, ty')
+                                      return (v, b, dir, ty')
                                     retty' <- expandTerm retty
                                     return $ FunctionDef (Just exp') (FnT args' retty)
-                                  _ -> do args' <- forM args $ \(v, b, ty) -> do
+                                  _ -> do args' <- forM args $ \(v, b, dir, ty) -> do
                                             ty' <- expandTerm ty
-                                            return (v, b, ty')
+                                            return (v, b, dir, ty')
                                           retty' <- expandTerm retty
                                           return $ FunctionDef Nothing (FnT args' retty')
     StructDef fields -> return $ StructDef fields
@@ -396,10 +396,10 @@ typeCheckType pos (VecType idxs ty) = do
 typeCheckType pos Void = return Void
 typeCheckType pos (FnType fn) = do
   let (FnT args retty, _) = getEffectiveFunType fn
-  args' <- forM args $ \(v, b, vty) -> do
+  args' <- forM args $ \(v, b, dir, vty) -> do
     vty' <- typeCheckType pos vty 
     addBinding pos v vty' -- assumes bindings cleared between functions
-    return (v, b, vty')
+    return (v, b, dir, vty')
   retty' <- typeCheckType pos retty
   return $ FnType $ FnT args' retty' -- N.B. this is the effective func type
 typeCheckType pos NumType = return NumType
@@ -565,12 +565,12 @@ data FunctionEnv = FnEnv [(Variable, Type)] Type
 universalizeFunType :: FunctionType -> UM FunctionEnv
 universalizeFunType ft = do
   let (ft'@(FnT args retty), _) = getEffectiveFunType ft
-  repAList <- forM args $ \(v, req, ty) -> do
+  repAList <- forM args $ \(v, req, dir, ty) -> do
     v' <- gensym v
     return (v, v')
   let vMap = M.fromList repAList
   let args' = [(vMap M.! v, universalizeTypeVars vMap ty)
-              | (v, req, ty) <- args]
+              | (v, req, dir, ty) <- args]
   return $ FnEnv args' (universalizeTypeVars vMap retty)
 
 

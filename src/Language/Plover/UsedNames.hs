@@ -61,4 +61,4 @@ allNamesInType t = []
 
 allNamesInFunType :: FunctionType -> [Variable]
 allNamesInFunType ft = let ((FnT args rt), _) = getEffectiveFunType ft
-                       in (args >>= \(v, _, t) -> [v] ++ allNamesInType t) ++ allNamesInType rt
+                       in (args >>= \(v, _, _, t) -> [v] ++ allNamesInType t) ++ allNamesInType rt

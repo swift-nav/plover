@@ -562,16 +562,16 @@ makeTopType exp@(PExpr _ pe) val = case pe of
   _ -> Left $ ConvertError (makePos exp) ["Expecting variable or function type definition (possibly missing return type)."]
 
 
-funArgs :: [Arg Expr] -> Either ConvertError [(Variable, Bool, T.Type)]
+funArgs :: [Arg Expr] -> Either ConvertError [(Variable, Bool, T.ArgDir, T.Type)]
 funArgs [] = return []
 funArgs ((Arg e@(PExpr _ pe)):args) = case pe of
   BinExpr Type (PExpr _ (Ref v)) b  -> do t <- makeType b
-                                          ([(v, True, t)] ++) <$> funArgs args
+                                          ([(v, True, T.ArgIn, t)] ++) <$> funArgs args
   VoidExpr -> funArgs args
   _ -> Left $ ConvertError (makePos e) ["Argument definition must have explicit type."]
 funArgs ((ImpArg e@(PExpr _ pe)):args) = case pe of
   BinExpr Type (PExpr _ (Ref v)) b  -> do t <- makeType b
-                                          ([(v, False, t)] ++) <$> funArgs args
+                                          ([(v, False, T.ArgIn, t)] ++) <$> funArgs args
   _ -> Left $ ConvertError (makePos e) ["Implicit argument definition must have explicit type."]
 
 

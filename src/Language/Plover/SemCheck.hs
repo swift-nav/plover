@@ -227,7 +227,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
 
 completeFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
 completeFunType pos ft = do let FnT args rty = ft
-                            args' <- forM args $ \(v, req, vty) -> do
+                            args' <- forM args $ \(v, req, dir, vty) -> do
                               vty' <- fillTypeHoles pos vty
                               mglob <- lookupGlobalBinding v
                               when (isJust mglob) $ addError $
@@ -239,7 +239,7 @@ completeFunType pos ft = do let FnT args rty = ft
                                  addError $ SemError (MergeTags [otag, pos]) $
                                    "Redefinition of argument " ++ show v ++ " in function type."
                                Nothing -> return ()
-                              return (v, req, vty')
+                              return (v, req, dir, vty')
                             rty' <- fillTypeHoles pos rty
                             return $ FnT args' rty'
                                        
@@ -247,7 +247,7 @@ completeFunType pos ft = do let FnT args rty = ft
 withinFun :: Tag SourcePos -> FunctionType -> SemChecker a -> SemChecker a
 withinFun pos ft m = withNewScope $ do
   let (FnT args rty, _) = getEffectiveFunType ft
-  forM_ args $ \(v, req, vty) -> do
+  forM_ args $ \(v, req, dir, vty) -> do
     void $ addNewLocalBinding pos v v
   m
 
@@ -409,17 +409,17 @@ matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
 matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
   where
     -- A passed argument matches a required argument
-    matchArgs' i (Arg x : xs) ((v, True, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
+    matchArgs' i (Arg x : xs) ((v, True, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- An omitted implicit argument is filled with a value hole
-    matchArgs' i (Arg x : xs) ((v, False, ty) : fxs) = do name <- genUVar
-                                                          ty <- genUVar
-                                                          (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i (Arg x : xs) fxs
+    matchArgs' i (Arg x : xs) ((v, False, _, ty) : fxs) = do name <- genUVar
+                                                             ty <- genUVar
+                                                             (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i (Arg x : xs) fxs
     -- (error) An implicit argument where a required argument is expected
-    matchArgs' i (ImpArg x : xs) ((v, True, ty) : fxs) = do
+    matchArgs' i (ImpArg x : xs) ((v, True, dir, ty) : fxs) = do
       addError $ SemError pos $ "Unexpected implicit argument in position " ++ show i ++ "."
-      matchArgs' (1 + i) xs ((v, True, ty) : fxs)
+      matchArgs' (1 + i) xs ((v, True, dir, ty) : fxs)
     -- An implicit argument given where an implicit argument expected
-    matchArgs' i (ImpArg x : xs) ((v, False, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
+    matchArgs' i (ImpArg x : xs) ((v, False, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- (error) Fewer arguments than parameters
     matchArgs' i [] (fx : fxs) = do addError $ SemError pos $ "Not enough arguments.  Given " ++ show i ++ "."
                                     name <- genUVar -- try to recover for error message's sake
@@ -430,5 +430,5 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
     matchArgs' i xs [] = do addError $ SemError pos $ "Too many arguments.  Given " ++ show i ++ ", " ++ validRange ++ "."
                             return []
 
-    numReq = length $ filter (\(_, b, _) -> b) fargs
+    numReq = length $ filter (\(_, b, _, _) -> b) fargs
     validRange = "expecting " ++ show numReq ++ " required and " ++ show (length fargs - numReq) ++ " implicit arguments"

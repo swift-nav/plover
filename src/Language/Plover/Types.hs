@@ -156,8 +156,11 @@ data Line
 -- Represents the type of an Expr
 -- Separates implicit parameters, explicit parameters, output type
 -- The boolean means whether the argument is required (False means implicit)
-data FunctionType = FnT [(Variable, Bool, Type)] Type
+data FunctionType = FnT [(Variable, Bool, ArgDir, Type)] Type
   deriving (Show, Eq, Ord)
+
+data ArgDir = ArgIn | ArgOut | ArgInOut
+            deriving (Show, Eq, Ord)
 
 data ExternalDef = External | Generated
  deriving (Show, Eq, Ord)
@@ -171,7 +174,7 @@ data StructType = ST
 
 -- Function without implicits or a dependent type
 fnT :: [Type] -> Type -> FunctionType
-fnT params out = FnT [("", True, t) | t <- params] out
+fnT params out = FnT [("", True, ArgIn, t) | t <- params] out
 
 
 -- | If a function returns a complex type, it must be passed as an
@@ -197,9 +200,9 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
         -- the type itself, or should it be Ptrized?  The semantics of
         -- type itself seem correct so far.  Perhaps In/Out/InOut are
         -- in order to record these things better
-        internReturn :: [(Variable, Bool, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
-        internReturn args retty = (FnT (args ++ [(retName, True, retty')]) Void, Just (retName, retty'))
-          where retName = genName [v | (v, _, _) <- args] "result$"
+        internReturn :: [(Variable, Bool, ArgDir, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
+        internReturn args retty = (FnT (args ++ [(retName, True, ArgOut, retty')]) Void, Just (retName, retty'))
+          where retName = genName [v | (v, _, _, _) <- args] "result$"
                 genName :: [Variable] -> Variable -> Variable
                 genName names test = if test `elem` names
                                      then genName names (test ++ "$")
@@ -207,9 +210,9 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                 retty' = retty
 
 -- Checks that there is at least one required argument
-maybeAddVoid :: [(Variable, Bool, Type)] -> [(Variable, Bool, Type)]
-maybeAddVoid args | null [True | (_,r,_) <- args, r]  = args ++ [("", True, Void)]
-                  | otherwise                         = args
+maybeAddVoid :: [(Variable, Bool, ArgDir, Type)] -> [(Variable, Bool, ArgDir, Type)]
+maybeAddVoid args | null [True | (_,r,_,_) <- args, r]  = args ++ [("", True, ArgIn, Void)]
+                  | otherwise                           = args
 
 withPossibleVoid :: FunctionType -> FunctionType
 withPossibleVoid (FnT args retty) = (FnT (maybeAddVoid args) retty)
@@ -463,9 +466,9 @@ instance TermMappable Type where
     VecType idxs ety -> VecType <$> mapM texp idxs <*> tty ety
     PtrType pty -> PtrType <$> tty pty
     FnType (FnT args retty) -> do
-      args' <- forM args $ \(v, b, ty) -> do
+      args' <- forM args $ \(v, b, dir, ty) -> do
         ty' <- tty ty
-        return (v, b, ty')
+        return (v, b, dir, ty')
       retty' <- tty retty
       return $ FnType $ FnT args' retty'
     _ -> return ty
@@ -600,7 +603,11 @@ instance PP Type where
                            ty' -> pretty ty'
   pretty Void = text "Void"
   pretty (FnType (FnT args retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
-    where prarg (v, req, ty) = (rqimp req) (sep $ punctuate (text "::") [text v, pretty ty])
+    where prarg (v, req, dir, ty) = (rqimp req) $ pdir (sep $ punctuate (text "::") [text v, pretty ty])
+            where pdir x = case dir of
+                    ArgIn -> x
+                    ArgOut -> sep [text "out", x]
+                    ArgInOut -> sep [text "inout", x]
           rqimp True = parens
           rqimp False = braces
   pretty NumType = text "Num"
@@ -666,8 +673,8 @@ getType (AssertType _ _ ty) = ty
 
 getLocType :: Location CExpr -> Type
 getLocType (Ref ty v) = ty
-getLocType (Index a idxs) = getTypeIdx idxs (normalizeTypes $ getType a)
-  where getTypeIdx [] aty = normalizeTypes aty
+getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ getType a)
+  where getTypeIdx [] aty = aty
         getTypeIdx (idx:idxs) (VecType (ibnd:ibnds) bty) =
           case normalizeTypes (getType idx) of
            IntType _               ->                getTypeIdx idxs (VecType ibnds bty)
