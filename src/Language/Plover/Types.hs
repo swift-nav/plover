@@ -540,6 +540,58 @@ intBits S32 = 32
 intBits U64 = 64
 intBits S64 = 64
 
+floatBits :: FloatType -> Int
+floatBits FDefault = floatBits actualDefaultFloatType
+floatBits Float = 32
+floatBits Double = 64
+
+-- | Promote to an int type for use in arithmetic
+promoteInt :: IntType -> IntType
+promoteInt t
+  | intBits t < intBits IDefault  = IDefault
+  | otherwise = t
+
+arithInt :: IntType -> IntType -> IntType
+arithInt t1 t2 = arithInt' t1' t2'
+  where t1' = promoteInt t1
+        t2' = promoteInt t2
+
+        arithInt' IDefault y = y
+        arithInt' x IDefault = x
+        arithInt' x y
+          | intBits x > intBits y = x
+          | intBits x < intBits y = y
+          | intUnsigned x  = x
+          | intUnsigned y  = y
+          | otherwise = x
+
+-- | Promote a float type for use in arithmetic
+promoteFloat :: FloatType -> FloatType
+promoteFloat t
+  | floatBits t < floatBits FDefault = FDefault
+  | otherwise = t
+
+intMerge :: IntType -> IntType -> IntType
+intMerge IDefault y = intMerge actualDefaultIntType y
+intMerge x IDefault = intMerge x actualDefaultIntType
+intMerge x y
+  | x == y   = x
+  | intBits x < intBits y  = intMerge y x
+  | intBits x == intBits y  = case x of -- then y has opposite sign
+                               U8 -> S16
+                               S8 -> S16
+                               U16 -> S32
+                               S16 -> S32
+                               _ -> S64
+  | intUnsigned x == intUnsigned y  = x -- x has more bits
+  | intUnsigned x  = case x of
+                      U8 -> S16
+                      S8 -> S16
+                      U16 -> S32
+                      S16 -> S32
+                      _ -> S64
+  | otherwise = x 
+
 -- | Gets the int type (of the two) which can hold both ints (maybe).
 intPromotePreserveBits :: IntType -> IntType -> Maybe IntType
 intPromotePreserveBits IDefault y = Just y
@@ -575,6 +627,37 @@ floatCanHold _ FDefault = True
 floatCanHold Float Double = False
 floatCanHold _ _ = True
 
+-- | Assumes already unified, so only really need to look at integer/float types.
+typeCanHold :: Type -> Type -> Bool
+typeCanHold ty1 ty2 = typeCanHold' (normalizeTypes ty1) (normalizeTypes ty2)
+
+typeCanHold' :: Type -> Type -> Bool
+typeCanHold' (VecType idxs1 bty1) (VecType idxs2 bty2)
+  | length idxs1 == length idxs2  = typeCanHold' bty1 bty2
+typeCanHold' Void Void = True
+typeCanHold' (FnType _) (FnType _) = False -- TODO
+typeCanHold' NumType NumType = True
+typeCanHold' NumType (IntType {}) = True
+typeCanHold' NumType (FloatType {}) = True
+typeCanHold' (IntType t1) NumType = False
+typeCanHold' (IntType t1) (IntType t2) = intCanHold t1 t2
+typeCanHold' (IntType t1) (FloatType {}) = False
+typeCanHold' (FloatType t1) NumType = False
+typeCanHold' (FloatType t1) (IntType {}) = True
+typeCanHold' (FloatType t1) (FloatType t2) = floatCanHold t1 t2
+typeCanHold' StringType StringType = True
+typeCanHold' BoolType BoolType = True
+typeCanHold' (PtrType t1) (PtrType t2) = typeCanHold' t1 t2
+typeCanHold' (TypedefType v1) (TypedefType v2)
+  | v1 == v2  = True
+typeCanHold' (TypedefType v1) (StructType v2 _)
+  | v1 == v2  = True
+typeCanHold' (StructType v1 _) (TypedefType v2)
+  | v1 == v2  = True
+typeCanHold' (StructType v1 _) (StructType v2 _)
+  | v1 == v2  = True
+typeCanHold' (TypeHole mv1) (TypeHole mv2) = mv1 == mv2
+typeCanHold' _ _ = False
 
 normalizeTypes :: TermMappable a => a -> a
 normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)

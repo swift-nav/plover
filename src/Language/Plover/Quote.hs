@@ -84,6 +84,8 @@ reportSemErr ls err
        UError tag msg -> posStuff tag ++ msg ++ "\n"
        UTyFailure tag t1 t2 -> posStuff tag ++ "Could not unify type\n"
                                ++ nice t1 ++ "\nwith type\n" ++ nice t2 ++ "\n"
+       UTyAssertFailure tag sty dty -> posStuff tag ++ "The type\n" ++ nice sty
+                                       ++ "\nis not a subtype of\n" ++ nice dty ++ "\n"
        UExFailure tag e1 e2 -> posStuff tag ++ "Could not unify expression\n"
                                ++ nice e1 ++ "\nwith expression\n" ++ nice e2 ++ "\n"
        ULocFailure tag l1 l2 -> posStuff tag ++ "Could not unify location\n"

@@ -27,6 +27,7 @@ data UnifierData = UnifierData
 
 data UnificationError = UError (Tag SourcePos) String
                       | UTyFailure (Tag SourcePos) Type Type
+                      | UTyAssertFailure (Tag SourcePos) Type Type
                       | UExFailure (Tag SourcePos) CExpr CExpr
                       | ULocFailure (Tag SourcePos) (Location CExpr) (Location CExpr)
                       | UTyOccurs (Tag SourcePos) Variable Type
@@ -226,8 +227,8 @@ instance Unifiable Type where
   unify pos (IntType {}) y@(FloatType {}) = return y
   unify pos x@(FloatType {}) (IntType {}) = return x
   -- integers can go into bigger sizes
-  unify pos (IntType t1) (IntType t2) | Just t' <- intPromotePreserveBits t1 t2 = return $ IntType t'
-  unify pos (FloatType t1) (FloatType t2) = return $ FloatType (floatPromote t1 t2)
+  unify pos (IntType t1) (IntType t2) = return $ IntType $ intMerge t1 t2
+  unify pos (FloatType t1) (FloatType t2) = return $ FloatType $ floatPromote t1 t2
   
   unify pos StringType StringType = return StringType
   unify pos BoolType BoolType = return BoolType
@@ -378,7 +379,8 @@ expectInt pos ty = do
   ty' <- unify pos ty (IntType defaultIntType)
   case ty' of
    IntType t -> return t
-   _ -> return defaultIntType
+   _ -> do addUError $ UError pos "Expecting integer."
+           return defaultIntType
 
 expectBool :: Tag SourcePos -> Type -> UM ()
 expectBool pos ty = do
@@ -440,10 +442,10 @@ typeCheck (IntLit pos ty _) = return $ IntType ty
 typeCheck (FloatLit pos ty _) = return $ FloatType ty
 typeCheck (StrLit {}) = return $ StringType
 typeCheck (BoolLit {}) = return $ BoolType
+typeCheck (VecLit pos ty []) = typeCheckType pos ty
 typeCheck (VecLit pos ty xs) = do
   xtys <- forM xs $ \x -> typeCheck x
-  hole <- gensym "hole"
-  ty' <- foldM (unify pos) (TypeHoleJ hole) (xtys ++ [ty]) -- TODO fix when get better number types
+  ty' <- foldM (unify pos) (head xtys) $ tail xtys ++ [ty]
   return $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
@@ -482,11 +484,18 @@ typeCheck (Set pos loc v) = do
   tyloc <- typeCheckLoc pos loc >>= normalizeTypesM
   tyv <- typeCheck v >>= normalizeTypesM
   unify pos tyloc tyv
+  tyv <- expandTerm tyv
+  tyloc <- expandTerm tyloc
+  when (not $ typeCanHold tyloc tyv) $ addUError $ UTyAssertFailure pos tyv tyloc
   return $ Void
 typeCheck (AssertType pos v ty) = do
   vty <- typeCheck v
   ty' <- typeCheckType pos ty
   unify pos vty ty'
+  ty' <- expandTerm ty
+  vty <- expandTerm vty
+  when (not $ typeCanHold ty' vty) $ addUError $ UTyAssertFailure pos vty ty'
+  return ty'
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b) = do error $ "binary " ++ show op ++ " not implemented"
 
@@ -520,7 +529,7 @@ typeCheckLoc pos (Index a idxs) = do
              expectInt pos idxtybase
              bty' <- typeCheckIdx oty idxs (VecType ibnds bty)
              return $ VecType idxs' bty'
-           _ -> do unify pos (IntType IDefault) idxty -- probably should be int by default?
+           _ -> do unify pos (IntType defaultIntType) idxty -- probably should be int by default?
                    hole <- gensym "hole"
                    return $ TypeHoleJ hole
         typeCheckIdx oty (idx:idxs) ty = do

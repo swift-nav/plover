@@ -10,7 +10,7 @@ zeros {n :: u32} :: double[n]
 
 extern dostuff {n :: u32} (A :: double[n])  :: u8;
 
-foo (l :: u8) (m :: u8) (n :: u8) (A :: u8[3]) (B :: u8[3,n]) :: u8  := (
+foo (l :: u8) (m :: u8) (n :: u8) (A :: double[3]) (B :: double[3,n]) :: u8  := (
 -- --  A <- B;
 -- --  B <- vec i in 0: -> i;
    A <- zeros(); 22);
@@ -21,8 +21,8 @@ foo (l :: u8) (m :: u8) (n :: u8) (A :: u8[3]) (B :: u8[3,n]) :: u8  := (
 
 -- foo2 {n :: u8} (_A :: double[n,n]) :: double[n,n] := zeros2();
 
---g {n :: u8} {m :: u8} (A :: double[n,n]) (B :: u8[m,n]) :: Void
---  := (A[B,1][2] <- A[3,B][4]; A[1,:] <- A[2,:]; A[1] <- A[2]);
+g {n :: u8} {m :: u8} (A :: double[n,n]) (B :: u8[m,n]) :: Void
+  := (A[B,1][2] <- A[3,B][4]; A[1,:] <- A[2,:]; A[1] <- A[2]; A[:,1] <- A[:,2]);
 
 --h {n :: u8} {m :: u8} (A :: double[n,m]) :: Void
 -- := (A[1,:] <- zeros(); dostuff A[2,:]; B := A[22,:]; dostuff B; ());
@@ -32,5 +32,6 @@ foo (l :: u8) (m :: u8) (n :: u8) (A :: u8[3]) (B :: u8[3,n]) :: u8  := (
 extern dotp {n :: u32} (A :: double[n]) (B :: double[n]) :: double;
 
 matmul {l :: u32} {m :: u32} {n :: u32}  (A :: double[l,m]) (B :: double[m,n]) :: double[l,n]
-  :=  vec i in _, j in _ -> dotp A[i,:] B[:,j];
+  :=  vec i in (:), j in (:) -> dotp A[i,:] B[:,j];
   
+--hmm() :: u8 := (2.2 :: u8);

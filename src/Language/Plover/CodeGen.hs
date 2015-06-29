@@ -414,19 +414,6 @@ compileStat v@(Vec _ i range exp) = comp
 
         mkFor vidxty vidx bnd bodybl =
           [ [citem| for ($ty:vidxty $id:vidx = 0; $id:vidx < $bnd; $id:vidx++) { $items:bodybl } |] ]
--- compileStat v@(Vec _ i range exp) =
---   let compiled = Compiled
---                  { noResult = return []
---                  , withDest = \dest -> do loc' <- asLoc compiled
---                                           genStore dest loc' (getType v)
---                  , asLoc = return $ scopeBlockLoc (\idx -> do i' <- newName "i" i
---                                                               let VecType (bnd:_) _ = getType v
---                                                                   ity = getType bnd
---                                                               (vbl, vex) <- rngExp idx
---                                                               return $ vbl ++ [ [citem| $ty:(compileType ity) $id:(i') = $vex; |] ])
---                                   (asLoc $ compileStat exp)
---                  }
---   in compiled
 
 compileStat exp@(RangeVal _ range) = comp
   where comp = Compiled
@@ -474,26 +461,6 @@ compileStat (If _ a b c) = comp
                , asLoc = defaultAsLoc (getType b) comp
                }
         mkIf aexp bbl cbl = [ [citem| if ($aexp) { $items:bbl } else { $items:cbl } |] ]
-
--- compileStat (If _ a b c) = Compiled
---                            { noResult = do (abl, aexp) <- withValue $ compileStat a
---                                            bbl <- noResult $ compileStat b
---                                            cbl <- noResult $ compileStat c
---                                            return (abl ++
---                                                    [ [citem| if ($(aexp)) { $items:bbl } else { $items:cbl } |] ])
---                            , withDest = \v -> do (abl, aexp) <- withValue $ compileStat a
---                                                  bbl <- withDest (compileStat b) v
---                                                  cbl <- withDest (compileStat c) v
---                                                  return (abl ++
---                                                      [ [citem| if ($(aexp)) { $items:bbl } else { $items:cbl } |] ])
---                            , asLoc = do (abl, aexp) <- withValue $ compileStat a
---                                         (vbl, v) <- genLoc "v" (getType b) -- type b == type c
---                                         bbl <- withDest (compileStat b) v
---                                         cbl <- withDest (compileStat c) v
---                                         return $ blockLoc (return $ abl ++ vbl ++
---                                                    [ [citem| if ($(aexp)) { $items:bbl } else { $items:cbl } |] ])
---                                                    v
---                           }
 
 compileStat (VoidExpr _) = Compiled { noValue = return []
                                     , withDest = \v -> error "Cannot store VoidExpr"
@@ -563,21 +530,21 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args) = comp
                { withValue = do (bbl, fexp, bbl') <- theCall f dargs
                                 case bbl' of
                                  [] -> return (bbl, fexp)
-                                 _ -> do ret <- freshName "ret"
-                                         (ctybl, cty) <- compileInitType retty
-                                         return (bbl ++ ctybl ++ [[citem| $ty:cty $id:ret = $fexp; |]],
-                                                 [cexp| $id:ret |])
+                                 _ -> do (locbl, loc) <- freshLoc "ret" retty
+                                         st <- storeExp loc fexp
+                                         (locbl', ex) <- withValue $ asRValue loc
+                                         return (bbl ++ locbl ++ st ++ bbl' ++ locbl', ex)
                , withDest = \dest -> do (bbl, fexp, bbl') <- theCall f dargs
                                         stbl <- storeExp dest fexp
                                         return (bbl ++ stbl ++ bbl')
                , noValue = do (bbl, fexp, bbl') <- theCall f dargs
                               return (bbl ++ [[citem| $fexp; |]] ++ bbl')
                , asLoc = do (bbl, fexp, bbl') <- theCall f dargs
-                            if null bbl' -- if no after code, then compile simpler
-                              then return (bbl, expLoc retty fexp)
-                              else do (locbl, loc) <- freshLoc "ret" retty
+                            case bbl' of
+                              [] -> return (bbl, expLoc retty fexp)
+                              _ -> do (locbl, loc) <- freshLoc "ret" retty
                                       st <- storeExp loc fexp
-                                      return (bbl ++ locbl ++ st, loc)
+                                      return (bbl ++ locbl ++ st ++ bbl', loc)
                }
 
         (FnT params retty, _) = getEffectiveFunType ft
