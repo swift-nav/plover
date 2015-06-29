@@ -441,10 +441,10 @@ typeCheck (FloatLit pos ty _) = return $ FloatType ty
 typeCheck (StrLit {}) = return $ StringType
 typeCheck (BoolLit {}) = return $ BoolType
 typeCheck (VecLit pos ty xs) = do
-  forM_ xs $ \x -> do
-    xty <- typeCheck x
-    unify pos ty xty
-  return $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty
+  xtys <- forM xs $ \x -> typeCheck x
+  hole <- gensym "hole"
+  ty' <- foldM (unify pos) (TypeHoleJ hole) (xtys ++ [ty]) -- TODO fix when get better number types
+  return $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
   addBinding pos v tyx

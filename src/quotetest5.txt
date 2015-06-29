@@ -1,6 +1,8 @@
---test Void :: u8 := (A := vec(1.2,2.2,3); A[1]);
+extern println (s :: String) :: ();
 
-zeros {n :: u32} :: double[n]  := vec i in : -> 0;
+test2 Void :: u8 := (A := vec(1,2.2,3); A[1]);
+
+zeros {n :: u32} :: double[n]  := vec i in : -> (println "yay"; 0);
 --zeros2 {m :: u32} {n :: u32} :: double[m,n]
 --  := vec i in :, j in : -> 0;
 

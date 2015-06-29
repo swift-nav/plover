@@ -87,7 +87,7 @@ reportSemErr ls err
        UExFailure tag e1 e2 -> posStuff tag ++ "Could not unify expression\n"
                                ++ nice e1 ++ "\nwith expression\n" ++ nice e2 ++ "\n"
        ULocFailure tag l1 l2 -> posStuff tag ++ "Could not unify location\n"
-                                ++ show l1 ++ "\nwith location\n" ++ show l2 ++ "\n"
+                                ++ nice l1 ++ "\nwith location\n" ++ nice l2 ++ "\n"
        UTyOccurs tag v ty -> posStuff tag ++ "Occurs check error for " ++ show v
                              ++ " in type\n" ++ nice ty ++ "\n"
        UExOccurs tag v ex -> posStuff tag ++ "Occurs check error for " ++ show v

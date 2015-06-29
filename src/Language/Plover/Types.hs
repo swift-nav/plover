@@ -613,8 +613,8 @@ instance PP Type where
   pretty (PtrType t) = parens $ hang (text "*") 2 (pretty t)
   pretty (TypedefType v) = text v
   pretty (StructType v _) = text v
-  pretty (TypeHole (Just v)) = parens (text $ "TypeHole " ++ show v)
-  pretty (TypeHole Nothing) = parens (text "TypeHole")
+  pretty (TypeHole (Just v)) = text v -- should have $ so shouldn't conflict
+  pretty (TypeHole Nothing) = text "$hole"
 --  pretty x = text $ show x
 
 instance (Show a, PP a) => PP (Expr a) where
@@ -623,8 +623,8 @@ instance (Show a, PP a) => PP (Expr a) where
   pretty (FloatLit' _ x) = text $ show x
   pretty (StrLit' x) = text $ show x
   pretty (BoolLit' x) = text $ show x
-  pretty (Hole' (Just (_, v))) = parens $ text $ "Hole " ++ v
-  pretty (Hole' Nothing) = parens $ text "Hole"
+  pretty (Hole' (Just (_, v))) = text v -- should start with $ so shouldn't conflict
+  pretty (Hole' Nothing) = parens $ text "$hole"
   pretty (Get' loc) = pretty loc
   pretty (Addr' loc) = parens $ hang (text "&") 2 (pretty loc)
   pretty x = text $ show x
