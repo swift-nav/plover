@@ -604,12 +604,15 @@ intPromotePreserveBits x y
   | intUnsigned x  = Just y  -- then x surely fits
   | otherwise  = Nothing
 
-floatPromote :: FloatType -> FloatType -> FloatType
-floatPromote FDefault y = y
-floatPromote x FDefault = x
-floatPromote Float y = y
-floatPromote x Float = x
-floatPromote x y = Double
+arithFloat :: FloatType -> FloatType -> FloatType
+arithFloat x y = floatMerge (promoteFloat x) (promoteFloat y)
+
+floatMerge :: FloatType -> FloatType -> FloatType
+floatMerge FDefault y = y
+floatMerge x FDefault = x
+floatMerge Float y = y
+floatMerge x Float = x
+floatMerge x y = Double
 
 -- | Determines whether a location of the first int type can comfortably
 -- hold a location of the second.
@@ -640,7 +643,7 @@ typeCanHold' NumType NumType = True
 typeCanHold' NumType (IntType {}) = True
 typeCanHold' NumType (FloatType {}) = True
 typeCanHold' (IntType t1) NumType = False
-typeCanHold' (IntType t1) (IntType t2) = intCanHold t1 t2
+typeCanHold' (IntType t1) (IntType t2) = True -- intCanHold t1 t2
 typeCanHold' (IntType t1) (FloatType {}) = False
 typeCanHold' (FloatType t1) NumType = False
 typeCanHold' (FloatType t1) (IntType {}) = True
@@ -752,7 +755,11 @@ getType (Addr pos loc) = PtrType (getLocType loc)
 getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
 --getType (Unary
---getType (Binary
+getType (Binary _ op a b)
+  | op `elem` [Add, Sub] = getVectorizedType (getType a) (getType b)
+  | otherwise = error "getType for binary not implemented"
+  where aty = normalizeTypes $ getType a
+        bty = normalizeTypes $ getType b
 
 getLocType :: Location CExpr -> Type
 getLocType (Ref ty v) = ty
@@ -765,3 +772,24 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
 getLocType (Field a field) = error "getLocType field not implemented"
 getLocType (Deref a) = let (PtrType a') = getType a
                        in a'
+
+-- | Gets the type of an auto-vectorized expression.  Assumes types
+-- have been unified.
+-- Rules:
+--  1) if A and B are vectors, (A + B)[i] = A[i] + B[i]
+--  2) if (wlog) A is a vector and B is not, (A + B)[i] = A[i] + B
+--  3) if neither are, it is just A + B
+getVectorizedType :: Type -> Type -> Type
+getVectorizedType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
+   (VecType [] bty1, ty2) -> getVectorizedType bty1 ty2
+   (ty1, VecType [] bty2) -> getVectorizedType ty1 bty2
+   (VecType (idx1:idxs1) bty1, VecType (idx2:idxs2) bty2)  ->
+     let (VecType idxs' bty') = getVectorizedType (VecType idxs1 bty1) (VecType idxs2 bty2)
+     in VecType (idx1:idxs') bty'
+   (VecType idxs1 bty1, ty2)  -> VecType idxs1 (getVectorizedType bty1 ty2)
+   (ty1, VecType idxs2 bty2) -> VecType idxs2 (getVectorizedType ty1 bty2)
+   (IntType t1, IntType t2) -> IntType $ arithInt t1 t2
+   (FloatType t1, IntType {}) -> FloatType $ promoteFloat t1
+   (IntType {}, FloatType t2) -> FloatType $ promoteFloat t2
+   (FloatType t1, FloatType t2) -> FloatType $ arithFloat t1 t2
+   (ty1, ty2) -> ty1

@@ -178,6 +178,11 @@ typeCheckDefBinding def = do
                                       ty' <- expandTerm ty
                                       return (v, b, dir, ty')
                                     retty' <- expandTerm retty
+
+                                    expty' <- expandTerm expty
+                                    when (not $ typeCanHold retty' expty') $
+                                      addUError $ UTyAssertFailure (MergeTags [bindingPos def, getTag exp]) expty' retty'
+                                    
                                     return $ FunctionDef (Just exp') (FnT args' retty)
                                   _ -> do args' <- forM args $ \(v, b, dir, ty) -> do
                                             ty' <- expandTerm ty
@@ -228,7 +233,7 @@ instance Unifiable Type where
   unify pos x@(FloatType {}) (IntType {}) = return x
   -- integers can go into bigger sizes
   unify pos (IntType t1) (IntType t2) = return $ IntType $ intMerge t1 t2
-  unify pos (FloatType t1) (FloatType t2) = return $ FloatType $ floatPromote t1 t2
+  unify pos (FloatType t1) (FloatType t2) = return $ FloatType $ floatMerge t1 t2
   
   unify pos StringType StringType = return StringType
   unify pos BoolType BoolType = return BoolType
@@ -497,7 +502,35 @@ typeCheck (AssertType pos v ty) = do
   when (not $ typeCanHold ty' vty) $ addUError $ UTyAssertFailure pos vty ty'
   return ty'
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
-typeCheck (Binary pos op a b) = do error $ "binary " ++ show op ++ " not implemented"
+typeCheck (Binary pos op a b)
+  | op `elem` [Add, Sub]  = do
+      aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+      bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
+      numTypeVectorize pos aty bty
+  | otherwise = error $ "binary " ++ show op ++ " not implemented"
+
+numTypeVectorize :: Tag SourcePos -> Type -> Type -> UM Type
+numTypeVectorize pos ty1 ty2 =
+  case (ty1, ty2) of
+   (VecType [] bty1, ty2) -> numTypeVectorize pos bty1 ty2
+   (ty1, VecType [] bty2) -> numTypeVectorize pos ty1 bty2
+   (VecType (idx1:idxs1) bty1, VecType (idx2:idxs2) bty2)  -> do
+     idx' <- unify pos idx1 idx2
+     subty <- numTypeVectorize pos (VecType idxs1 bty1) (VecType idxs2 bty2)
+     case normalizeTypes subty of
+      VecType idxs' bty' -> return $ VecType (idx':idxs') bty'
+      bty' -> return $ VecType [idx'] bty'
+   (VecType idxs1 bty1, ty2)  -> do
+     bty' <- numTypeVectorize pos bty1 ty2
+     return $ VecType idxs1 bty'
+   (ty1, VecType idxs2 bty2) -> do
+     bty' <- numTypeVectorize pos ty1 bty2
+     return $ VecType idxs2 bty'
+   (IntType t1, IntType t2) -> return $ IntType $ arithInt t1 t2
+   (FloatType t1, IntType {}) -> return $ FloatType $ promoteFloat t1
+   (IntType {}, FloatType t2) -> return $ FloatType $ promoteFloat t2
+   (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
+   (ty1, ty2) -> unify pos ty1 ty2
 
 typeCheckRange :: Tag SourcePos -> Range CExpr -> UM IntType
 typeCheckRange pos (Range from to step) = do

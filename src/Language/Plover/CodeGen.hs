@@ -212,7 +212,7 @@ data CmLoc = CmLoc { apIndex :: C.Exp -> CM ([C.BlockItem], CmLoc)
 expLoc :: Type -> C.Exp -> CmLoc
 expLoc ty exp = CmLoc { apIndex = error "Cannot apIndex expLoc"
                       , store = \v -> return $ [ [citem| $exp = $v; |] ]
-                      , asRValue = compPureExpr ty $ return exp
+                      , asRValue = compPureExpr ty $ return ([], exp)
                       , asArgument = return ([], [], exp, [])
                       , locType = ty
                       }
@@ -236,7 +236,9 @@ makeLoc v ty = case normalizeTypes ty of
           return $ (vbl ++ [ [citem| $ty:vty $id:v; |] ],
                     refLoc ty v)
 
--- | type is normalized type of vector
+-- | Type is normalized type of vector.  Creates a vector based on
+-- using C indexing of the expression, assuming the expression is
+-- stored linearly in memory.
 mkVecLoc :: Type -> C.Exp -> [CExpr] -> CmLoc
 mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
   where mkVecLoc' :: [(C.Exp, CExpr)] -> [CExpr] -> CmLoc
@@ -255,10 +257,10 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
         mkVecLoc' acc (bnd:bnds) = CmLoc {
           apIndex = \idx -> return ([], mkVecLoc' (acc ++ [(idx, bnd)]) bnds)
           , store = error "Cannot do simple store into vector"
-          , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return vec -- TODO ?
+          , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return ([], vec) -- TODO ?
           , asArgument = case acc of
               [] -> return ([], [], vec, [])
-              _ -> do (blks, exp) <- withValue $ compPureExpr (VecType (bnd:bnds) baseTy) $ return vec
+              _ -> do (blks, exp) <- withValue $ compPureExpr (VecType (bnd:bnds) baseTy) $ return ([], vec)
                       return (blks, [], exp, [])
           , locType = VecType (bnd:bnds) baseTy
         }
@@ -320,6 +322,14 @@ defaultAsLoc ty comp = do (locbl, loc) <- freshLoc "loc" ty
                           spbl <- withDest comp loc
                           return (locbl ++ spbl, loc)
 
+-- | uses asRValue and apIndex.  Just spills the thing into a new
+-- location.
+defaultAsArgument :: CmLoc -> CM ([C.BlockItem], [C.BlockItem], C.Exp, [C.BlockItem])
+defaultAsArgument loc = do (flocbl, floc) <- freshLoc "loc" (locType loc)
+                           spbl <- storeLoc floc loc
+                           (bef, prep, exp, aft) <- asArgument floc
+                           return (flocbl ++ bef, spbl ++ prep, exp, aft)
+
 storeExp :: CmLoc -> C.Exp -> CM [C.BlockItem]
 storeExp dst exp = case normalizeTypes (locType dst) of
   VecType idxs bty -> storeLoc dst (mkVecLoc bty exp idxs)
@@ -339,15 +349,15 @@ storeLoc dst src = case normalizeTypes (locType dst) of
 
 -- | an expression with no side effects does not need to be computed
 -- if no result is needed.
-compPureExpr :: Type -> CM C.Exp -> Compiled
+compPureExpr :: Type -> CM ([C.BlockItem], C.Exp) -> Compiled
 compPureExpr ty mexpr = comp
   where comp = Compiled
-               { noValue = return []
+               { noValue = do (bl, expr) <- mexpr
+                              return bl
                , withDest = defaultWithDest ty comp
-               , withValue = do expr <- mexpr
-                                return ([], expr)
-               , asLoc = do expr <- mexpr
-                            return $ ([], expLoc ty expr)
+               , withValue = mexpr
+               , asLoc = do (bl, expr) <- mexpr
+                            return $ (bl, expLoc ty expr)
                }
 
 compImpureExpr :: Type -> CM ([C.BlockItem], C.Exp) -> Compiled
@@ -466,10 +476,10 @@ compileStat (VoidExpr _) = Compiled { noValue = return []
                                     , withDest = \v -> error "Cannot store VoidExpr"
                                     , withValue = return $ ([], error "Cannot get VoidExpr")
                                     , asLoc = return $ ([], error "Cannot get VoidExpr") }
-compileStat x@(IntLit _ _ v) = compPureExpr (getType x) $ return [cexp| $int:v |] -- TODO consider type
-compileStat x@(FloatLit _ _ v) = compPureExpr (getType x) $ return [cexp| $double:(toRational v) |] -- TODO consider type
-compileStat (StrLit _ s) = compPureExpr StringType $ return [cexp| $string:s |]
-compileStat (BoolLit _ b) = compPureExpr BoolType $ return [cexp| $id:lit |]
+compileStat x@(IntLit _ _ v) = compPureExpr (getType x) $ return ([], [cexp| $int:v |]) -- TODO consider type
+compileStat x@(FloatLit _ _ v) = compPureExpr (getType x) $ return ([], [cexp| $double:(toRational v) |]) -- TODO consider type
+compileStat (StrLit _ s) = compPureExpr StringType $ return ([], [cexp| $string:s |])
+compileStat (BoolLit _ b) = compPureExpr BoolType $ return ([], [cexp| $id:lit |])
   where lit :: String
         lit = if b then "true" else "false"
 
@@ -610,6 +620,62 @@ compileStat (AssertType pos a ty) = compileStat a
 
 -- -- unary
 -- -- binary
+
+compileStat v@(Binary _ op a b)
+  | op `elem` [Add, Sub] = compileVectorized aty bty (asLoc $ compileStat a) (asLoc $ compileStat b)
+  where aty = normalizeTypes $ getType a
+        bty = normalizeTypes $ getType b
+
+        opExp a b = case op of
+                     Add -> [cexp| $a + $b |]
+                     Sub -> [cexp| $a - $b |]
+
+        compileVectorized (VecType [] aty) bty ma mb = compileVectorized aty bty ma mb
+        compileVectorized aty (VecType [] bty) ma mb = compileVectorized aty bty ma mb
+        compileVectorized ta@(VecType (abnd:abnds) aty) tb@(VecType (_:bbnds) bty) ma mb = comp
+          where comp = Compiled
+                       { withDest = \dest -> storeLoc dest loc
+                       , asLoc = return ([], loc) }
+                loc = CmLoc
+                      { apIndex = \idx -> do (abl, aloc) <- ma
+                                             (bbl, bloc) <- mb
+                                             (bl, loc) <- asLoc $ compileVectorized (VecType abnds aty) (VecType bbnds bty) (apIndex aloc idx) (apIndex bloc idx)
+                                             return (abl ++ bbl ++ bl, loc)
+                      , asArgument = defaultAsArgument loc
+                      , locType = getVectorizedType ta tb
+                      }
+        compileVectorized ta@(VecType (abnd:abnds) aty) tb ma mb = comp
+          where comp = Compiled
+                       { withDest = \dest -> storeLoc dest loc
+                       , asLoc = return ([], loc)
+                       }
+                loc = CmLoc
+                      { apIndex = \idx -> do (abl, aloc) <- ma
+                                             (bbl, bloc) <- mb
+                                             (bl, loc) <- asLoc $ compileVectorized (VecType abnds aty) tb (apIndex aloc idx) (return ([], bloc))
+                                             return (abl ++ bbl ++ bl, loc)
+                      , asArgument = defaultAsArgument loc
+                      , locType = getVectorizedType ta tb
+                      }
+        compileVectorized ta tb@(VecType (bbnd:bbnds) bty) ma mb = comp
+          where comp = Compiled
+                       { withDest = \dest -> storeLoc dest loc
+                       , asLoc = return ([], loc)
+                       }
+                loc = CmLoc
+                      { apIndex = \idx -> do (abl, aloc) <- ma
+                                             (bbl, bloc) <- mb
+                                             (bl, loc) <- asLoc $ compileVectorized ta (VecType bbnds bty) (return ([], aloc)) (apIndex bloc idx)
+                                             return (abl ++ bbl ++ bl, loc)
+                      , asArgument = defaultAsArgument loc
+                      , locType = getVectorizedType ta tb
+                      }
+        compileVectorized ta tb ma mb = compPureExpr (getVectorizedType ta tb) $ do
+          (abl, aloc) <- ma
+          (abl', aex) <- withValue $ asRValue aloc
+          (bbl, bloc) <- mb
+          (bbl', bex) <- withValue $ asRValue bloc
+          return (abl ++ abl' ++ bbl ++ bbl', opExp aex bex )
 
 compileStat (Binary _ Mul a b) = comp
   where comp = Compiled

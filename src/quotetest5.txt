@@ -1,6 +1,8 @@
 extern println (s :: String) :: ();
 
-test2 Void :: u8 := (A := vec(1,2.2,3); A[1]);
+test2 Void :: double := (A := vec(1,2.2,3); A[1]);
+
+test3() :: u8[5]  := (vec j in : -> j) - vec i in : -> i;
 
 zeros {n :: u32} :: double[n]
   := vec i in : -> (println "yay"; 0);
@@ -34,4 +36,8 @@ extern dotp {n :: u32} (A :: double[n]) (B :: double[n]) :: double;
 matmul {l :: u32} {m :: u32} {n :: u32}  (A :: double[l,m]) (B :: double[m,n]) :: double[l,n]
   :=  vec i in (:), j in (:) -> dotp A[i,:] B[:,j];
   
---hmm() :: u8 := (2.2 :: u8);
+hmm() :: u8 := 2;
+
+blah22 {n :: u8} (A :: double[n,n]) (B :: double[n,n])
+   :: double[n,n]
+ := A + (vec i in :, j in : -> B[j,i]);
