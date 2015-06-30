@@ -531,6 +531,16 @@ typeCheck (Binary pos op a b)
          addUError $ UError pos "Only 1-d and 2-d vectors may be multiplied."
          return $ TypeHole Nothing
        _ -> arithType pos aty bty
+  | op == Concat = do
+      aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+      bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
+      case (aty, bty) of
+       (VecType (aidx:aidxs) aty', VecType (bidx:bidxs) bty') -> do
+         ty' <- unify pos (VecType aidxs aty') (VecType bidxs bty')
+         typeCheckType pos $ normalizeTypes $ VecType [Binary pos Add aidx bidx] ty'
+       _ -> do addUError $ UError pos "Bad argument types to concatenation operator."
+               hole <- gensym "hole"
+               return $ TypeHoleJ hole
   | otherwise = error $ "binary " ++ show op ++ " not implemented"
 
 numTypeVectorize :: Tag SourcePos -> Type -> Type -> UM Type

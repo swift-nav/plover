@@ -755,7 +755,7 @@ getType (Addr pos loc) = PtrType (getLocType loc)
 getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
 --getType (Unary
-getType (Binary _ op a b)
+getType (Binary pos op a b)
   | op `elem` [Add, Sub] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
     (VecType [a, _] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty')
@@ -764,6 +764,9 @@ getType (Binary _ op a b)
     (VecType [a] aty', VecType [_] bty') -> getArithType aty' bty'
     (VecType {}, VecType {}) -> error "getType: Bad vector sizes for multiplication"
     _ -> getArithType aty bty
+  | op == Concat = case (aty, bty) of
+    (VecType (aidx:aidxs) aty', VecType (bidx:_) bty') -> VecType [Binary pos Add aidx bidx]
+                                                          (getArithType aty' bty')
   | otherwise = error "getType for binary not implemented"
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
