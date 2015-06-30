@@ -447,6 +447,24 @@ compileStat v@(Vec _ i range exp) = comp
         mkFor vidxty vidx bnd bodybl =
           [ [citem| for ($ty:vidxty $id:vidx = 0; $id:vidx < $bnd; $id:vidx++) { $items:bodybl } |] ]
 
+compileStat (For pos i range exp) = comp
+  where comp = Compiled
+               { noValue = newScope $ do
+                    let itty = compileType $ getType $ rangeLength pos range
+                        Range start end step = range
+                    vidx <- newName "i" i
+                    body <- noValue $ compileStat exp
+                    (strtbl, strtex) <- withValue $ compileStat start
+                    (endbl, endex) <- withValue $ compileStat end
+                    (stepbl, stepex) <- withValue $ compileStat step
+                    return $ strtbl ++ endbl ++ stepbl ++ [
+                      [citem| for ($ty:itty $id:vidx = $strtex; $id:vidx < $endex; $id:vidx += $stepex) { $items:body } |]
+                      ]
+               , withValue = error "Cannot get value of For"
+               , withDest = error "Cannot use For as dest"
+               , asLoc = error "Cannot use For as location"
+               }
+
 compileStat exp@(RangeVal _ range) = comp
   where comp = Compiled
                { noValue = defaultNoValue ty comp

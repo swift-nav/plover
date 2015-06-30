@@ -427,6 +427,12 @@ typeCheck (Vec pos v range body) = do
   addBinding pos v (IntType rt)
   bt <- typeCheck body
   return $ VecType [rangeLength pos range] bt
+typeCheck (For pos v range body) = do
+  rt <- typeCheckRange pos range
+  -- alpha renamed, so can just add v to scope
+  addBinding pos v (IntType rt)
+  typeCheck body
+  return Void
 typeCheck (Return pos a) = do
   typeCheck a
   return Void
@@ -504,6 +510,12 @@ typeCheck (AssertType pos v ty) = do
 typeCheck (Unary pos Neg a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   numTypeVectorize pos aty aty
+typeCheck (Unary pos Sum a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  aty' <- numTypeVectorize pos aty aty
+  case aty' of
+   VecType (idx:idxs) aty'' -> return $ normalizeTypes $ VecType idxs aty''
+   _ -> return aty'
 typeCheck (Unary pos Inverse a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   case aty of

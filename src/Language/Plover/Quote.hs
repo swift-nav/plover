@@ -106,9 +106,10 @@ showLine :: [String] -- ^ the lines from the source file
          -> String
 showLine ls pos
   = show pos ++ ":\n"
-    ++ line ++ "\n"
-    ++ errptr
-  where line = ls !! (sourceLine pos - 1)
+    ++ line
+  where line = if sourceLine pos <= length ls
+               then ls !! (sourceLine pos - 1) ++ "\n" ++ errptr
+               else "(end of file)\n"
         errptr = replicate (sourceColumn pos - 1) ' ' ++ "^"
 
 runStuff fileName = do source <- readFile fileName
@@ -375,14 +376,14 @@ makeExpr exp@(PExpr pos e') = case e' of
   Vec ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr (PExpr pos (Vec bs e))
                          return $ T.Vec pos v rng ee
+  For [] e -> makeExpr e
+  For ((v,r):bs) e -> do rng <- makeRange r
+                         ee <- makeExpr e
+                         return $ T.For pos v rng ee
   Sum [] e -> makeExpr e
   Sum ((v,r):bs) e -> do rng <- makeRange r
                          ee <- makeExpr e
                          return $ T.Unary pos T.Sum $ T.Vec pos v rng ee
-  For [] e -> makeExpr e
-  For ((v,r):bs) e -> do rng <- makeRange r
-                         ee <- makeExpr e
-                         return $ T.Unary pos T.For $ T.Vec pos v rng ee
   Ref v -> return $ T.Get pos $ T.Ref (T.TypeHole Nothing) v
   VoidExpr -> return $ T.VoidExpr pos
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]

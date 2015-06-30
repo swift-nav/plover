@@ -285,6 +285,13 @@ fillValHoles exp = case exp of
       _ <- addNewLocalBinding pos v v'
       expr' <- fillValHoles expr
       return $ Vec pos v' range' expr'
+  For pos v range expr ->
+    withNewScope $ do
+      v' <- gensym v
+      range' <- fillRangeHoles range
+      _ <- addNewLocalBinding pos v v'
+      expr' <- fillValHoles expr
+      return $ For pos v' range' expr'
   Return pos v -> Return pos <$> fillValHoles v
   Assert pos a -> Assert pos <$> fillValHoles a
   RangeVal pos range -> RangeVal pos <$> fillRangeHoles range

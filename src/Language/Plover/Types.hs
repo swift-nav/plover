@@ -56,7 +56,7 @@ actualDefaultFloatType = Double
 
 data UnOp = Neg | Not
           | Transpose | Inverse
-          | Sum | For
+          | Sum
           deriving (Show, Eq, Ord)
 data BinOp = Add | Sub | Mul | Div
            | Pow | Dot | Concat
@@ -82,6 +82,7 @@ data Arg a = Arg a
 data Expr a
   -- Things at the top of the constructor list
   = Vec' Variable (Range a) a
+  | For' Variable (Range a) a
   | Return' a -- TODO where is this allowed to appear? (Not inside a Vec, for example, maybe?)
   | Assert' a
   | RangeVal' (Range a)
@@ -365,6 +366,7 @@ normalizeType t = return t
 --sep s1 s2 = show s1 ++ ", " ++ show s2
 
 pattern Vec tag a b c = PExpr tag (Vec' a b c)
+pattern For tag a b c = PExpr tag (For' a b c)
 pattern If tag a b c = PExpr tag (If' a b c)
 pattern RangeVal tag r = PExpr tag (RangeVal' r)
 pattern VoidExpr tag = PExpr tag VoidExpr'
@@ -477,6 +479,7 @@ instance TermMappable Type where
 instance TermMappable CExpr where
   mapTerm tty texp tloc trng exp = case exp of
     Vec pos v range expr -> Vec pos v <$> trng range <*> texp expr
+    For pos v range expr -> For pos v <$> trng range <*> texp expr
     Return pos v -> Return pos <$> texp v
     Assert pos v -> Assert pos <$> texp v
     RangeVal pos range -> RangeVal pos <$> trng range
@@ -731,6 +734,7 @@ instance PP a => PP (Location a) where
 
 getType :: CExpr -> Type
 getType (Vec pos _ range base) = VecType [rangeLength pos range] (getType base)
+getType (For {}) = Void
 -- getType (Return ) -- what type?
 -- getType (Assert )
 getType (RangeVal pos range) = VecType [rangeLength pos range] (IntType IDefault)
@@ -755,6 +759,9 @@ getType (Addr pos loc) = PtrType (getLocType loc)
 getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
 getType (Unary pos Neg a) = getVectorizedType (getType a) (getType a)
+getType (Unary pos Sum a) = case getVectorizedType (getType a) (getType a) of
+  VecType (idx:idxs) aty' -> normalizeTypes $ VecType idxs aty'
+  aty' -> aty'
 getType (Unary pos Inverse a) = do
   case normalizeTypes $ getType a of
    VecType [a, _] aty' -> VecType [a, a] (getArithType aty' $ FloatType defaultFloatType)

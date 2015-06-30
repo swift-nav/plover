@@ -11,7 +11,9 @@ rot_small (x :: double) :: double[3,3]
         vec(-x, 1.0, 0.0),
         vec(0.0, 0.0, 1.0));
 
-extern norm {n :: u32} (v :: double[n]) :: double;
+norm {n :: u32} (v :: double[n]) :: double
+--  := sqrt (sum i in n -> (v[i] * v[i]));
+  := sqrt (s := 0.0; for i in n -> (s <- s + v[i] * v[i]); s);
 normalize {n :: u32} (v :: double[n]) :: double[n]
   := v / norm v;
 
