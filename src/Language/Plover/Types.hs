@@ -754,9 +754,18 @@ getType (Get pos loc) = getLocType loc
 getType (Addr pos loc) = PtrType (getLocType loc)
 getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
---getType (Unary
+getType (Unary pos Neg a) = getVectorizedType (getType a) (getType a)
+getType (Unary pos Inverse a) = do
+  case normalizeTypes $ getType a of
+   VecType [a, b] aty' -> VecType [b, a] (getArithType aty' $ FloatType defaultFloatType)
+   _ -> error "Unary inverse on not a rectangular vector"
+getType (Unary pos Transpose a) = do
+  case normalizeTypes $ getType a of
+   VecType (i1:i2:idxs) aty' -> VecType (i2:i1:idxs) aty'
+   VecType [idx] aty' -> VecType [1,idx] aty'
+   _ -> error "Unary transpose not on vector."
 getType (Binary pos op a b)
-  | op `elem` [Add, Sub] = getVectorizedType aty bty
+  | op `elem` [Add, Sub, Div] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
     (VecType [a, _] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty')
     (VecType [a] aty', VecType [_, c] bty') -> VecType [c] (getArithType aty' bty')
@@ -779,7 +788,9 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
           case normalizeTypes (getType idx) of
            IntType _               ->                getTypeIdx idxs (VecType ibnds bty)
            VecType idxs' idxtybase -> VecType idxs' (getTypeIdx idxs (VecType ibnds bty))
-getLocType (Field a field) = error "getLocType field not implemented"
+getLocType (Field a field) = case (getType a) of -- TODO need to replace dependent fields
+  StructType v (ST fields) -> case lookup field fields of
+    Just fieldTy -> fieldTy
 getLocType (Deref a) = let (PtrType a') = getType a
                        in a'
 

@@ -501,9 +501,29 @@ typeCheck (AssertType pos v ty) = do
   vty <- expandTerm vty
   when (not $ typeCanHold ty' vty) $ addUError $ UTyAssertFailure pos vty ty'
   return ty'
+typeCheck (Unary pos Neg a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  numTypeVectorize pos aty aty
+typeCheck (Unary pos Inverse a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  case aty of
+   VecType [i1, i2] aty' -> do aty'' <- unify pos aty' (FloatType defaultFloatType)
+                               return $ VecType [i2, i1] aty''
+   _ -> do addUError $ UError pos "Inverse must be of rectangular matrix."
+           hole <- gensym "hole"
+           return $ TypeHoleJ hole
+typeCheck (Unary pos Transpose a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  case aty of
+   VecType (i1:i2:idxs) aty' -> return $ VecType (i2:i1:idxs) aty'
+   VecType [idx] aty' -> return $ VecType [1,idx] aty'
+   _ -> do addUError $ UError pos "Transpose must be of a vector."
+           hole <- gensym "hole"
+           return $ TypeHoleJ hole
+             
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
-  | op `elem` [Add, Sub]  = do
+  | op `elem` [Add, Sub, Div]  = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       numTypeVectorize pos aty bty
@@ -626,7 +646,7 @@ typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
   case aty of
    StructType v (ST fields) -> case lookup field fields of
-     Just fieldTy -> error "Need to replace dependent fields with struct members"
+     Just fieldTy -> return fieldTy -- error "TODO Need to replace dependent fields with struct members"
      Nothing -> do addUError $ UNoField pos field
                    TypeHoleJ <$> gensym "field"
    _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field

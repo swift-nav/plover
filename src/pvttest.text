@@ -1,0 +1,39 @@
+extern struct navigation_measurement_t (
+  pseudorange :: double
+);
+extern GPS_OMEGAE_DOT :: double;
+extern GPS_C :: double;
+
+extern sqrt (x :: double) :: double;
+
+rot_small (x :: double) :: double[3,3]
+ := vec(vec(1.0, x, 0.0),
+        vec(-x, 1.0, 0.0),
+        vec(0.0, 0.0, 1.0));
+
+extern norm {n :: u32} (v :: double[n]) :: double;
+normalize {n :: u32} (v :: double[n]) :: double[n]
+  := v / norm v;
+
+pvt {n_used :: u8}
+    (sat_pos :: double[n_used,3])
+    (nav_meas :: navigation_measurement_t[n_used])
+    (rx_state :: double[3])
+    (out correction :: double[3+1])
+    (out G :: double[n_used,3+1])
+    (out X :: double[3+1, n_used])
+    :: Void
+
+  := (
+    los := vec j in 0:n_used -> (
+             tau := norm (rx_state - sat_pos[j]) / GPS_C;
+             we_tau := GPS_OMEGAE_DOT * tau;
+             xk_new := rot_small we_tau * sat_pos[j];
+             xk_new - rx_state;
+           );
+    G <- vec j in 0:n_used -> normalize (-los[j] # vec(1));
+    pseudo := vec i in 0:n_used -> nav_meas[i].pseudorange;
+    omp := pseudo - vec j in 0:n_used -> norm los[j];
+    X <- (G^T * G)^(-1) * G^T;
+    correction <- X * omp;
+  );

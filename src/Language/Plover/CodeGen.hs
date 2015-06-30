@@ -113,7 +113,7 @@ compileFunctionDecl name ft = do
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
-        args' = [(v, ty) | (v, _, _, ty) <- args, nonVoid ty]
+        args' = [(v, dir, ty) | (v, _, dir, ty) <- args, nonVoid ty]
 
 compileFunction :: String -> FunctionType -> CExpr -> CM [C.Definition]
 compileFunction name ft exp = do
@@ -129,15 +129,18 @@ compileFunction name ft exp = do
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
-        args' = [(v, ty) | (v, _, _, ty) <- args, nonVoid ty]
+        args' = [(v, dir, ty) | (v, _, dir, ty) <- args, nonVoid ty]
   
 
-compileParams :: [(Variable, Type)] -> CM [C.Param]
+compileParams :: [(Variable, ArgDir, Type)] -> CM [C.Param]
 compileParams = mapM compileParam
 
-compileParam :: (Variable, Type) -> CM C.Param
-compileParam (v, ty) = do v' <- lookupName "arg" v
-                          return [cparam| $ty:(compileType ty) $id:(v') |]
+compileParam :: (Variable, ArgDir, Type) -> CM C.Param
+compileParam (v, dir, ty) = do v' <- lookupName "arg" v
+                               case dir of -- TODO figure out how to document directions.
+                                ArgIn -> return [cparam| $ty:(compileType ty) $id:(v') |]
+                                ArgOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
+                                ArgInOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
 
 compileType :: Type -> C.Type
 compileType = compileType' . normalizeTypes
@@ -260,10 +263,14 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
           , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return ([], vec) -- TODO ?
           , asArgument = case acc of
               [] -> return ([], [], vec, [])
-              _ -> do (blks, exp) <- withValue $ compPureExpr (VecType (bnd:bnds) baseTy) $ return ([], vec)
-                      return (blks, [], exp, [])
+              _ -> do (lbl, loc) <- freshLoc "arg" $ VecType (bnd:bnds) baseTy
+                      st <- storeLoc loc (mkVecLoc' acc (bnd:bnds))
+                      stb <- storeLoc (mkVecLoc' acc (bnd:bnds)) loc
+                      (initbl, bbl, ex, abl) <- asArgument loc
+                      return (lbl ++ initbl, st ++ bbl, ex, abl ++ stb)
           , locType = VecType (bnd:bnds) baseTy
         }
+
         collapseIdx :: C.Exp -> [C.Exp] -> [CExpr] -> [C.BlockItem] -> CM ([C.BlockItem], C.Exp)
         collapseIdx accidx [] _ blks = return (blks, accidx)
         collapseIdx accidx (idx:idxs) (bnd:bnds) blks = do (bndbl, bndex) <- withValue $ compileStat bnd
@@ -634,16 +641,80 @@ compileStat (Set pos loc v) = comp
 compileStat (AssertType pos a ty) = compileStat a
 
 -- -- unary
+
+compileStat v@(Unary _ op a)
+  | op `elem` [Neg] = compileVectorized aty (asLoc $ compileStat a)
+  where aty = normalizeTypes $ getType a
+
+        opExp a = case op of
+                   Neg -> [cexp| -$a |]
+
+        compileVectorized (VecType [] aty) ma = compileVectorized aty ma
+        compileVectorized ta@(VecType (abnd:abnds) aty) ma = comp
+          where comp = Compiled
+                       { withDest = \dest -> storeLoc dest loc
+                       , withValue = defaultWithValue (locType loc) comp
+                       , noValue = defaultNoValue (locType loc) comp
+                       , asLoc = return ([], loc) }
+                loc = CmLoc
+                      { apIndex = \idx -> do (abl, aloc) <- ma
+                                             (bl, loc) <- asLoc $ compileVectorized
+                                                          (VecType abnds aty)
+                                                          (apIndex aloc idx)
+                                             return (abl ++ bl, loc)
+                      , asArgument = defaultAsArgument loc
+                      , locType = getVectorizedType ta ta
+                      , asRValue = error "Cannot get vectorized unary operation as rvalue"
+                      , store = error "Cannot store into vectorized unary operation"
+                      }
+        compileVectorized ta ma = compPureExpr (getVectorizedType ta ta) $ do
+          (abl, aex) <- ma `bindBl` (withValue . asRValue)
+          return (abl, opExp aex )
+
+compileStat v@(Unary _ Inverse a) = comp
+  where comp = Compiled
+               { withDest = \dest -> do (bl, aloc) <- asLoc $ compileStat a
+                                        (bl1, bl2, aex, _) <- asArgument aloc
+                                        (d1, _, dex, daf) <- asArgument dest
+                                        (nbl, nex) <- withValue $ compileStat n
+                                        (mbl, mex) <- withValue $ compileStat m
+                                        return $ bl ++ bl1 ++ bl2 ++ d1 ++ nbl ++ mbl ++ [[citem|inverse($nex,$mex,$aex,$dex);|]] ++ daf
+               , withValue = defaultWithValue (getType v) comp
+               , noValue = defaultNoValue (getType v) comp
+               , asLoc = defaultAsLoc (getType v) comp
+               }
+        VecType [n,m] bty = normalizeTypes $ getType a
+
+compileStat v@(Unary _ Transpose a) = comp
+  where comp = Compiled
+               { withDest = \dest -> do (abl, aloc) <- asLoc $ compileStat a
+                                        for1 <- makeFor i1 $ \i -> do
+                                          (dbl, dest') <- apIndex dest i
+                                          for2 <- makeFor i2 $ \j -> do
+                                            (dbl', dest'') <- apIndex dest' j
+                                            (abl', aloc') <- apIndex aloc j
+                                                             `bindBl` (flip apIndex i)
+                                            st <- storeLoc dest'' aloc'
+                                            return $ dbl' ++ abl' ++ st
+                                          return $ dbl ++ for2
+                                        return $ abl ++ for1
+               , withValue = defaultWithValue (getType v) comp
+               , noValue = defaultNoValue (getType v) comp
+               , asLoc = defaultAsLoc (getType v) comp
+               }
+        VecType (i1:i2:idxs) aty' = normalizeTypes $ getType v
+
 -- -- binary
 
 compileStat v@(Binary _ op a b)
-  | op `elem` [Add, Sub] = compileVectorized aty bty (asLoc $ compileStat a) (asLoc $ compileStat b)
+  | op `elem` [Add, Sub, Div] = compileVectorized aty bty (asLoc $ compileStat a) (asLoc $ compileStat b)
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
 
         opExp a b = case op of
                      Add -> [cexp| $a + $b |]
                      Sub -> [cexp| $a - $b |]
+                     Div -> [cexp| $a / $b |]
 
         compileVectorized (VecType [] aty) bty ma mb = compileVectorized aty bty ma mb
         compileVectorized aty (VecType [] bty) ma mb = compileVectorized aty bty ma mb
@@ -887,3 +958,9 @@ compileLoc loc@(Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
         strip :: Int -> Type -> Type
         strip 0 ty = ty
         strip n (VecType (bnd:bnds) bty) = strip (n - 1) (VecType bnds bty)
+
+compileLoc l@(Field a field) = do (sbl, sex) <- withValue $ compileStat a
+                                  let sex' = [cexp| $sex->$id:field |]
+                                  case getLocType l of
+                                   ty@(VecType bnds bty) -> return (sbl, mkVecLoc bty sex' bnds)
+                                   ty -> return (sbl, expLoc ty sex')

@@ -569,6 +569,16 @@ funArgs [] = return []
 funArgs ((Arg e@(PExpr _ pe)):args) = case pe of
   BinExpr Type (PExpr _ (Ref v)) b  -> do t <- makeType b
                                           ([(v, True, T.ArgIn, t)] ++) <$> funArgs args
+  BinExpr Type (PExpr _ (App (PExpr _ (Ref dir)) [Arg (PExpr _ (Ref v))])) b -> do
+    dir <- decodeDir dir
+    t <- makeType b
+    ([(v, True, dir, t)] ++) <$> funArgs args
+
+    where decodeDir dir = case dir of
+            "in" -> Right T.ArgIn
+            "out" -> Right T.ArgOut
+            "inout" -> Right T.ArgInOut
+            _ -> Left $ ConvertError (makePos e) ["Invalid argument direction specifier " ++ show dir]
   VoidExpr -> funArgs args
   _ -> Left $ ConvertError (makePos e) ["Argument definition must have explicit type."]
 funArgs ((ImpArg e@(PExpr _ pe)):args) = case pe of
