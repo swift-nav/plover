@@ -507,6 +507,30 @@ typeCheck (Binary pos op a b)
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       numTypeVectorize pos aty bty
+  | op == Mul  = do
+      aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+      bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
+      case (aty, bty) of
+       (VecType [a, b1] aty', VecType [b2, c] bty') -> do
+         b <- unify pos b1 b2
+         ty' <- arithType pos aty' bty'
+         return $ VecType [a, c] ty'
+       (VecType [a1] aty', VecType [a2, b] bty') -> do
+         a <- unify pos a1 a2
+         ty' <- arithType pos aty' bty'
+         return $ VecType [b] ty'
+       (VecType [a, b1] aty', VecType [b2] bty') -> do
+         b <- unify pos b1 b2
+         ty' <- arithType pos aty' bty'
+         return $ VecType [a] ty'
+       (VecType [a1] aty', VecType [a2] bty') -> do
+         a <- unify pos a1 a2
+         ty' <- arithType pos aty' bty'
+         return $ ty'
+       (VecType {}, VecType {}) -> do
+         addUError $ UError pos "Only 1-d and 2-d vectors may be multiplied."
+         return $ TypeHole Nothing
+       _ -> arithType pos aty bty
   | otherwise = error $ "binary " ++ show op ++ " not implemented"
 
 numTypeVectorize :: Tag SourcePos -> Type -> Type -> UM Type
@@ -526,11 +550,20 @@ numTypeVectorize pos ty1 ty2 =
    (ty1, VecType idxs2 bty2) -> do
      bty' <- numTypeVectorize pos ty1 bty2
      return $ VecType idxs2 bty'
-   (IntType t1, IntType t2) -> return $ IntType $ arithInt t1 t2
-   (FloatType t1, IntType {}) -> return $ FloatType $ promoteFloat t1
-   (IntType {}, FloatType t2) -> return $ FloatType $ promoteFloat t2
-   (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
-   (ty1, ty2) -> unify pos ty1 ty2
+   (ty1, ty2) -> arithType pos ty1 ty2
+
+arithType :: Tag SourcePos -> Type -> Type -> UM Type
+arithType pos ty1 ty2 =
+  case (ty1, ty2) of
+     (NumType, _) -> arithType pos (IntType IDefault) ty2
+     (_, NumType) -> arithType pos ty1 (IntType IDefault)
+     (IntType t1, IntType t2) -> return $ IntType $ arithInt t1 t2
+     (FloatType t1, IntType {}) -> return $ FloatType $ promoteFloat t1
+     (IntType {}, FloatType t2) -> return $ FloatType $ promoteFloat t2
+     (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
+     _ -> do ty' <- unify pos ty1 ty2
+             unify pos ty' NumType
+             return NumType
 
 typeCheckRange :: Tag SourcePos -> Range CExpr -> UM IntType
 typeCheckRange pos (Range from to step) = do
@@ -560,7 +593,7 @@ typeCheckLoc pos (Index a idxs) = do
           case idxty of
            IntType _ -> typeCheckIdx oty idxs (VecType ibnds bty)
            VecType idxs' idxtybase -> do -- result shape equals shape of index
-             expectInt pos idxtybase
+             expectInt pos idxtybase -- consider tuple
              bty' <- typeCheckIdx oty idxs (VecType ibnds bty)
              return $ VecType idxs' bty'
            _ -> do unify pos (IntType defaultIntType) idxty -- probably should be int by default?

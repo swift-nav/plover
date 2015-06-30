@@ -756,7 +756,14 @@ getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
 --getType (Unary
 getType (Binary _ op a b)
-  | op `elem` [Add, Sub] = getVectorizedType (getType a) (getType b)
+  | op `elem` [Add, Sub] = getVectorizedType aty bty
+  | op == Mul  = case (aty, bty) of
+    (VecType [a, _] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty')
+    (VecType [a] aty', VecType [_, c] bty') -> VecType [c] (getArithType aty' bty')
+    (VecType [a, _] aty', VecType [c] bty') -> VecType [a] (getArithType aty' bty')
+    (VecType [a] aty', VecType [_] bty') -> getArithType aty' bty'
+    (VecType {}, VecType {}) -> error "getType: Bad vector sizes for multiplication"
+    _ -> getArithType aty bty
   | otherwise = error "getType for binary not implemented"
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
@@ -788,8 +795,12 @@ getVectorizedType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
      in VecType (idx1:idxs') bty'
    (VecType idxs1 bty1, ty2)  -> VecType idxs1 (getVectorizedType bty1 ty2)
    (ty1, VecType idxs2 bty2) -> VecType idxs2 (getVectorizedType ty1 bty2)
-   (IntType t1, IntType t2) -> IntType $ arithInt t1 t2
-   (FloatType t1, IntType {}) -> FloatType $ promoteFloat t1
-   (IntType {}, FloatType t2) -> FloatType $ promoteFloat t2
-   (FloatType t1, FloatType t2) -> FloatType $ arithFloat t1 t2
-   (ty1, ty2) -> ty1
+   (ty1, ty2) -> getArithType ty1 ty2
+
+getArithType :: Type -> Type -> Type
+getArithType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
+  (IntType t1, IntType t2) -> IntType $ arithInt t1 t2
+  (FloatType t1, IntType {}) -> FloatType $ promoteFloat t1
+  (IntType {}, FloatType t2) -> FloatType $ promoteFloat t2
+  (FloatType t1, FloatType t2) -> FloatType $ arithFloat t1 t2
+  (ty1, _) -> ty1

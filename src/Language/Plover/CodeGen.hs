@@ -322,6 +322,11 @@ defaultAsLoc ty comp = do (locbl, loc) <- freshLoc "loc" ty
                           spbl <- withDest comp loc
                           return (locbl ++ spbl, loc)
 
+-- | uses withValue
+defaultAsLocFromWithValue :: Type -> Compiled -> CM ([C.BlockItem], CmLoc)
+defaultAsLocFromWithValue ty comp = do (bl, exp) <- withValue comp
+                                       return (bl, expLoc ty exp)
+
 -- | uses asRValue and apIndex.  Just spills the thing into a new
 -- location.
 defaultAsArgument :: CmLoc -> CM ([C.BlockItem], [C.BlockItem], C.Exp, [C.BlockItem])
@@ -337,15 +342,20 @@ storeExp dst exp = case normalizeTypes (locType dst) of
 
 storeLoc :: CmLoc -> CmLoc -> CM [C.BlockItem]
 storeLoc dst src = case normalizeTypes (locType dst) of
-  VecType (idx:idxs) bty -> newScope $ do
-    let itty = compileType $ getType idx
-    i <- freshName "idx"
-    (boundBl, boundEx) <- withValue $ compileStat idx
-    (dstbl, dst') <- apIndex dst [cexp| $id:i |]
-    (srcbl, src') <- apIndex src [cexp| $id:i |]
+  VecType (idx:idxs) bty -> makeFor idx $ \i -> do
+    (dstbl, dst') <- apIndex dst i
+    (srcbl, src') <- apIndex src i
     substore <- storeLoc dst' src'
-    return $ boundBl ++ dstbl ++ srcbl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:substore } |] ]
+    return (dstbl ++ srcbl, substore)
   _ -> withDest (asRValue src) dst
+
+makeFor :: CExpr -> (C.Exp -> CM ([C.BlockItem], [C.BlockItem])) -> CM [C.BlockItem]
+makeFor idx mbody = newScope $ do
+  let itty = compileType $ getType idx
+  i <- freshName "idx"
+  (boundBl, boundEx) <- withValue $ compileStat idx
+  (pre, body) <- mbody [cexp| $id:i |]
+  return $ pre ++ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:body } |] ]
 
 -- | an expression with no side effects does not need to be computed
 -- if no result is needed.
@@ -635,6 +645,8 @@ compileStat v@(Binary _ op a b)
         compileVectorized ta@(VecType (abnd:abnds) aty) tb@(VecType (_:bbnds) bty) ma mb = comp
           where comp = Compiled
                        { withDest = \dest -> storeLoc dest loc
+                       , withValue = defaultWithValue (locType loc) comp
+                       , noValue = defaultNoValue (locType loc) comp
                        , asLoc = return ([], loc) }
                 loc = CmLoc
                       { apIndex = \idx -> do (abl, aloc) <- ma
@@ -643,10 +655,14 @@ compileStat v@(Binary _ op a b)
                                              return (abl ++ bbl ++ bl, loc)
                       , asArgument = defaultAsArgument loc
                       , locType = getVectorizedType ta tb
+                      , asRValue = error "Cannot get vectorized binary operation as rvalue"
+                      , store = error "Cannot store into vectorized binary operation"
                       }
         compileVectorized ta@(VecType (abnd:abnds) aty) tb ma mb = comp
           where comp = Compiled
                        { withDest = \dest -> storeLoc dest loc
+                       , withValue = defaultWithValue (locType loc) comp
+                       , noValue = defaultNoValue (locType loc) comp
                        , asLoc = return ([], loc)
                        }
                 loc = CmLoc
@@ -656,10 +672,15 @@ compileStat v@(Binary _ op a b)
                                              return (abl ++ bbl ++ bl, loc)
                       , asArgument = defaultAsArgument loc
                       , locType = getVectorizedType ta tb
+                      , asRValue = error "Cannot get vectorized binary operation as rvalue"
+                      , store = error "Cannot store into vectorized binary operation"
+
                       }
         compileVectorized ta tb@(VecType (bbnd:bbnds) bty) ma mb = comp
           where comp = Compiled
                        { withDest = \dest -> storeLoc dest loc
+                       , withValue = defaultWithValue (locType loc) comp
+                       , noValue = defaultNoValue (locType loc) comp
                        , asLoc = return ([], loc)
                        }
                 loc = CmLoc
@@ -669,6 +690,8 @@ compileStat v@(Binary _ op a b)
                                              return (abl ++ bbl ++ bl, loc)
                       , asArgument = defaultAsArgument loc
                       , locType = getVectorizedType ta tb
+                      , asRValue = error "Cannot get vectorized binary operation as rvalue"
+                      , store = error "Cannot store into vectorized binary operation"
                       }
         compileVectorized ta tb ma mb = compPureExpr (getVectorizedType ta tb) $ do
           (abl, aloc) <- ma
@@ -677,14 +700,48 @@ compileStat v@(Binary _ op a b)
           (bbl', bex) <- withValue $ asRValue bloc
           return (abl ++ abl' ++ bbl ++ bbl', opExp aex bex )
 
-compileStat (Binary _ Mul a b) = comp
-  where comp = Compiled
-               { noValue = return []
-               , withValue =  do -- TODO fix this of course! (i.e., vectors)
-                    (abl, aex) <- withValue $ compileStat a
-                    (bbl, bex) <- withValue $ compileStat b
-                    return (abl ++ bbl, [cexp| $aex * $bex |])
+compileStat v@(Binary _ Mul a b) = case (aty, bty) of
+  (VecType [ia, ib] aty', VecType [_, ic] bty') -> error "mat mat not impl"
+  (VecType [ia] aty', VecType [_, ib] bty') -> error "vec mat not impl"
+  (VecType [ia, ib] aty', VecType [_] bty') -> error "mat vec not impl"
+  (VecType [ia] aty', VecType [_] bty') ->
+    let comp = Compiled
+               { withValue = do (abl, aloc) <- asLoc $ compileStat a
+                                (bbl, bloc) <- asLoc $ compileStat b
+                                sumname <- freshName "sum"
+                                let sumty = compileType rty
+                                forbl <- makeFor ia $ \i -> do
+                                  (abl', aloc') <- apIndex aloc i
+                                  (abl'', aex) <- withValue $ asRValue aloc'
+                                  (bbl', bloc') <- apIndex bloc i
+                                  (bbl'', bex) <- withValue $ asRValue bloc'
+                                  return (abl' ++ abl'' ++ bbl' ++ bbl'',
+                                          [[citem| $id:sumname += $aex * $bex; |]])
+                                return (abl ++ bbl ++
+                                        [[citem| $ty:sumty $id:sumname = 0; |]]
+                                        ++ forbl, [cexp| $id:sumname |])
+               , asLoc = defaultAsLoc (getType v) comp
+               , withDest = defaultWithDest (getType v) comp
+               , noValue = defaultNoValue (getType v) comp
                }
+    in comp
+  (VecType {}, VecType {}) -> error "compileStat: cannot multiply arbitrary vectors"
+  _ -> let comp = Compiled
+                  { noValue = return []
+                  , withValue =  do
+                       (abl, aex) <- withValue $ compileStat a
+                       (bbl, bex) <- withValue $ compileStat b
+                       return (abl ++ bbl, [cexp| $aex * $bex |])
+                  , asLoc = defaultAsLocFromWithValue (getType v) comp
+                  , withDest = defaultWithDest (getType v) comp
+                  }
+       in comp
+  where aty = normalizeTypes $ getType a
+        bty = normalizeTypes $ getType b
+
+        rty = case normalizeTypes $ getType v of
+          VecType _ ty -> ty
+          ty -> ty
 
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
