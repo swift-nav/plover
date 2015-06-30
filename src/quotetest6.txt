@@ -10,3 +10,10 @@ test {n :: u8} (A :: double[n]) :: double
 
 matmul {l :: u8} {m :: u8} {n :: u8}  (A :: double[l,m]) (B :: double[m,n]) :: double[l,n]
   :=  vec i in :, j in : -> A[i,:] * B[:,j];
+
+matmul2 {l :: u8} {m :: u8} {n :: u8}  (A :: double[l,m]) (B :: double[m,n]) :: double[l,n]
+  :=  A * B;
+
+
+matmul3 {n :: s32} (A :: double[n,n]) (B :: double[n,n]) (C :: double[n,n]) :: double[n,n]
+  := (A + B) * C + 2;

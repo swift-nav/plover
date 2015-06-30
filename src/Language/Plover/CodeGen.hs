@@ -335,6 +335,11 @@ defaultAsArgument loc = do (flocbl, floc) <- freshLoc "loc" (locType loc)
                            (bef, prep, exp, aft) <- asArgument floc
                            return (flocbl ++ bef, spbl ++ prep, exp, aft)
 
+bindBl :: CM ([C.BlockItem], a) -> (a -> CM ([C.BlockItem], b)) -> CM ([C.BlockItem], b)
+bindBl ma f = do (bl, a) <- ma
+                 (bl', b) <- f a
+                 return (bl ++ bl', b)
+
 storeExp :: CmLoc -> C.Exp -> CM [C.BlockItem]
 storeExp dst exp = case normalizeTypes (locType dst) of
   VecType idxs bty -> storeLoc dst (mkVecLoc bty exp idxs)
@@ -346,16 +351,16 @@ storeLoc dst src = case normalizeTypes (locType dst) of
     (dstbl, dst') <- apIndex dst i
     (srcbl, src') <- apIndex src i
     substore <- storeLoc dst' src'
-    return (dstbl ++ srcbl, substore)
+    return $ dstbl ++ srcbl ++ substore
   _ -> withDest (asRValue src) dst
 
-makeFor :: CExpr -> (C.Exp -> CM ([C.BlockItem], [C.BlockItem])) -> CM [C.BlockItem]
+makeFor :: CExpr -> (C.Exp -> CM ([C.BlockItem])) -> CM [C.BlockItem]
 makeFor idx mbody = newScope $ do
   let itty = compileType $ getType idx
   i <- freshName "idx"
   (boundBl, boundEx) <- withValue $ compileStat idx
-  (pre, body) <- mbody [cexp| $id:i |]
-  return $ pre ++ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:body } |] ]
+  body <- mbody [cexp| $id:i |]
+  return $ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:body } |] ]
 
 -- | an expression with no side effects does not need to be computed
 -- if no result is needed.
@@ -651,7 +656,9 @@ compileStat v@(Binary _ op a b)
                 loc = CmLoc
                       { apIndex = \idx -> do (abl, aloc) <- ma
                                              (bbl, bloc) <- mb
-                                             (bl, loc) <- asLoc $ compileVectorized (VecType abnds aty) (VecType bbnds bty) (apIndex aloc idx) (apIndex bloc idx)
+                                             (bl, loc) <- asLoc $ compileVectorized
+                                                          (VecType abnds aty) (VecType bbnds bty)
+                                                          (apIndex aloc idx) (apIndex bloc idx)
                                              return (abl ++ bbl ++ bl, loc)
                       , asArgument = defaultAsArgument loc
                       , locType = getVectorizedType ta tb
@@ -668,7 +675,9 @@ compileStat v@(Binary _ op a b)
                 loc = CmLoc
                       { apIndex = \idx -> do (abl, aloc) <- ma
                                              (bbl, bloc) <- mb
-                                             (bl, loc) <- asLoc $ compileVectorized (VecType abnds aty) tb (apIndex aloc idx) (return ([], bloc))
+                                             (bl, loc) <- asLoc $ compileVectorized
+                                                          (VecType abnds aty) tb
+                                                          (apIndex aloc idx) (return ([], bloc))
                                              return (abl ++ bbl ++ bl, loc)
                       , asArgument = defaultAsArgument loc
                       , locType = getVectorizedType ta tb
@@ -686,7 +695,9 @@ compileStat v@(Binary _ op a b)
                 loc = CmLoc
                       { apIndex = \idx -> do (abl, aloc) <- ma
                                              (bbl, bloc) <- mb
-                                             (bl, loc) <- asLoc $ compileVectorized ta (VecType bbnds bty) (return ([], aloc)) (apIndex bloc idx)
+                                             (bl, loc) <- asLoc $ compileVectorized
+                                                          ta (VecType bbnds bty)
+                                                          (return ([], aloc)) (apIndex bloc idx)
                                              return (abl ++ bbl ++ bl, loc)
                       , asArgument = defaultAsArgument loc
                       , locType = getVectorizedType ta tb
@@ -701,7 +712,34 @@ compileStat v@(Binary _ op a b)
           return (abl ++ abl' ++ bbl ++ bbl', opExp aex bex )
 
 compileStat v@(Binary _ Mul a b) = case (aty, bty) of
-  (VecType [ia, ib] aty', VecType [_, ic] bty') -> error "mat mat not impl"
+  (VecType [ia, ib] aty', VecType [_, ic] bty') ->
+    let comp = Compiled
+               { withDest = \dest -> do (abl, aloc) <- asLoc $ compileStat a
+                                        (bbl, bloc) <- asLoc $ compileStat b
+                                        forbl1 <- makeFor ia $ \i -> do
+                                          (abl', aloc') <- apIndex aloc i
+                                          (dbl, dest') <- apIndex dest i
+                                          forbl2 <- makeFor ic $ \k -> do
+                                            sumname <- freshName "sum"
+                                            let sumty = compileType rty
+                                            forbl3 <- makeFor ib $ \j -> do
+                                              (abl'', aex) <- apIndex aloc' j
+                                                              `bindBl` (withValue . asRValue)
+                                              (bbl', bex) <- (apIndex bloc j
+                                                              `bindBl` flip apIndex k)
+                                                             `bindBl` (withValue . asRValue)
+                                              return (abl'' ++ bbl' ++
+                                                      [[citem| $id:sumname += $aex * $bex; |]])
+                                            (dbl', dest'') <- apIndex dest' k
+                                            st <- storeExp dest'' [cexp| $id:sumname |]
+                                            return $ dbl' ++ [[citem| $ty:sumty $id:sumname = 0; |]] ++ forbl3 ++ st
+                                          return $ abl' ++ forbl2
+                                        return (abl ++ bbl ++ forbl1)
+               , withValue = defaultWithValue (getType v) comp
+               , noValue = defaultNoValue (getType v) comp
+               , asLoc = defaultAsLoc (getType v) comp
+               }
+    in comp
   (VecType [ia] aty', VecType [_, ib] bty') -> error "vec mat not impl"
   (VecType [ia, ib] aty', VecType [_] bty') -> error "mat vec not impl"
   (VecType [ia] aty', VecType [_] bty') ->
@@ -711,16 +749,14 @@ compileStat v@(Binary _ Mul a b) = case (aty, bty) of
                                 sumname <- freshName "sum"
                                 let sumty = compileType rty
                                 forbl <- makeFor ia $ \i -> do
-                                  (abl', aloc') <- apIndex aloc i
-                                  (abl'', aex) <- withValue $ asRValue aloc'
-                                  (bbl', bloc') <- apIndex bloc i
-                                  (bbl'', bex) <- withValue $ asRValue bloc'
-                                  return (abl' ++ abl'' ++ bbl' ++ bbl'',
+                                  (abl', aex) <- apIndex aloc i `bindBl` (withValue . asRValue)
+                                  (bbl', bex) <- apIndex bloc i `bindBl` (withValue . asRValue)
+                                  return (abl' ++ bbl' ++
                                           [[citem| $id:sumname += $aex * $bex; |]])
                                 return (abl ++ bbl ++
                                         [[citem| $ty:sumty $id:sumname = 0; |]]
                                         ++ forbl, [cexp| $id:sumname |])
-               , asLoc = defaultAsLoc (getType v) comp
+               , asLoc = defaultAsLocFromWithValue (getType v) comp
                , withDest = defaultWithDest (getType v) comp
                , noValue = defaultNoValue (getType v) comp
                }

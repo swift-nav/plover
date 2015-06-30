@@ -791,8 +791,9 @@ getVectorizedType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
    (VecType [] bty1, ty2) -> getVectorizedType bty1 ty2
    (ty1, VecType [] bty2) -> getVectorizedType ty1 bty2
    (VecType (idx1:idxs1) bty1, VecType (idx2:idxs2) bty2)  ->
-     let (VecType idxs' bty') = getVectorizedType (VecType idxs1 bty1) (VecType idxs2 bty2)
-     in VecType (idx1:idxs') bty'
+     case getVectorizedType (VecType idxs1 bty1) (VecType idxs2 bty2) of
+      VecType idxs' bty' -> VecType (idx1:idxs') bty'
+      bty' -> VecType [idx1] bty'
    (VecType idxs1 bty1, ty2)  -> VecType idxs1 (getVectorizedType bty1 ty2)
    (ty1, VecType idxs2 bty2) -> VecType idxs2 (getVectorizedType ty1 bty2)
    (ty1, ty2) -> getArithType ty1 ty2
