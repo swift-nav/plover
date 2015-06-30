@@ -677,13 +677,12 @@ compileStat v@(Unary _ Inverse a) = comp
                                         (bl1, bl2, aex, _) <- asArgument aloc
                                         (d1, _, dex, daf) <- asArgument dest
                                         (nbl, nex) <- withValue $ compileStat n
-                                        (mbl, mex) <- withValue $ compileStat m
-                                        return $ bl ++ bl1 ++ bl2 ++ d1 ++ nbl ++ mbl ++ [[citem|inverse($nex,$mex,$aex,$dex);|]] ++ daf
+                                        return $ bl ++ bl1 ++ bl2 ++ d1 ++ nbl ++ [[citem|inverse($nex,$aex,$dex);|]] ++ daf
                , withValue = defaultWithValue (getType v) comp
                , noValue = defaultNoValue (getType v) comp
                , asLoc = defaultAsLoc (getType v) comp
                }
-        VecType [n,m] bty = normalizeTypes $ getType a
+        VecType [n,_] bty = normalizeTypes $ getType a
 
 compileStat v@(Unary _ Transpose a) = comp
   where comp = Compiled

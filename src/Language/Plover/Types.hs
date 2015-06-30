@@ -757,7 +757,7 @@ getType (AssertType _ _ ty) = ty
 getType (Unary pos Neg a) = getVectorizedType (getType a) (getType a)
 getType (Unary pos Inverse a) = do
   case normalizeTypes $ getType a of
-   VecType [a, b] aty' -> VecType [b, a] (getArithType aty' $ FloatType defaultFloatType)
+   VecType [a, _] aty' -> VecType [a, a] (getArithType aty' $ FloatType defaultFloatType)
    _ -> error "Unary inverse on not a rectangular vector"
 getType (Unary pos Transpose a) = do
   case normalizeTypes $ getType a of

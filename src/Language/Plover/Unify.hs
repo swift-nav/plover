@@ -507,9 +507,10 @@ typeCheck (Unary pos Neg a) = do
 typeCheck (Unary pos Inverse a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   case aty of
-   VecType [i1, i2] aty' -> do aty'' <- unify pos aty' (FloatType defaultFloatType)
-                               return $ VecType [i2, i1] aty''
-   _ -> do addUError $ UError pos "Inverse must be of rectangular matrix."
+   VecType [i1, i2] aty' -> do i' <- unify pos i1 i2
+                               aty'' <- unify pos aty' (FloatType defaultFloatType)
+                               return $ VecType [i', i'] aty''
+   _ -> do addUError $ UError pos "Inverse must be of a square matrix."
            hole <- gensym "hole"
            return $ TypeHoleJ hole
 typeCheck (Unary pos Transpose a) = do
