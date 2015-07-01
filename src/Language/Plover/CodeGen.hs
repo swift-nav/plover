@@ -138,7 +138,7 @@ compileParams = mapM compileParam
 compileParam :: (Variable, ArgDir, Type) -> CM C.Param
 compileParam (v, dir, ty) = do v' <- lookupName "arg" v
                                case dir of -- TODO figure out how to document directions.
-                                ArgIn -> return [cparam| $ty:(compileType ty) $id:(v') |]
+                                ArgIn -> return [cparam| const $ty:(compileType ty) $id:(v') |]
                                 ArgOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
                                 ArgInOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
 
@@ -163,8 +163,8 @@ compileType' (FloatType Double) = [cty|double|]
 compileType' StringType = [cty|char*|]
 compileType' BoolType = [cty|typename bool|]
 compileType' (PtrType ty) = [cty|$ty:(compileType ty)*|]
-compileType' (TypedefType v) = [cty|typename $id:v*|]
-compileType' (StructType v _) = [cty|typename $id:v*|]
+compileType' (TypedefType v) = [cty|typename $id:v|]
+compileType' (StructType v _) = [cty|typename $id:v|]
 compileType' (TypeHole _) = error "No type holes allowed."
 
 -- When initializing a variable, need things like the length of the
@@ -177,7 +177,6 @@ compileInitType' (VecType idxs base) = do (sizebl, sizeex) <- withValue $ compil
                                           (basebl, basety) <- compileInitType base
                                           return (sizebl ++ basebl,
                                                   [cty|$ty:basety[$sizeex] |])
---compileInitType' -- structs are weird
 compileInitType' t = return ([], compileType t)
 
 data Compiled = Compiled { noValue :: CM [C.BlockItem]
@@ -424,13 +423,14 @@ compileStat v@(Vec _ i range exp) = comp
                         itty = compileType $ getType (head bnds)
                     vidx <- newName "i" i
                     (boundBl, boundEx) <- withValue $ compileStat (head bnds)
-                    (srcbl, src) <- asLoc $ compileStat exp
+
                     let cvidx = [cexp|$id:vidx|]
                     (ccvidxbl, ccvidx) <- rngExp cvidx
                     (destbl, dest') <- apIndex dest cvidx
-                    stbl <- storeLoc dest' src
+                    stbl <- withDest (compileStat exp) dest'
+--                    stbl <- storeLoc dest' src
                     return $ destbl ++ boundBl
-                      ++ mkFor itty vidx boundEx (ccvidxbl ++ srcbl ++ stbl)
+                      ++ mkFor itty vidx boundEx (ccvidxbl ++ stbl)
                , withValue = defaultWithValue (getType v) comp
                , asLoc = defaultAsLoc (getType v) comp
                }
@@ -977,7 +977,7 @@ compileLoc loc@(Index a idxs) = do (abl, aloc) <- asLoc $ compileStat a
         strip n (VecType (bnd:bnds) bty) = strip (n - 1) (VecType bnds bty)
 
 compileLoc l@(Field a field) = do (sbl, sex) <- withValue $ compileStat a
-                                  let sex' = [cexp| $sex->$id:field |]
+                                  let sex' = [cexp| $sex.$id:field |]
                                   case getLocType l of
                                    ty@(VecType bnds bty) -> return (sbl, mkVecLoc bty sex' bnds)
                                    ty -> return (sbl, expLoc ty sex')

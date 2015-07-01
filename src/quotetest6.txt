@@ -23,3 +23,8 @@ lrvecmul {n :: s32} {m :: s32} (w :: double[n]) (A :: double[n,m]) (v :: double[
 
 quadform {n :: u32} (v :: double[n]) (A :: double[n,n]) :: double
  := v * A * v;
+
+extern bar {m :: u8} (out v :: double[m]) :: double;
+
+testbar {n :: u8} {m :: u8} (out A :: double[n,m]) :: double
+  := bar A[:,2];
