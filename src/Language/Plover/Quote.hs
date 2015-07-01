@@ -30,6 +30,7 @@ import qualified Data.Map as M
 import Language.Plover.QuoteTypes
 import Data.Tag
 import Data.List
+import Debug.Trace
 
 import qualified Language.Plover.Types as T
 
@@ -448,7 +449,8 @@ makeExpr exp@(PExpr pos e') = case e' of
 
   App f args -> T.App pos <$> makeExpr f <*> (mapM $ \arg -> case arg of
                                                Arg a -> T.Arg <$> makeExpr a
-                                               ImpArg a -> T.ImpArg <$> makeExpr a) args
+                                               ImpArg a -> T.ImpArg <$> makeExpr a) args'
+    where args' = filter (\arg -> case arg of { Arg (PExpr _ VoidExpr) -> False; _ -> True }) args
   SeqExpr xs -> makeSequence pos xs
   DefExpr _ _ -> Left $ ConvertError (makePos exp) ["Unexpected definition outside sequence."]
   StoreExpr loc a -> do loc' <- makeLocation loc

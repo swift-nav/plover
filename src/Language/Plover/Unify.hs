@@ -39,10 +39,28 @@ data UnificationError = UError (Tag SourcePos) String
 type UM = State UnifierData
 
 runUM :: [DefBinding] -> UM a -> Either [UnificationError] a
-runUM defbs m = let (v, s) = runState m (initUniData defbs)
+runUM defbs m = let (v, s) = runState (m <* expandErrors) (initUniData defbs)
                 in case uErrors s of
                     [] -> Right v
                     errs -> Left errs
+
+instance TermMappable UnificationError where
+  mapTerm tty texp tloc trng err = case err of
+    UError {} -> return err
+    UTyFailure tag ty1 ty2 -> UTyFailure tag <$> tty ty1 <*> tty ty2
+    UTyAssertFailure tag ty1 ty2 -> UTyAssertFailure tag <$> tty ty1 <*> tty ty2
+    UExFailure tag ex1 ex2 -> UExFailure tag <$> texp ex1 <*> texp ex2
+    ULocFailure tag loc1 loc2 -> ULocFailure tag <$> tloc loc1 <*> tloc loc2
+    UTyOccurs tag v ty -> UTyOccurs tag v <$> tty ty
+    UExOccurs tag v ex -> UExOccurs tag v <$> texp ex
+    UNoField {} -> return err
+    UGenTyError tag ty str -> UGenTyError tag <$> tty ty <*> pure str
+  termMapper = error "Cannot get termMapper for UnificationError"
+
+expandErrors :: UM ()
+expandErrors = do errors <- uErrors <$> get
+                  errors' <- mapM (mapTerm expandTerm expandTerm expandTerm expandTerm) errors
+                  modify $ \state -> state { uErrors = errors' }
 
 initUniData :: [DefBinding] -> UnifierData
 initUniData defbs = UnifierData
@@ -166,29 +184,28 @@ withNewUScope m = do
 typeCheckDefBinding :: DefBinding -> UM DefBinding
 typeCheckDefBinding def = do
   d' <- case definition def of
-    FunctionDef mexp ft -> let (FnT args retty, _) = getEffectiveFunType ft
-                           in do (FnType (FnT _ _)) <- typeCheckType (bindingPos def) (FnType $ FnT args retty)
-                                 case mexp of
-                                  Just exp | not (extern def) -> do
-                                    expty <- typeCheck exp
-                                    unify (bindingPos def) expty retty
+    FunctionDef mexp ft -> do (FnType (FnT args retty)) <- typeCheckType (bindingPos def) (FnType ft)
+                              case mexp of
+                               Just exp | not (extern def) -> do
+                                 expty <- typeCheck exp
+                                 unifyN (bindingPos def) expty retty
                                   
-                                    exp' <- expandTerm exp
-                                    args' <- forM args $ \(v, b, dir, ty) -> do
-                                      ty' <- expandTerm ty
-                                      return (v, b, dir, ty')
-                                    retty' <- expandTerm retty
+                                 exp' <- expandTerm exp
+                                 args' <- forM args $ \(v, b, dir, ty) -> do
+                                   ty' <- expandTerm ty
+                                   return (v, b, dir, ty')
+                                 retty' <- expandTerm retty
 
-                                    expty' <- expandTerm expty
-                                    when (not $ typeCanHold retty' expty') $
-                                      addUError $ UTyAssertFailure (MergeTags [bindingPos def, getTag exp]) expty' retty'
+                                 expty' <- expandTerm expty
+                                 when (not $ typeCanHold retty' expty') $
+                                   addUError $ UTyAssertFailure (MergeTags [bindingPos def, getTag exp]) expty' retty'
                                     
-                                    return $ FunctionDef (Just exp') (FnT args' retty)
-                                  _ -> do args' <- forM args $ \(v, b, dir, ty) -> do
-                                            ty' <- expandTerm ty
-                                            return (v, b, dir, ty')
-                                          retty' <- expandTerm retty
-                                          return $ FunctionDef Nothing (FnT args' retty')
+                                 return $ FunctionDef (Just exp') (FnT args' retty')
+                               _ -> do args' <- forM args $ \(v, b, dir, ty) -> do
+                                         ty' <- expandTerm ty
+                                         return (v, b, dir, ty')
+                                       retty' <- expandTerm retty
+                                       return $ FunctionDef Nothing (FnT args' retty')
     StructDef fields -> return $ StructDef fields
     ValueDef mexp ty -> do ty' <- typeCheckType (bindingPos def) ty
                            case mexp of
@@ -402,7 +419,7 @@ typeCheckType pos (VecType idxs ty) = do
   return $ VecType idxs' ty'
 typeCheckType pos Void = return Void
 typeCheckType pos (FnType fn) = do
-  let (FnT args retty, _) = getEffectiveFunType fn
+  let (FnT args retty) = fn
   args' <- forM args $ \(v, b, dir, vty) -> do
     vty' <- typeCheckType pos vty 
     addBinding pos v vty' -- assumes bindings cleared between functions
@@ -678,12 +695,10 @@ data FunctionEnv = FnEnv [(Variable, Type)] Type
 -- | When unifying against a function type, it is something like
 -- calling a function or evaluating a Prolog rule.  One way to model
 -- this is by instantiating a new version of it with all of its
--- variables replaced with fresh symbols.  This returns a version of
--- the getEffectiveFunType, so it can be immediately used with a
--- ConcreteApp.
+-- variables replaced with fresh symbols.
 universalizeFunType :: FunctionType -> UM FunctionEnv
 universalizeFunType ft = do
-  let (ft'@(FnT args retty), _) = getEffectiveFunType ft
+  let ft'@(FnT args retty)= ft
   repAList <- forM args $ \(v, req, dir, ty) -> do
     v' <- gensym v
     return (v, v')

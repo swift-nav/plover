@@ -29,8 +29,7 @@ pvt {n_used :: u8}
   := (
     los := vec j in 0:n_used -> (
              tau := norm (rx_state - sat_pos[j]) / GPS_C;
-             we_tau := GPS_OMEGAE_DOT * tau;
-             xk_new := rot_small we_tau * sat_pos[j];
+             xk_new := rot_small (GPS_OMEGAE_DOT * tau) * sat_pos[j];
              xk_new - rx_state;
            );
     G <- vec j in 0:n_used -> normalize (-los[j] # vec(1));

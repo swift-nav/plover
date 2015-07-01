@@ -1,4 +1,5 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RecursiveDo #-}
 
 -- Remember: CODE GEN DON'T CARE.  This should be as simple as
 -- possible while generating code which isn't too terrible.  It should
@@ -118,14 +119,20 @@ compileFunctionDecl name ft = do
 compileFunction :: String -> FunctionType -> CExpr -> CM [C.Definition]
 compileFunction name ft exp = do
   args'' <- compileParams args'
-  blks <- case retty of
-    Void -> noValue $ compileStat exp
-    _ -> do (expbl, expex) <- withValue $ compileStat exp
-            return (expbl ++ [ [citem| return $expex; |] ])
+  blks <- case mret of
+    Just (v, retty') -> do v' <- lookupName "arg" v
+                           let dest = case normalizeTypes retty' of
+                                       VecType bnds retty'' -> mkVecLoc retty'' [cexp| $id:(v') |] bnds
+                                       retty'' -> refLoc retty'' v'
+                           withDest (compileStat exp) dest
+    Nothing ->  case retty of
+      Void -> noValue $ compileStat exp
+      _ -> do (expbl, expex) <- withValue $ compileStat exp
+              return (expbl ++ [ [citem| return $expex; |] ])
   return $ case args'' of
     [] -> [ [cedecl| $ty:(compileType retty) $id:(name)(void) { $items:blks } |] ]
     _ ->  [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')) { $items:blks } |] ]
-  where (FnT args retty, _) = getEffectiveFunType ft
+  where (FnT args retty, mret) = getEffectiveFunType ft
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
@@ -262,11 +269,17 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
           , asRValue = compPureExpr (VecType (bnd:bnds) baseTy) $ return ([], vec) -- TODO ?
           , asArgument = case acc of
               [] -> return ([], [], vec, [])
-              _ -> do (lbl, loc) <- freshLoc "arg" $ VecType (bnd:bnds) baseTy
-                      st <- storeLoc loc (mkVecLoc' acc (bnd:bnds))
-                      stb <- storeLoc (mkVecLoc' acc (bnd:bnds)) loc
-                      (initbl, bbl, ex, abl) <- asArgument loc
-                      return (lbl ++ initbl, st ++ bbl, ex, abl ++ stb)
+              _ -> do let (idx:idxs, bnds') = unzip (acc ++ zip (repeat [cexp|0|]) (bnd:bnds))
+                      (blks, idxc) <- collapseIdx idx idxs bnds' []
+                      return (blks, [], [cexp| $vec + $idxc |], [])
+
+-- case acc of
+--               [] -> return ([], [], vec, [])
+--               _ -> do (lbl, loc) <- freshLoc "arg" $ VecType (bnd:bnds) baseTy
+--                       st <- storeLoc loc (mkVecLoc' acc (bnd:bnds))
+--                       stb <- storeLoc (mkVecLoc' acc (bnd:bnds)) loc
+--                       (initbl, bbl, ex, abl) <- asArgument loc
+--                       return (lbl ++ initbl, st ++ bbl, ex, abl ++ stb)
           , locType = VecType (bnd:bnds) baseTy
         }
 
@@ -357,16 +370,24 @@ storeLoc dst src = case normalizeTypes (locType dst) of
     (dstbl, dst') <- apIndex dst i
     (srcbl, src') <- apIndex src i
     substore <- storeLoc dst' src'
-    return $ dstbl ++ srcbl ++ substore
+    return (dstbl ++ srcbl, substore)
   _ -> withDest (asRValue src) dst
 
-makeFor :: CExpr -> (C.Exp -> CM ([C.BlockItem])) -> CM [C.BlockItem]
-makeFor idx mbody = newScope $ do
-  let itty = compileType $ getType idx
-  i <- freshName "idx"
-  (boundBl, boundEx) <- withValue $ compileStat idx
-  body <- mbody [cexp| $id:i |]
-  return $ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:body } |] ]
+makeFor :: CExpr -> (C.Exp -> CM ([C.BlockItem], [C.BlockItem])) -> CM [C.BlockItem]
+makeFor idx mbody = -- newScope $ do
+  -- let itty = compileType $ getType idx
+  -- i <- freshName "idx"
+  -- (boundBl, boundEx) <- withValue $ compileStat idx
+  -- (setup, body) <- mbody [cexp| $id:i |]
+  -- return $ boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:(setup ++ body) } |] ]
+
+  mdo (setup, body) <- mbody [cexp| $id:i |]
+      let itty = compileType $ getType idx
+      (boundBl, boundEx) <- withValue $ compileStat idx
+      (i, bl) <- newScope $ do
+        i <- freshName "idx"
+        return $ (i, boundBl ++ [ [citem| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:body } |] ])
+      return $ setup ++ bl
 
 -- | an expression with no side effects does not need to be computed
 -- if no result is needed.
@@ -576,44 +597,67 @@ compileStat (Seq _ a b) = comp
                }
 
 compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args) = comp
-  where comp = Compiled
-               { withValue = do (bbl, fexp, bbl') <- theCall f dargs
-                                case bbl' of
-                                 [] -> return (bbl, fexp)
-                                 _ -> do (locbl, loc) <- freshLoc "ret" retty
-                                         st <- storeExp loc fexp
-                                         (locbl', ex) <- withValue $ asRValue loc
-                                         return (bbl ++ locbl ++ st ++ bbl' ++ locbl', ex)
-               , withDest = \dest -> do (bbl, fexp, bbl') <- theCall f dargs
-                                        stbl <- storeExp dest fexp
-                                        return (bbl ++ stbl ++ bbl')
-               , noValue = do (bbl, fexp, bbl') <- theCall f dargs
-                              return (bbl ++ [[citem| $fexp; |]] ++ bbl')
-               , asLoc = do (bbl, fexp, bbl') <- theCall f dargs
-                            case bbl' of
-                              [] -> return (bbl, expLoc retty fexp)
-                              _ -> do (locbl, loc) <- freshLoc "ret" retty
-                                      st <- storeExp loc fexp
-                                      return (bbl ++ locbl ++ st ++ bbl', loc)
-               }
-
-        (FnT params retty, _) = getEffectiveFunType ft
+  where (FnT params retty, mret) = getEffectiveFunType ft
         dirs = map (\(_,_,dir,_) -> dir) params
-        dargs = zip dirs args
+
+        -- the compiled arguments as locations
+        margs' :: CM [([C.BlockItem], Maybe CmLoc)]
+        margs' = forM args $ \a ->
+          if voidType a
+          then do abl <- noValue $ compileStat a
+                  return (abl, Nothing)
+          else do (abl, aloc) <- asLoc $ compileStat a
+                  return (abl, Just aloc)
+        -- if the result is complex, the compiled arguments along with the destination
+        margs'' dest = do args' <- margs'
+                          return $ args' ++ [([], Just dest)] -- TODO tuple dest
+
+        comp = case mret of
+                Just (_, retty') -> Compiled
+                                    { withDest = \dest -> do args' <- margs'' dest
+                                                             let dargs = zip (dirs ++ [ArgOut]) args'
+                                                             (bbl, fexp, bbl') <- theCall f dargs
+                                                             return $ bbl ++ [citems| $fexp; |] ++ bbl'
+                                    , withValue = defaultWithValue retty' comp
+                                    , noValue = defaultNoValue retty' comp
+                                    , asLoc = defaultAsLoc retty' comp
+                                    }
+                Nothing -> Compiled
+                           { withValue = do dargs <- (zip dirs) <$> margs'
+                                            (bbl, fexp, bbl') <- theCall f dargs
+                                            case bbl' of
+                                             [] -> return (bbl, fexp)
+                                             _ -> do (locbl, loc) <- freshLoc "ret" retty
+                                                     st <- storeExp loc fexp
+                                                     (locbl', ex) <- withValue $ asRValue loc
+                                                     return (bbl ++ locbl ++ st ++ bbl' ++ locbl', ex)
+                           , withDest = \dest -> do dargs <- (zip dirs) <$> margs'
+                                                    (bbl, fexp, bbl') <- theCall f dargs
+                                                    stbl <- storeExp dest fexp
+                                                    return (bbl ++ stbl ++ bbl')
+                           , noValue = do dargs <- (zip dirs) <$> margs'
+                                          (bbl, fexp, bbl') <- theCall f dargs
+                                          return (bbl ++ [[citem| $fexp; |]] ++ bbl')
+                           , asLoc = do dargs <- (zip dirs) <$> margs'
+                                        (bbl, fexp, bbl') <- theCall f dargs
+                                        case bbl' of
+                                          [] -> return (bbl, expLoc retty fexp)
+                                          _ -> do (locbl, loc) <- freshLoc "ret" retty
+                                                  st <- storeExp loc fexp
+                                                  return (bbl ++ locbl ++ st ++ bbl', loc)
+                           }
 
         -- | Returns what to do before the call, the argument, and what to do after the call
-        theCall :: String -> [(ArgDir, CExpr)] -> CM ([C.BlockItem], C.Exp, [C.BlockItem])
+        theCall :: String -> [(ArgDir, ([C.BlockItem], Maybe CmLoc))] -> CM ([C.BlockItem], C.Exp, [C.BlockItem])
         theCall f args = do
-          args' <- forM args $ \(dir, a) ->
-            case voidType a of
-             True -> do c' <- noValue $ compileStat a
-                        return $ Left c'
-             False -> do (abl, aloc) <- asLoc $ compileStat a
-                         (argbl, prep, arg, argbl') <- asArgument aloc
-                         return $ case dir of
-                           ArgIn -> Right (abl ++ argbl ++ prep, arg, [])
-                           ArgOut -> Right (abl ++ argbl, arg, argbl')
-                           ArgInOut -> Right (abl ++ argbl ++ prep, arg, argbl')
+          args' <- forM args $ \(dir, (abl, maloc)) ->
+            case maloc of
+             Nothing -> return $ Left abl
+             Just aloc -> do (argbl, prep, arg, argbl') <- asArgument aloc
+                             return $ case dir of
+                               ArgIn -> Right (abl ++ argbl ++ prep, arg, [])
+                               ArgOut -> Right (abl ++ argbl, arg, argbl')
+                               ArgInOut -> Right (abl ++ argbl ++ prep, arg, argbl')
           let bbl = concat $ flip map args' $ \x -> case x of
                                                      Left bl -> bl
                                                      Right (bl, _, _) -> bl
@@ -623,6 +667,7 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args) = comp
                                                       Right (_, _, bl) -> bl
               fexp = [cexp| $id:(f)($args:(args'')) |]
           return (bbl, fexp, bbl')
+
         voidType :: CExpr -> Bool
         voidType exp = case normalizeTypes $ getType exp of
           Void -> True
@@ -712,8 +757,8 @@ compileStat v@(Unary _ Transpose a) = comp
                                             (abl', aloc') <- apIndex aloc j
                                                              `bindBl` (flip apIndex i)
                                             st <- storeLoc dest'' aloc'
-                                            return $ dbl' ++ abl' ++ st
-                                          return $ dbl ++ for2
+                                            return $ (dbl' ++ abl', st)
+                                          return $ (dbl, for2)
                                         return $ abl ++ for1
                , withValue = defaultWithValue (getType v) comp
                , noValue = defaultNoValue (getType v) comp
@@ -816,12 +861,12 @@ compileStat v@(Binary _ Mul a b) = case (aty, bty) of
                                               (bbl', bex) <- (apIndex bloc j
                                                               `bindBl` flip apIndex k)
                                                              `bindBl` (withValue . asRValue)
-                                              return (abl'' ++ bbl' ++
+                                              return (abl'' ++ bbl',
                                                       [[citem| $id:sumname += $aex * $bex; |]])
                                             (dbl', dest'') <- apIndex dest' k
                                             st <- storeExp dest'' [cexp| $id:sumname |]
-                                            return $ dbl' ++ [[citem| $ty:sumty $id:sumname = 0; |]] ++ forbl3 ++ st
-                                          return $ abl' ++ forbl2
+                                            return $ (dbl', [citems| $ty:sumty $id:sumname = 0; |] ++ forbl3 ++ st)
+                                          return $ (abl' ++ dbl, forbl2)
                                         return (abl ++ bbl ++ forbl1)
                , withValue = defaultWithValue (getType v) comp
                , noValue = defaultNoValue (getType v) comp
@@ -841,11 +886,11 @@ compileStat v@(Binary _ Mul a b) = case (aty, bty) of
                                             (bbl', bex) <- (apIndex bloc j
                                                             `bindBl` flip apIndex i)
                                                            `bindBl` (withValue . asRValue)
-                                            return (abl' ++ bbl' ++
-                                                    [[citem| $id:sumname += $aex * $bex; |]])
+                                            return (abl' ++ bbl',
+                                                    [citems| $id:sumname += $aex * $bex; |])
                                           (dbl, dest') <- apIndex dest i
                                           st <- storeExp dest' [cexp| $id:sumname |]
-                                          return $ dbl ++ [[citem| $ty:sumty $id:sumname = 0; |]] ++ forbl2 ++ st
+                                          return $ (dbl, [citems| $ty:sumty $id:sumname = 0; |] ++ forbl2 ++ st)
                                         return $ abl ++ bbl ++ forbl1
                , withValue = defaultWithValue (getType v) comp
                , noValue = defaultNoValue (getType v) comp
@@ -865,11 +910,11 @@ compileStat v@(Binary _ Mul a b) = case (aty, bty) of
                                                             `bindBl` (withValue . asRValue)
                                             (bbl', bex) <- apIndex bloc j
                                                            `bindBl` (withValue . asRValue)
-                                            return (abl'' ++ bbl' ++
-                                                    [[citem| $id:sumname += $aex * $bex; |]])
+                                            return (abl'' ++ bbl',
+                                                    [citems| $id:sumname += $aex * $bex; |])
                                           (dbl, dest') <- apIndex dest i
                                           st <- storeExp dest' [cexp| $id:sumname |]
-                                          return $ abl' ++ dbl ++ [[citem| $ty:sumty $id:sumname = 0; |]] ++ forbl2 ++ st
+                                          return $ (abl' ++ dbl, [citems| $ty:sumty $id:sumname = 0; |] ++ forbl2 ++ st)
                                         return $ abl ++ bbl ++ forbl1
                , withValue = defaultWithValue (getType v) comp
                , noValue = defaultNoValue (getType v) comp
@@ -885,8 +930,8 @@ compileStat v@(Binary _ Mul a b) = case (aty, bty) of
                                 forbl <- makeFor ia $ \i -> do
                                   (abl', aex) <- apIndex aloc i `bindBl` (withValue . asRValue)
                                   (bbl', bex) <- apIndex bloc i `bindBl` (withValue . asRValue)
-                                  return (abl' ++ bbl' ++
-                                          [[citem| $id:sumname += $aex * $bex; |]])
+                                  return (abl' ++ bbl',
+                                          [citems| $id:sumname += $aex * $bex; |])
                                 return (abl ++ bbl ++
                                         [[citem| $ty:sumty $id:sumname = 0; |]]
                                         ++ forbl, [cexp| $id:sumname |])
@@ -923,12 +968,12 @@ compileStat v@(Binary pos Concat v1 v2) = comp
                       (dbl, dest') <- apIndex dest i
                       (v1bl', v1loc') <- apIndex v1loc i
                       st1 <- storeLoc dest' v1loc'
-                      return $ dbl ++ v1bl' ++ st1
+                      return $ (dbl ++ v1bl', st1)
                     for2 <- makeFor idx2 $ \i -> do
                       (dbl, dest') <- apIndex dest [cexp| $i + $idx1ex |]
                       (v2bl', v2loc') <- apIndex v2loc i
                       st2 <- storeLoc dest' v2loc'
-                      return $ dbl ++ v2bl' ++ st2
+                      return $ (dbl ++ v2bl', st2)
                     return $ v1bl ++ v2bl ++ idx1bl ++ for1 ++ for2
                , asLoc = defaultAsLoc (getType v) comp
                , withValue = defaultWithValue (getType v) comp

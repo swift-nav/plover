@@ -190,12 +190,13 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                           else ((FnT args' retty), Nothing)
   where complexRet :: Type -> Bool
         complexRet (VecType _ _) = True
-        complexRet (TypedefType _) = True
-        complexRet (StructType _ _) = True
+--        complexRet (TypedefType _) = True  -- don't worry about structs: C will provide!
+--        complexRet (StructType _ _) = True
         -- Any mistake in here will just end up causing a "don't know how to program this" message later
         complexRet _ = False
 
-        args' = maybeAddVoid args
+        --args' = maybeAddVoid args
+        args' = args
 
         -- Puts the return into the argument list.  TODO should it be
         -- the type itself, or should it be Ptrized?  The semantics of
@@ -210,13 +211,17 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                      else test
                 retty' = retty
 
--- Checks that there is at least one required argument
-maybeAddVoid :: [(Variable, Bool, ArgDir, Type)] -> [(Variable, Bool, ArgDir, Type)]
-maybeAddVoid args | null [True | (_,r,_,_) <- args, r]  = args ++ [("", True, ArgIn, Void)]
-                  | otherwise                           = args
-
+-- | Adds a void argument if there are no required arguments.
 withPossibleVoid :: FunctionType -> FunctionType
-withPossibleVoid (FnT args retty) = (FnT (maybeAddVoid args) retty)
+withPossibleVoid (FnT args retty) = FnT (maybeAddVoid args) retty
+  where maybeAddVoid :: [(Variable, Bool, ArgDir, Type)] -> [(Variable, Bool, ArgDir, Type)]
+        maybeAddVoid args | null [True | (_,r,_,_) <- args, r]  = args ++ [("", True, ArgIn, Void)]
+                          | otherwise                           = args
+
+-- withoutVoids :: FunctionType -> FunctionType
+-- withoutVoids (FnT args retty) = FnT (removeVoid args) retty
+--   where removeVoid :: [(Variable, Bool, ArgDir, Type)] -> [(Variable, Bool, ArgDir, Type)]
+--         removeVoid = filter
 
 data Type' a
   = VecType [a] (Type' a)
@@ -719,14 +724,14 @@ instance (Show a, PP a) => PP (Expr a) where
   pretty (FloatLit' _ x) = text $ show x
   pretty (StrLit' x) = text $ show x
   pretty (BoolLit' x) = text $ show x
-  pretty (Hole' (Just (_, v))) = text v -- should start with $ so shouldn't conflict
+  pretty (Hole' (Just (ty, v))) = text v -- <+> text "::" <+> pretty ty -- it should start with $ so shouldn't conflict
   pretty (Hole' Nothing) = parens $ text "$hole"
   pretty (Get' loc) = pretty loc
   pretty (Addr' loc) = parens $ hang (text "&") 2 (pretty loc)
   pretty x = text $ show x
 
 instance PP a => PP (Location a) where
-  pretty (Ref _ v) = text v
+  pretty (Ref ty v) = text v -- <+> text "::" <+> pretty ty
   pretty (Index ty idxs) = pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
   pretty (Field a field) = pretty a <> text ("." ++ field)
   pretty (Deref a) = parens $ hang (text "*") 2 (pretty a)
@@ -748,8 +753,7 @@ getType (VecLit pos ty xs) = VecType [IntLit pos IDefault (fromIntegral $ length
 getType (Let pos v x body) = getType body
 getType (Uninitialized pos ty) = ty
 getType (Seq pos a b) = getType b
-getType (ConcreteApp pos f args) = let FnType fn = getType f
-                                       (FnT params retty, _) = getEffectiveFunType fn
+getType (ConcreteApp pos f args) = let FnType (FnT params retty) = getType f
                                    in retty
 getType (App {}) = error "App should not be here"
 getType (Hole pos Nothing) = error "Hole should not be here"

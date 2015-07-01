@@ -75,8 +75,11 @@ gensym prefix = do names <- gensymState <$> get
 genVar :: SemChecker Variable
 genVar = gensym ""
 
+genUVarP :: String -> SemChecker UVar
+genUVarP = gensym
+
 genUVar :: SemChecker UVar
-genUVar = gensym ""
+genUVar = genUVarP ""
 
 type SemChecker = State SemCheckData
 
@@ -204,11 +207,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                        resetLocalBindings
                        def' <- case (definition defb) of
                          FunctionDef mexp ft -> do ft' <- completeFunType pos ft
-                                                   let mexp' = case getEffectiveFunType ft of
-                                                         (_, Just (rv, rty)) ->
-                                                           Set pos (Ref (TypeHole Nothing) rv) <$> mexp
-                                                         _ -> mexp
-                                                   return $ FunctionDef mexp' ft'
+                                                   return $ FunctionDef mexp ft'
                          ValueDef mexp ty -> do ty' <- fillTypeHoles pos ty
                                                 return $ ValueDef mexp ty'
                          StructDef members -> do
@@ -315,16 +314,7 @@ fillValHoles exp = case exp of
   App pos fn@(Get _ (Ref _ f)) args -> do
     mf <- lookupGlobalType f
     case mf of
-     Just (FnType ft) -> let (ft', mretvar) = getEffectiveFunType ft
-                         in case mretvar of
-                             Just (retvar, ty) -> do tv <- genVar
-                                                     matched <- matchArgs pos
-                                                                (args ++ [Arg $ Get pos (Ref (TypeHole Nothing) tv)])
-                                                                ft'
-                                                     fillValHoles $ Let pos tv (Uninitialized pos (TypeHole Nothing))
-                                                       (Seq pos (ConcreteApp pos fn matched)
-                                                        (Get pos (Ref (TypeHole Nothing) tv)))
-                             Nothing -> (ConcreteApp pos fn <$> matchArgs pos args (withPossibleVoid ft)) >>= fillValHoles
+     Just (FnType ft) -> (ConcreteApp pos fn <$> matchArgs pos args ft) >>= fillValHoles
      Just _ -> do addError $ SemError pos "Cannot call non-function."
                   return exp
      Nothing -> do addError $ SemError pos "No such global function."
@@ -334,11 +324,9 @@ fillValHoles exp = case exp of
   ConcreteApp pos fn@(Get _ (Ref _ f)) args -> do
     mf <- lookupGlobalType f
     case mf of
-     Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == reqargs) $
+     Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == length fargs) $
                                               SemError pos "Incorrect number of arguments in function application."
                                             ConcreteApp pos <$> fillValHoles fn <*> mapM fillValHoles args
-       where reqargs = let ((FnT fargs' _), mretvar) = getEffectiveFunType ft
-                       in length fargs'
      Just _ -> do addError $ SemError pos "Cannot call non-function."
                   return exp
      Nothing -> do addError $ SemError pos "No such global function."
@@ -418,9 +406,8 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
     -- A passed argument matches a required argument
     matchArgs' i (Arg x : xs) ((v, True, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- An omitted implicit argument is filled with a value hole
-    matchArgs' i (Arg x : xs) ((v, False, _, ty) : fxs) = do name <- genUVar
-                                                             ty <- genUVar
-                                                             (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i (Arg x : xs) fxs
+    matchArgs' i xs@(Arg _ : _) ((v, False, _, ty) : fxs) = addImplicit i v ty xs fxs
+    matchArgs' i [] ((v, False, _, ty) : fxs) = addImplicit i v ty [] fxs
     -- (error) An implicit argument where a required argument is expected
     matchArgs' i (ImpArg x : xs) ((v, True, dir, ty) : fxs) = do
       addError $ SemError pos $ "Unexpected implicit argument in position " ++ show i ++ "."
@@ -428,7 +415,7 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
     -- An implicit argument given where an implicit argument expected
     matchArgs' i (ImpArg x : xs) ((v, False, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- (error) Fewer arguments than parameters
-    matchArgs' i [] (fx : fxs) = do addError $ SemError pos $ "Not enough arguments.  Given " ++ show i ++ "."
+    matchArgs' i [] (fx : fxs) = do addError $ SemError pos $ "Not enough arguments.  Given " ++ show i ++ "; " ++ validRange
                                     name <- genUVar -- try to recover for error message's sake
                                     ty <- genUVar
                                     (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i [] fxs
@@ -439,3 +426,7 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
 
     numReq = length $ filter (\(_, b, _, _) -> b) fargs
     validRange = "expecting " ++ show numReq ++ " required and " ++ show (length fargs - numReq) ++ " implicit arguments"
+
+    addImplicit i v ty xs fxs = do name <- genUVarP v
+                                   ty <- genUVar
+                                   (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i xs fxs
