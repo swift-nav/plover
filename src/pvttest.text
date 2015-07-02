@@ -15,7 +15,7 @@ norm {n :: u32} (v :: double[n]) :: double
 --  := sqrt (sum i in n -> (v[i] * v[i]));
   := sqrt (s := 0.0; for i in n -> (s <- s + v[i] * v[i]); s);
 normalize {n :: u32} (v :: double[n]) :: double[n]
-  := v / norm v;
+  := v / norm v; -- Should be a test of loop invariant code motion
 
 pvt {n_used :: u8}
     (sat_pos :: double[n_used,3])

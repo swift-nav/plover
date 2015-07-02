@@ -779,9 +779,9 @@ getType (Binary pos op a b)
   | op `elem` [Add, Sub, Div] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
     (VecType [a, _] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty')
-    (VecType [a] aty', VecType [_, c] bty') -> VecType [c] (getArithType aty' bty')
+    (VecType [a] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty') -- left vector is a x 1
     (VecType [a, _] aty', VecType [c] bty') -> VecType [a] (getArithType aty' bty')
-    (VecType [a] aty', VecType [_] bty') -> getArithType aty' bty'
+    (VecType [a] aty', VecType [_] bty') -> getArithType aty' bty' -- dot product
     (VecType {}, VecType {}) -> error "getType: Bad vector sizes for multiplication"
     _ -> getArithType aty bty
   | op == Concat = case (aty, bty) of

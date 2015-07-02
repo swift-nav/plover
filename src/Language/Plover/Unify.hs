@@ -565,15 +565,15 @@ typeCheck (Binary pos op a b)
          b <- unify pos b1 b2
          ty' <- arithType pos aty' bty'
          return $ VecType [a, c] ty'
-       (VecType [a1] aty', VecType [a2, b] bty') -> do
-         a <- unify pos a1 a2
+       (VecType [a] aty', VecType [b2, c] bty') -> do -- Left vector is treated as column vector matrix (n x 1)
+         b <- unify pos 1 b2
          ty' <- arithType pos aty' bty'
-         return $ VecType [b] ty'
-       (VecType [a, b1] aty', VecType [b2] bty') -> do
+         return $ VecType [a, c] ty'
+       (VecType [a, b1] aty', VecType [b2] bty') -> do -- Right vector is treated as column vector (result is vector)
          b <- unify pos b1 b2
          ty' <- arithType pos aty' bty'
          return $ VecType [a] ty'
-       (VecType [a1] aty', VecType [a2] bty') -> do
+       (VecType [a1] aty', VecType [a2] bty') -> do -- Special case: vector times vector is dot product
          a <- unify pos a1 a2
          ty' <- arithType pos aty' bty'
          return $ ty'
