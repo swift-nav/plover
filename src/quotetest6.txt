@@ -18,11 +18,11 @@ matmul2 {l :: u8} {m :: u8} {n :: u8}  (A :: double[l,m]) (B :: double[m,n]) :: 
 matmul3 {n :: s32} (A :: double[n,n]) (B :: double[n,n]) (C :: double[n,n]) :: double[n,n]
   := (A + B) * C + 2;
 
-lrvecmul {n :: s32} {m :: s32} (w :: double[n]) (A :: double[n,m]) (v :: double[m]) :: double
- := w * A * v;
+lrvecmul {n :: s32} {m :: s32} (w :: double[n]) (A :: double[m,m]) (v :: double[m]) :: double
+ := (w^T * A * v)[0];
 
 quadform {n :: u32} (v :: double[n]) (A :: double[n,n]) :: double
- := v * A * v;
+ := (v^T * A * v)[0];
 
 extern bar {m :: u8} (out v :: double[m]) :: double;
 
