@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
@@ -23,6 +24,7 @@ import Text.ParserCombinators.Parsec.Pos (SourcePos)
 import Data.Tag
 import Data.Functor.Fixedpoint
 import Data.Char
+import Data.Data
 import Text.PrettyPrint
 
 
@@ -37,10 +39,10 @@ data IntType = U8 | S8
              | U32 | S32
              | U64 | S64
              | IDefault
-             deriving (Eq, Ord, Show)
+             deriving (Eq, Ord, Show, Data)
 data FloatType = Float | Double
                | FDefault
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Data)
 
 defaultIntType :: IntType
 defaultIntType = IDefault

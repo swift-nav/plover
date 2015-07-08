@@ -6,15 +6,15 @@ extern GPS_C :: double;
 
 extern sqrt (x :: double) :: double;
 
-rot_small (x :: double) :: double[3,3]
+static rot_small (x :: double) :: double[3,3]
  := vec(vec(1.0, x, 0.0),
         vec(-x, 1.0, 0.0),
         vec(0.0, 0.0, 1.0));
 
-norm {n :: u32} (v :: double[n]) :: double
+static norm {n :: u32} (v :: double[n]) :: double
 --  := sqrt (sum i in n -> (v[i] * v[i]));
   := sqrt (s := 0.0; for i in n -> (s <- s + v[i] * v[i]); s);
-normalize {n :: u32} (v :: double[n]) :: double[n]
+static normalize {n :: u32} (v :: double[n]) :: double[n]
   := v / norm v; -- Should be a test of loop invariant code motion
 
 pvt {n_used :: u8}
@@ -33,8 +33,7 @@ pvt {n_used :: u8}
              xk_new - rx_state;
            );
     G <- vec j in 0:n_used -> normalize (-los[j] # vec(1));
-    pseudo := vec i in 0:n_used -> nav_meas[i].pseudorange;
-    omp := pseudo - vec j in 0:n_used -> norm los[j];
+    omp := vec i in 0:n_used -> nav_meas[i].pseudorange - norm los[i];
     X <- (G^T * G)^(-1) * G^T;
     correction <- X * omp;
   );

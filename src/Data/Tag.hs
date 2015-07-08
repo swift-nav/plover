@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -15,16 +16,18 @@ import qualified Data.Traversable as T (Traversable)
 import Data.Function
 import Data.Functor.Fixedpoint
 import Data.List
+import Data.Data
 import Control.Monad.State
 
 data Tag a = NoTag
            | Tag !a (Tag a)
            | ProvTag String (Tag a)
            | MergeTags [Tag a]
-             deriving (Show, Eq, Ord)
+             deriving (Show, Eq, Ord, Data)
 
 data Tagged tag x = WithTag { maybeTag :: !(Tag tag)
                             , stripTag :: x }
+                    deriving Data
 
 instance Eq a => Eq (Tagged tag a) where
   x == y  = stripTag x == stripTag y
@@ -43,6 +46,7 @@ instance Traversable (Tagged tag) where
 
 
 data FixTagged' tag t a = FixTagged' (Tagged tag (t a))
+                        deriving Data
 
 instance Functor t => Functor (FixTagged' tag t) where
   fmap f (FixTagged' x) = FixTagged' (fmap (fmap f) x)

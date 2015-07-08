@@ -1,12 +1,13 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
 
-module Language.Plover.QuoteTypes
+module Language.Plover.ParserTypes
        where
 
 import Text.ParserCombinators.Parsec
@@ -17,6 +18,9 @@ import Control.Monad
 import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
 import Data.Traversable
+import Data.Typeable
+import Data.Data
+import Data.Ratio (numerator, denominator)
 import Text.PrettyPrint
 import Data.Tag
 import Data.Functor.Fixedpoint
@@ -25,6 +29,8 @@ import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFlo
 
 type Expr = FixTagged SourcePos Expr'
 pattern PExpr tag a = FTag tag a
+
+deriving instance Data Expr
 
 wrapPos :: SourcePos -> Expr' Expr -> Expr
 wrapPos = newTag
@@ -39,7 +45,7 @@ data UnOp = Neg
           | Transpose
           | Inverse
           | Not
-          deriving (Show, Eq)
+          deriving (Show, Eq, Typeable, Data)
 
 data BinOp = Add
            | Sub
@@ -54,7 +60,7 @@ data BinOp = Add
            | EqualOp
            | LTOp
            | LTEOp
-           deriving (Show, Eq)
+           deriving (Show, Eq, Typeable, Data)
 
 data Expr' a = Vec [(Variable,a)] a
           | Sum [(Variable,a)] a
@@ -99,12 +105,26 @@ data Expr' a = Vec [(Variable,a)] a
           | Extern a
           | Static a
           | Struct Variable [a]
-          deriving (Eq, Show, Functor, Traversable, Foldable)
+
+            -- Antiquotation
+          | Antiquote String
+          deriving (Eq, Show, Functor, Traversable, Typeable, Foldable, Data)
 
 data Arg a = ImpArg a
            | Arg a
-           deriving (Eq, Show, Functor, Traversable, Foldable)
+           deriving (Eq, Show, Functor, Traversable, Typeable, Foldable, Data)
 
+instance Num Expr where
+  x * y = PExpr NoTag (BinExpr Mul x y)
+  x + y = PExpr NoTag (BinExpr Add x y)
+  fromInteger x = PExpr NoTag (IntLit defaultIntType x)
+  abs = undefined
+  signum = undefined
+  negate x = PExpr NoTag (UnExpr Neg x)
+
+instance Fractional Expr where
+  x / y = PExpr NoTag (BinExpr Div x y)
+  fromRational x = PExpr NoTag (FloatLit defaultFloatType $ fromIntegral (numerator x) / fromIntegral (denominator x))
 
 integer :: Integer -> Expr' a
 integer x = IntLit IDefault x
@@ -169,6 +189,8 @@ instance PP a => PP (Expr' a) where
   pretty (Extern a) = parens $ hang (text "Extern") 1 $ pretty a
   pretty (Static a) = parens $ hang (text "Static") 1 $ pretty a
   pretty (Struct n a) = parens $ (text "Struct" <+> text n) $$ nest 1 (vcat $ map pretty a)
+
+  pretty (Antiquote s) = parens $ text "Antiquote" <+> text s
 
 instance PP a => PP (Arg a) where
   pretty (Arg a) = pretty a

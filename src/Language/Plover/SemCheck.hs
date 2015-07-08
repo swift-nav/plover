@@ -1,6 +1,7 @@
 module Language.Plover.SemCheck where
 
 import Debug.Trace
+import Language.Plover.ErrorUtil
 import Language.Plover.Types
 import Language.Plover.UsedNames
 import Language.Plover.Unify hiding (gensym)
@@ -9,6 +10,8 @@ import Data.Map (Map)
 import Data.Tag
 import Data.Function
 import Data.Maybe
+import Data.List
+import qualified Text.PrettyPrint as PP
 import Control.Monad
 import Control.Monad.State
 import Text.ParserCombinators.Parsec (SourcePos)
@@ -18,6 +21,35 @@ data SemError = SemError (Tag SourcePos) String
               | SemUnboundType (Tag SourcePos) Variable
               | SemUniError UnificationError
               deriving (Show, Eq, Ord)
+
+reportSemErr :: SemError
+             -> IO String
+reportSemErr err
+  = case err of
+     SemError tag msg -> posStuff tag $ msg ++ "\n"
+     SemUnbound tag v -> posStuff tag $ "Unbound identifier " ++ show v ++ ".\n"
+     SemUnboundType tag v -> posStuff tag $ "Unbound type " ++ show v ++ ".\n"
+     SemUniError err -> case err of
+       UError tag msg -> posStuff tag $ msg ++ "\n"
+       UTyFailure tag t1 t2 -> posStuff tag $ "Could not unify type\n"
+                               ++ nice t1 ++ "\nwith type\n" ++ nice t2 ++ "\n"
+       UTyAssertFailure tag sty dty -> posStuff tag $ "The type\n" ++ nice sty
+                                       ++ "\nis not a subtype of\n" ++ nice dty ++ "\n"
+       UExFailure tag e1 e2 -> posStuff tag $ "Could not unify expression\n"
+                               ++ nice e1 ++ "\nwith expression\n" ++ nice e2 ++ "\n"
+       ULocFailure tag l1 l2 -> posStuff tag $ "Could not unify location\n"
+                                ++ nice l1 ++ "\nwith location\n" ++ nice l2 ++ "\n"
+       UTyOccurs tag v ty -> posStuff tag $ "Occurs check error for " ++ show v
+                             ++ " in type\n" ++ nice ty ++ "\n"
+       UExOccurs tag v ex -> posStuff tag $ "Occurs check error for " ++ show v
+                             ++ " in expression\n" ++ nice ex ++ "\n"
+       UNoField tag v -> posStuff tag $ "No such field " ++ show v ++ "\n"
+       UGenTyError tag ty msg -> posStuff tag $ msg ++ "\n" ++ nice ty ++ "\n"
+  where posStuff tag s = do sls <- mapM showLineFromFile (sort $ nub $ getTags tag)
+                            return $ "Error" ++ unlines (("at " ++) <$> sls) ++ s
+        nice :: PP a => a -> String
+        nice t = show $ PP.nest 3 (pretty t)
+
 
 data SemCheckData = SemCheckData
                     { semErrors :: [SemError]

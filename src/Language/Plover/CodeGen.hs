@@ -38,6 +38,11 @@ data CodeGenState = CodeGenState
 
 type CM a = State CodeGenState a
 
+-- | Returns the output header file and the output source file.
+doCompile :: [DefBinding] -> (String, String)
+doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
+                            return (show $ ppr header, show $ ppr code)
+
 runCM :: CM a -> a
 runCM m = evalState m (CodeGenState M.empty [] [])
 
@@ -106,17 +111,22 @@ newName def v = do v' <- freshName (getOkIdentifier def v)
                    modify $ \state -> state { bindings = M.insert v v' (bindings state) }
                    return v'
 
-compileTopLevel :: [DefBinding] -> CM [C.Definition]
+compileTopLevel :: [DefBinding] -> CM ([C.Definition], [C.Definition])
 compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                            forM_ defbs' $ \defb ->
                              lookupName (error "Invalid top-level name") (binding defb)
-                           d1 <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
-                             FunctionDef mexp ft -> compileFunctionDecl (binding defb) ft
-                             _ -> return []
-                           d2 <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
+                           decls <- fmap concat $ forM (filter (not . static) defbs') $ \defb ->
+                                    newScope $ case definition defb of
+                                                 FunctionDef mexp ft -> compileFunctionDecl (binding defb) ft
+                                                 _ -> return []
+                           declstatic <- fmap concat $ forM (filter static defbs') $ \defb ->
+                                         newScope $ case definition defb of
+                                                      FunctionDef mexp ft -> compileFunctionDecl (binding defb) ft
+                                                      _ -> return []
+                           ddef <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
                              _ -> return []
-                           return (includes ++ d1 ++ d2)
+                           return (includes ++ decls, declstatic ++ ddef)
   where includes = [cunit|$esc:("#include <stdbool.h>") |]
 
 compileFunctionDecl :: String -> FunctionType -> CM [C.Definition]
