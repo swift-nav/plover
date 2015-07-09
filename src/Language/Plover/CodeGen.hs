@@ -126,8 +126,9 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                            ddef <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
                              _ -> return []
-                           return (includes ++ decls, declstatic ++ ddef)
-  where includes = [cunit|$esc:("#include <stdbool.h>") |]
+                           return (ext_includes ++ decls, int_includes ++ declstatic ++ ddef)
+  where ext_includes = [cunit| $esc:("#include \"common.h\"") |]
+        int_includes = [cunit| $esc:("#include <math.h>") $esc:("#include \"linear_algebra.h\"") |]
 
 compileFunctionDecl :: String -> FunctionType -> CM [C.Definition]
 compileFunctionDecl name ft = do
@@ -750,7 +751,7 @@ compileStat v@(Unary _ Inverse a) = comp
                                         (_, dex, daf) <- asArgument dest
                                         nex <- asExp $ compileStat n
                                         writeCode bl
-                                        writeCode [citems|inverse($nex,$aex,$dex);|]
+                                        writeCode [citems|matrix_inverse($nex,$aex,$dex);|]
                                         writeCode daf
                , asExp = defaultAsExp (getType v) comp
                , noValue = defaultNoValue (getType v) comp

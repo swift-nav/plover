@@ -6,6 +6,8 @@ import Language.Plover.ErrorUtil
 import Control.Monad
 import Data.Tag
 import Data.Maybe
+import Data.List
+import qualified Data.Map as M
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Error
 import Text.ParserCombinators.Parsec.Expr
@@ -22,10 +24,10 @@ languageDef =
            , Token.nestedComments = True
            , Token.identStart = letter <|> oneOf "_"
            , Token.identLetter = alphaNum <|> oneOf "_'"
-           , Token.opStart = mzero -- Token.opLetter languageDef
+           , Token.opStart = mzero -- Token.opLetter languageDef   -- No opStart because all operators are reserved
            , Token.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
-           , Token.reservedOpNames = ["::", ":", "<-", "->", ":=", "~", "*", "-", "+", "/",
-                                      "#", ".", ".*", "^", "$"]
+           , Token.reservedOpNames = ["::", ":", "<-", "->", ":=", "~", "*", "-", "+", "/", "&",
+                                      "#", ".", ".*", "^", "$", "==", "<", "<=", ">", ">="]
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
              "struct", "field",
@@ -36,12 +38,37 @@ languageDef =
            , caseSensitive = True
            }
 
+-- | A map of reserved operator names to lists of operators it
+-- prefixes (with the shared part dropped).  This is for our version
+-- of 'reservedOp'.
+reservedOpPrefixes :: M.Map String [String]
+reservedOpPrefixes = M.fromList [(name, [rop
+                                        | rop <- Token.reservedOpNames languageDef,
+                                          isPrefixOf name rop,
+                                          name /= rop])
+                                | name <- Token.reservedOpNames languageDef]
+
+getReservedOpPrefixes :: String -> [String]
+getReservedOpPrefixes name = case M.lookup name reservedOpPrefixes of
+                              Just lst -> lst
+                              Nothing -> error $ "In getReservedOpPrefixes: the operator "
+                                         ++ show name ++ " is not in the reserved operator list."
+
 lexer = Token.makeTokenParser languageDef
 
 identifier = Token.identifier lexer
 lexeme = Token.lexeme lexer
 reserved = Token.reserved lexer
-reservedOp = Token.reservedOp lexer
+-- | Rather than 'Token.reservedOp lexer', we make the reservedOp
+-- parser a little smarter for our needs (since, unlike Haskell, we do
+-- not support arbitrary user-specified operators).  In particular, it
+-- will match 'name' if it is not the prefix of another reserved
+-- operator which could also be parsed here.
+reservedOp name = lexeme $ try $ do
+  lookAhead $ string name
+  mapM_ (notFollowedBy . string) (getReservedOpPrefixes name) <?> show name
+  string name
+  return ()
 parens = Token.parens lexer
 symbol = Token.symbol lexer
 brackets = Token.brackets lexer
@@ -54,7 +81,8 @@ whiteSpace = Token.whiteSpace lexer
 
 structFieldName = (:) <$> letter <*> many (alphaNum <|> char '_') <* whiteSpace
 
-
+-- | Records the current parser position, runs a parser, then wraps
+-- the result with a tag as a position.
 withPos :: Parser (Expr' Expr) -> Parser Expr
 withPos p = do pos <- getPosition
                v <- p
@@ -62,18 +90,21 @@ withPos p = do pos <- getPosition
 
 
 -- Expression parser
+-- <expr> ::= <store>
 expr :: Parser Expr
 expr = whiteSpace >> store
 
--- Parse stores
+-- Parse stores and definitions
+-- <store> ::= <tuple> [("<-" | ":=") <store>]
 store :: Parser Expr
 store = do pos <- getPosition
            d <- tuple
            st pos d <|> def pos d <|> return d
-  where st pos d = reservedOp "<-" >> (wrapPos pos . StoreExpr d <$> tuple)
-        def pos d = reservedOp ":=" >> (wrapPos pos . DefExpr d <$> tuple)
+  where st pos d = reservedOp "<-" >> (wrapPos pos . StoreExpr d <$> store)
+        def pos d = reservedOp ":=" >> (wrapPos pos . DefExpr d <$> store)
 
--- Parse tuples
+-- Parse tuples.  Trailing comma is tolerated, and enables 1-tuples
+-- <tuple> ::= <range> ("," <range>)* [","]
 tuple :: Parser Expr
 tuple = do pos <- getPosition
            ts <- tupleSep range (symbol ",")
@@ -87,17 +118,30 @@ tuple = do pos <- getPosition
                               then return $ Right v
                               else return $ Left (v : vs)
 
+-- <range> ::= ":" [<typeSpec>] [":" <typeSpec>]
+--           | <typeSpec> [":" [<typeSpec>] [":" <typeSpec>]]
+-- (note that the colons must have a space between them, otherwise it is a typeSpec)
 range :: Parser Expr
 range = noStart <|> withStart
   where noStart = do pos <- getPosition
                      reservedOp ":"
                      restRange pos Nothing
         withStart = do pos <- getPosition
-                       t <- operators
+                       t <- typeSpec
                        (reservedOp ":" >> restRange pos (Just t)) <|> return t
-        restRange pos t = do end <- optionMaybe operators
-                             step <- optionMaybe (reservedOp ":" >> operators)
+        restRange pos t = do end <- optionMaybe typeSpec
+                             step <- optionMaybe (reservedOp ":" >> typeSpec)
                              return $ wrapPos pos $ Range t end step
+
+-- This is hand-coded to make a common error have a better error
+-- message.
+-- <typeSpec> ::= <operators> ["::" <operators>]
+typeSpec :: Parser Expr
+typeSpec = do pos <- getPosition
+              a <- operators
+              ty pos a <|> return a
+  where ty pos a = do reservedOp "::"
+                      wrapPos pos . BinExpr Type a <$> operators
 
 operators :: Parser Expr
 operators = buildExpressionParser ops application
@@ -106,17 +150,17 @@ operators = buildExpressionParser ops application
     ops = [ [ Prefix (un Deref (reservedOp "*"))
             , Prefix (un Addr (reservedOp "&"))
             ]
-          , [ Prefix (un Neg (reservedOp "-"))
-            , Prefix (un Pos (reservedOp "+"))
-            ]
           , [ Infix (bin Pow (reservedOp "^")) AssocRight ]
           , [ Infix (bin Mul (reservedOp "*")) AssocLeft
             , Infix (bin Div (reservedOp "/")) AssocLeft
             ]
-          , [ Infix (bin Concat (reservedOp "#")) AssocLeft ]
+          , [ Prefix (un Neg (reservedOp "-"))
+            , Prefix (un Pos (reservedOp "+"))
+            ]
           , [ Infix (bin Add (reservedOp "+")) AssocLeft
             , Infix (bin Sub (reservedOp "-")) AssocLeft
             ]
+          , [ Infix (bin Concat (reservedOp "#")) AssocLeft ]
           , [ Infix (bin EqualOp (reservedOp "==")) AssocNone
             , Infix (bin LTOp (reservedOp "<")) AssocNone
             , Infix (bin LTEOp (reservedOp "<=")) AssocNone
@@ -127,7 +171,6 @@ operators = buildExpressionParser ops application
           , [ Infix (bin And (reserved "and")) AssocLeft ]
           , [ Infix (bin Or (reserved "or")) AssocLeft ]
           , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
-          , [ Infix (bin Type (reserved "::")) AssocNone ]
           ]
     un op s = do pos <- getPosition
                  s

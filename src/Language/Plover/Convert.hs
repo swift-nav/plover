@@ -16,6 +16,7 @@ makePos (PExpr tag _) = makePos' tag
   where makePos' NoTag = newPos "<unknown>" (-1) (-1)
         makePos' (Tag a _) = a
         makePos' (ProvTag _ mt) = makePos' mt
+        makePos' (MergeTags {}) = error "Unexpected MergeTags in makePos (parser doesn't generate these)"
 
 makeExpr :: Expr -> Either ConvertError T.CExpr
 makeExpr exp@(PExpr pos e') = case e' of
