@@ -58,8 +58,10 @@ data BinOp = Add
            | And
            | Or
            | EqualOp
+           | NEqOp
            | LTOp
            | LTEOp
+           | RawCast
            deriving (Show, Eq, Typeable, Data)
 
 data Expr' a = Vec [(Variable,a)] a

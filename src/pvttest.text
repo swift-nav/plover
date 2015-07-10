@@ -46,44 +46,34 @@ extern struct nkf_t (
   obs_dim :: u32;
   amb_drift_var :: double;
   decor_mtx :: double[MAX_OBS_DIM * MAX_OBS_DIM];
-  decor_obs_mtx :: double[MAX_STATE_DIM * MAX_OBS_DIM] viewed double[obs_dim, state_dim];
+  decor_obs_mtx :: double[MAX_STATE_DIM * MAX_OBS_DIM] as double[obs_dim, state_dim];
   decor_obs_cov :: double[MAX_OBS_DIM];
   null_basis_Q :: double[(MAX_STATE_DIM - 3) * MAX_OBS_DIM];
-  state_mean :: double[MAX_STATE_DIM];
-  state_cov_U :: double[MAX_STATE_DIM * MAX_STATE_DIM] viewed double@UpperUnitTriangular[state_dim, _];
-  state_cov_D :: double[MAX_STATE_DIM] viewed Diagonal(double, state_dim);  double@Diagonal[state_dim, _];
+  state_mean :: double[MAX_STATE_DIM] as double[state_dim];
+  state_cov_U :: double[MAX_STATE_DIM * MAX_STATE_DIM] as UpperUnitTriangular double[state_dim, _];
+  state_cov_D :: double[MAX_STATE_DIM] as Diagonal double[state_dim, _];
   l_sos_avg :: double;
 
   assert (state_dim < MAX_STATE_DIM);
   assert (ob_dim < MAX_OBS_DIM);
 );
 
-const 0 :: double@ConstantMatrix[n,m];
+--const 0 :: double@ConstantMatrix[n,m];
 
-union BlockMatrix_s {
-  };
+-- @Block (double[2,2],double[2,m-3]; , const 0) double[n,m]
 
-double@Block(double[2,3],double[2,m-3];..,...)[n,m]
+static get_sos_innov (kf :: *nkf_t) (decor_obs :: double[kf.obs_dim]) :: double
+  := ( assert (kf != NULL);
+       assert (decor_obs != NULL);
 
-  double@Block(_,_;_,_)[n,m]
-
-np.bmat([[a,b],[c,d]])
-  
-    Block(A, const 0; C, D)
-  & (C, D)
-
-static get_sos_innov (kf :: *nkf_t) (decor_obs :: double[kf->obs_dim]) :: double
-  := ( predicted_obs := kf->decor_obs_mtx * kf->state_mean;
-       hu :: double[kf->state_dim, kf->obs_dim]
-         := kf->decor_obs_mtx * kf->state_cov_U;
-       t := diag (hu * kf->state_cov_D * hu^T);
+       if kf.*state_dim == 0 or kf.*obs_dim == 0
+         then return 0;
+       
+       predicted_obs := kf.decor_obs_mtx * kf.state_mean;
+       hu :: double[kf.obs_dim, kf.state_dim]
+         := kf.decor_obs_mtx * kf.state_cov_U;
+       t := diag (hu * kf.state_cov_D * hu^T);
        y := predicted_obs - decor_obs;
-       sos := y * t * y^T;
+       sos := y^T * Diagonal (1 / t) * y as double;
        return sos;
      );
-       for i in kf->obs_dim ->
-         hph_r_ii := kf->decor_obs_cov[i];
-       for k in kf->
-
-         sum i in : -> A[i,i];
-

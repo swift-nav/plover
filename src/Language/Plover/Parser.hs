@@ -27,13 +27,14 @@ languageDef =
            , Token.opStart = mzero -- Token.opLetter languageDef   -- No opStart because all operators are reserved
            , Token.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
            , Token.reservedOpNames = ["::", ":", "<-", "->", ":=", "~", "*", "-", "+", "/", "&",
-                                      "#", ".", ".*", "^", "$", "==", "<", "<=", ">", ">="]
+                                      "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
              "struct", "field",
              "vec", "for", "sum", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
-             "array", "and", "or", "not"
+             "array", "and", "or", "not",
+             "as"
              ]
            , caseSensitive = True
            }
@@ -162,6 +163,7 @@ operators = buildExpressionParser ops application
             ]
           , [ Infix (bin Concat (reservedOp "#")) AssocLeft ]
           , [ Infix (bin EqualOp (reservedOp "==")) AssocNone
+            , Infix (bin NEqOp (reservedOp "!=")) AssocNone
             , Infix (bin LTOp (reservedOp "<")) AssocNone
             , Infix (bin LTEOp (reservedOp "<=")) AssocNone
             , Infix (fmap flip $ bin LTOp (reservedOp ">")) AssocNone
@@ -171,6 +173,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin And (reserved "and")) AssocLeft ]
           , [ Infix (bin Or (reserved "or")) AssocLeft ]
           , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
+          , [ Infix (bin RawCast (reserved "as")) AssocNone ]
           ]
     un op s = do pos <- getPosition
                  s
@@ -196,8 +199,6 @@ term :: Parser Expr
 term = literal >>= doMember
   where doMember e = do pos <- getPosition
                         (brackets (wrapPos pos . Index e <$> expr) >>= doMember)
-                          <|> (reservedOp ".*" >> (wrapPos pos . FieldDeref e <$> structFieldName)
-                               >>= doMember)
                           <|> (reservedOp "." >> (wrapPos pos . Field e <$> structFieldName)
                                >>= doMember)
                           <|> return e
@@ -251,6 +252,9 @@ form = iter Vec "vec" <|> iter Sum "sum" <|> iter For "for" <|> ifexpr
           cond <- expr
           reserved "then"
           cons <- expr
+          elseexpr cond cons <|> (do pos <- getPosition
+                                     return $ If cond cons (wrapPos pos $ VoidExpr))
+        elseexpr cond cons = do
           reserved "else"
           alt <- expr
           return $ If cond cons alt
