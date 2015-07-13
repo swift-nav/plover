@@ -44,14 +44,14 @@ data FloatType = Float | Double
                | FDefault
                deriving (Eq, Ord, Show, Data)
 
-data StorageTypes = Dense
-                  | Diagonal
+data StorageTypes = DenseMatrix
+                  | DiagonalMatrix
                   | UpperTriangular
                   | UpperUnitTriangular
                   | LowerTriangular
                   | LowerUnitTriangular
-                  | Symmetric
-                  | Block [[Type]]
+                  | SymmetricMatrix
+                  | BlockMatrix [[Type]]
 
 defaultIntType :: IntType
 defaultIntType = IDefault
