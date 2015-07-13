@@ -66,12 +66,11 @@ static get_sos_innov (kf :: *nkf_t) (decor_obs :: double[kf.obs_dim]) :: double
   := ( assert (kf != NULL);
        assert (decor_obs != NULL);
 
-       if kf.*state_dim == 0 or kf.*obs_dim == 0
+       if kf.state_dim == 0 or kf.obs_dim == 0
          then return 0;
        
        predicted_obs := kf.decor_obs_mtx * kf.state_mean;
-       hu :: double[kf.obs_dim, kf.state_dim]
-         := kf.decor_obs_mtx * kf.state_cov_U;
+       hu := kf.decor_obs_mtx * kf.state_cov_U   :: double[kf.obs_dim, kf.state_dim];
        t := diag (hu * kf.state_cov_D * hu^T);
        y := predicted_obs - decor_obs;
        sos := y^T * Diagonal (1 / t) * y as double;
