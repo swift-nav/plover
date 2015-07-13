@@ -1,6 +1,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Language.Plover.Quote
  ( pexp, ptop
@@ -11,7 +12,6 @@ import Language.Plover.SemCheck
 import Language.Plover.ErrorUtil
 import Language.Plover.Unify
 import Language.Plover.CodeGen (compileTopLevel, runCM)
-import Language.Plover.Compile
 import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
 import qualified Text.PrettyPrint as PP
 import qualified Text.PrettyPrint.Mainland as Mainland

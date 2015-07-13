@@ -5,6 +5,7 @@ import System.Environment
 import System.Exit
 import Language.Plover.CLI
 import Control.Monad
+import Control.Applicative ((<$>))
 import qualified Language.Plover.ParserTypes as PT
 import qualified Language.Plover.Parser as Parser
 import qualified Language.Plover.Convert as Convert

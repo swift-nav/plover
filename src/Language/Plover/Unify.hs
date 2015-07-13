@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Unification and type checking
 module Language.Plover.Unify
@@ -13,6 +14,7 @@ import Data.Tag
 import Data.Maybe
 import Control.Monad.Identity
 import Control.Monad.State
+import Control.Applicative ((<$>), (<*>), (<*), pure)
 import qualified Data.Map as M
 import Text.ParserCombinators.Parsec (SourcePos)
 

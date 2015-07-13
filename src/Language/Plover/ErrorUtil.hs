@@ -2,6 +2,7 @@ module Language.Plover.ErrorUtil where
 
 import Text.ParserCombinators.Parsec
 import System.IO.Error
+import Control.Applicative ((<$>))
 
 showLineFromFile :: SourcePos -> IO String
 showLineFromFile pos = case sourceName pos of

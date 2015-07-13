@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -18,6 +19,7 @@ import Control.Monad
 import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
 import Data.Traversable
+import Data.Foldable
 import Data.Typeable
 import Data.Data
 import Data.Ratio (numerator, denominator)
@@ -30,6 +32,7 @@ import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFlo
 type Expr = FixTagged SourcePos Expr'
 pattern PExpr tag a = FTag tag a
 
+deriving instance Typeable Fix -- Can't use `Expr` here
 deriving instance Data Expr
 
 wrapPos :: SourcePos -> Expr' Expr -> Expr

@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- | Converts the parser's AST into the core AST.
 module Language.Plover.Convert where
 
@@ -6,6 +8,7 @@ import Language.Plover.ErrorUtil
 import Data.Tag
 import Text.ParserCombinators.Parsec.Pos
 import Control.Monad
+import Control.Applicative ((<$>), (<*>))
 import qualified Language.Plover.Types as T
 
 data ConvertError = ConvertError !SourcePos [String]

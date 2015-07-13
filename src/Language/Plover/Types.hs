@@ -18,6 +18,7 @@ import Control.Monad.Trans.Either hiding (left)
 import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
 import Control.Monad.Identity
+import Control.Applicative ((<$>), (<*>), pure, Applicative)
 import Data.String
 import Data.Ratio
 import Text.ParserCombinators.Parsec.Pos (SourcePos)
@@ -39,10 +40,10 @@ data IntType = U8 | S8
              | U32 | S32
              | U64 | S64
              | IDefault
-             deriving (Eq, Ord, Show, Data)
+             deriving (Eq, Ord, Show, Typeable, Data)
 data FloatType = Float | Double
                | FDefault
-               deriving (Eq, Ord, Show, Data)
+               deriving (Eq, Ord, Show, Typeable, Data)
 
 data StorageTypes = DenseMatrix
                   | DiagonalMatrix
@@ -472,10 +473,10 @@ instance Fractional CExpr where
 
 
 class TermMappable a where
-  mapTerm :: (Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
+  mapTerm :: (Applicative m, Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
           -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
           -> a -> m a
-  termMapper :: (Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
+  termMapper :: (Applicative m, Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
              -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
              -> a -> m a
 
@@ -530,7 +531,8 @@ instance TermMappable (Range CExpr) where
     Range <$> texp from <*> texp to <*> texp step
   termMapper tty texp tloc trng = trng
 
-traverseTerm :: (Monad m, TermMappable a) => (Type -> m Type) -> (CExpr -> m CExpr)
+traverseTerm :: (Applicative m, Monad m, TermMappable a)
+             => (Type -> m Type) -> (CExpr -> m CExpr)
              -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
              -> a -> m a
 traverseTerm fty fexp floc frng x = mapTerm tty texp tloc trng x >>= termMapper fty fexp floc frng

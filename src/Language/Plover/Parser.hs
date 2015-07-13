@@ -4,6 +4,7 @@ module Language.Plover.Parser
 import Language.Plover.ParserTypes
 import Language.Plover.ErrorUtil
 import Control.Monad
+import Control.Applicative ((<$>), (<*>), (<*))
 import Data.Tag
 import Data.Maybe
 import Data.List

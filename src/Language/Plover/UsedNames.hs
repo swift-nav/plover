@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 module Language.Plover.UsedNames
        where
 

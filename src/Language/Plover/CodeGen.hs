@@ -1,5 +1,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- Remember: CODE GEN DON'T CARE.  This should be as simple as
 -- possible while generating code which isn't too terrible.  It should
@@ -15,6 +16,7 @@ import Text.PrettyPrint.Mainland
 import Data.Either
 import Data.Tag
 import Control.Monad.State
+import Control.Applicative ((<$>), (<*>))
 import qualified Data.Map as M
 
 import Language.Plover.Types hiding (freshName)

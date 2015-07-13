@@ -11,23 +11,24 @@ module Data.Tag
        , Unique, TagGraph(..), toTagGraph
        ) where
 
-import qualified Data.Foldable as F (Foldable)
-import qualified Data.Traversable as T (Traversable)
+import qualified Data.Foldable as F (Foldable, foldr)
+import qualified Data.Traversable as T (Traversable, traverse)
 import Data.Function
 import Data.Functor.Fixedpoint
 import Data.List
 import Data.Data
 import Control.Monad.State
+import Control.Applicative ((<$>))
 
 data Tag a = NoTag
            | Tag !a (Tag a)
            | ProvTag String (Tag a)
            | MergeTags [Tag a]
-             deriving (Show, Eq, Ord, Data)
+             deriving (Show, Eq, Ord, Typeable, Data)
 
 data Tagged tag x = WithTag { maybeTag :: !(Tag tag)
                             , stripTag :: x }
-                    deriving Data
+                    deriving (Typeable, Data)
 
 instance Eq a => Eq (Tagged tag a) where
   x == y  = stripTag x == stripTag y
@@ -38,24 +39,24 @@ instance Ord a => Ord (Tagged tag a) where
 instance Functor (Tagged tag) where
   fmap f (WithTag mt a) = WithTag mt (f a)
 
-instance Foldable (Tagged tag) where
+instance F.Foldable (Tagged tag) where
   foldr f z x = f (stripTag x) z
 
-instance Traversable (Tagged tag) where
+instance T.Traversable (Tagged tag) where
   traverse f (WithTag tag a) = WithTag tag <$> f a
 
 
 data FixTagged' tag t a = FixTagged' (Tagged tag (t a))
-                        deriving Data
+                        deriving (Typeable, Data)
 
 instance Functor t => Functor (FixTagged' tag t) where
   fmap f (FixTagged' x) = FixTagged' (fmap (fmap f) x)
 
-instance Foldable t => Foldable (FixTagged' tag t) where
-  foldr f z (FixTagged' x) = foldr f z (stripTag x)
+instance F.Foldable t => F.Foldable (FixTagged' tag t) where
+  foldr f z (FixTagged' x) = F.foldr f z (stripTag x)
 
-instance Traversable t => Traversable (FixTagged' tag t) where
-  traverse f (FixTagged' (WithTag tag a)) = FixTagged' . WithTag tag <$> traverse f a
+instance T.Traversable t => T.Traversable (FixTagged' tag t) where
+  traverse f (FixTagged' (WithTag tag a)) = FixTagged' . WithTag tag <$> T.traverse f a
 
 instance Show (t a) => Show (FixTagged' tag t a) where
   show (FixTagged' x) = "(" ++ show (stripTag x) ++ ")"
@@ -125,10 +126,10 @@ instance (Show tag, Show (t Unique)) => Show (TagGraph tag t) where
           show_tag (ProvTag s msp) = show msp ++ "; " ++ show_tag msp
           show_tag (MergeTags tags) = "Merged: [" ++ intercalate ", " (map show_tag tags) ++ "]"
 
-toTagGraph :: Traversable t => FixTagged tag t -> TagGraph tag t
+toTagGraph :: T.Traversable t => FixTagged tag t -> TagGraph tag t
 toTagGraph x = TagGraph $ evalState (f x >> get) []
   where f (FTag tag e) = do
-          e' <- traverse f e
+          e' <- T.traverse f e
           i <- Unique . length <$> get
           modify (++ [(i, tag, e')])
           return i

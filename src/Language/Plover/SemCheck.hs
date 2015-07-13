@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 module Language.Plover.SemCheck where
 
 import Debug.Trace
@@ -14,6 +15,7 @@ import Data.List
 import qualified Text.PrettyPrint as PP
 import Control.Monad
 import Control.Monad.State
+import Control.Applicative ((<$>), (<*>), (<*), pure)
 import Text.ParserCombinators.Parsec (SourcePos)
 
 data SemError = SemError (Tag SourcePos) String
