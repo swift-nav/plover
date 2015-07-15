@@ -9,6 +9,7 @@ module Language.Plover.Unify
 import Debug.Trace
 import Language.Plover.Types
 import Language.Plover.UsedNames
+import qualified Language.Plover.Simplify as S
 import Data.List
 import Data.Tag
 import Data.Maybe
@@ -237,7 +238,7 @@ instance Unifiable Type where
 
   unify pos (VecType idxs1 ty1) (VecType idxs2 ty2) | length idxs1 == length idxs2  = do
     ty' <- unify pos ty1 ty2
-    idxs' <- forM (zip idxs1 idxs2) $ \(i1, i2) -> unify pos i1 i2
+    idxs' <- forM (zip idxs1 idxs2) $ \(i1, i2) -> unifyArithmetic pos i1 i2
     return $ VecType idxs' ty'
   unify pos Void Void = return Void
   unify pos x@(FnType _) (FnType _) = return x -- TODO handle this better.
@@ -411,6 +412,48 @@ expectBool pos ty = do
   ty' <- unify pos ty BoolType
   return ()
 
+
+isZero :: CExpr -> Bool
+isZero (IntLit _ _ 0) = True
+isZero _ = False
+
+reduceArithmetic :: CExpr -> CExpr
+reduceArithmetic expr =
+  case (toExpr expr) of
+    Nothing -> expr
+    Just e' -> S.simplify scale e'
+  where
+    scale :: Integer -> CExpr -> CExpr
+    scale 1 x = x
+    scale 0 x = 0
+    scale x (IntLit tag tp 1) = IntLit tag tp x
+    scale x y = fromInteger x * y
+
+    toExpr :: CExpr -> Maybe (S.Expr CExpr Integer)
+    toExpr (Unary _ Neg a) = do
+      a' <- toExpr a
+      return $ S.Mul [S.Prim (-1), a']
+    toExpr (Binary _ op a b) = do
+      a' <- toExpr a
+      b' <- toExpr b
+      case op of
+        Add -> return $ S.Sum [a', b']
+        Mul -> return $ S.Mul [a', b']
+        Sub -> return $ S.Sum [a', S.Mul [S.Prim (-1), b']]
+        -- TODO
+        Div -> return $ S.Div [a', b']
+    toExpr (IntLit _ _ i) = return $ S.Prim i
+    toExpr g@(Get _ (Ref _ name)) = return $ S.Atom g
+
+unifyArithmetic :: Tag SourcePos -> CExpr -> CExpr -> UM CExpr
+unifyArithmetic pos x y = do
+  x <- expandTerm x
+  y <- expandTerm y
+  let mzero = reduceArithmetic (x - y)
+  when (not $ isZero $ mzero) $
+    addUError $ UExFailure pos mzero y
+  return $ reduceArithmetic x
+
 typeCheckType :: Tag SourcePos -> Type -> UM Type
 typeCheckType pos (VecType idxs ty) = do
   idxs' <- forM idxs $ \idx -> do
@@ -552,7 +595,7 @@ typeCheck (Unary pos Transpose a) = do
    _ -> do addUError $ UError pos "Transpose must be of a vector."
            hole <- gensym "hole"
            return $ TypeHoleJ hole
-             
+
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
   | op `elem` [Add, Sub, Div]  = do
@@ -564,19 +607,19 @@ typeCheck (Binary pos op a b)
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       case (aty, bty) of
        (VecType [a, b1] aty', VecType [b2, c] bty') -> do
-         b <- unify pos b1 b2
+         _ <- unifyArithmetic pos b1 b2
          ty' <- arithType pos aty' bty'
          return $ VecType [a, c] ty'
        (VecType [a] aty', VecType [b2, c] bty') -> do -- Left vector is treated as column vector matrix (n x 1)
-         b <- unify pos 1 b2
+         _ <- unifyArithmetic pos 1 b2
          ty' <- arithType pos aty' bty'
          return $ VecType [a, c] ty'
        (VecType [a, b1] aty', VecType [b2] bty') -> do -- Right vector is treated as column vector (result is vector)
-         b <- unify pos b1 b2
+         _ <- unifyArithmetic pos b1 b2
          ty' <- arithType pos aty' bty'
          return $ VecType [a] ty'
        (VecType [a1] aty', VecType [a2] bty') -> do -- Special case: vector times vector is dot product
-         a <- unify pos a1 a2
+         _ <- unifyArithmetic pos a1 a2
          ty' <- arithType pos aty' bty'
          return $ ty'
        (VecType {}, VecType {}) -> do
@@ -593,6 +636,11 @@ typeCheck (Binary pos op a b)
        _ -> do addUError $ UError pos "Bad argument types to concatenation operator."
                hole <- gensym "hole"
                return $ TypeHoleJ hole
+  | op `elem` [EqOp, LTOp, LTEOp] = do
+      aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+      bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
+      _ <- arithType pos aty bty
+      return BoolType
   | otherwise = error $ "binary " ++ show op ++ " not implemented"
 
 numTypeVectorize :: Tag SourcePos -> Type -> Type -> UM Type

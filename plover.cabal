@@ -46,6 +46,8 @@ library
                      Language.Plover.QuoteTest,
                      Language.Plover.ParserTypes,
                      Language.Plover.SemCheck,
+
+                     Language.Plover.Unify,
                      Data.Tag
 
   build-depends:     base >=4.7 && <4.9

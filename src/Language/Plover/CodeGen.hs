@@ -986,6 +986,18 @@ compileStat v@(Binary pos Concat v1 v2) = comp
         (VecType (bnd1:bnds1) bty1) = normalizeTypes $ getType v1
         (VecType (bnd2:bnds2) bty2) = normalizeTypes $ getType v2
 
+compileStat v@(Binary pos op v1 v2) | op `elem` comparisonOps = comp
+  where comp = Compiled
+                  { noValue = return ()
+                  , asExp = opExp <$> (asExp $ compileStat v1) <*> (asExp $ compileStat v2)
+                  , asLoc = defaultAsLocFromAsExp (getType v) comp
+                  , withDest = defaultWithDest (getType v) comp
+                  }
+        opExp a b = case op of
+                      EqOp ->  [cexp| $a == $b |]
+                      LTOp ->  [cexp| $a <  $b |]
+                      LTEOp -> [cexp| $a <= $b |]
+        comparisonOps = [EqOp, LTOp, LTEOp]
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
 compileLoc :: Location CExpr -> CM CmLoc

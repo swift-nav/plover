@@ -29,11 +29,11 @@ makeExpr exp@(PExpr pos e') = case e' of
                          return $ T.Vec pos v rng ee
   For [] e -> makeExpr e
   For ((v,r):bs) e -> do rng <- makeRange r
-                         ee <- makeExpr e
+                         ee <- makeExpr (PExpr pos (For bs e))
                          return $ T.For pos v rng ee
   Sum [] e -> makeExpr e
   Sum ((v,r):bs) e -> do rng <- makeRange r
-                         ee <- makeExpr e
+                         ee <- makeExpr (PExpr pos (Sum bs e))
                          return $ T.Unary pos T.Sum $ T.Vec pos v rng ee
   Ref v -> return $ T.Get pos $ T.Ref (T.TypeHole Nothing) v
   VoidExpr -> return $ T.VoidExpr pos

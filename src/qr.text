@@ -1,0 +1,40 @@
+abs (x :: double) :: double := if 0 > x then -x else x;
+
+sqrt (x :: double) :: double := (
+  lol1 := 2;
+  lol2 := (lol1 + x/lol1) / 2;
+  lol3 := (lol2 + x/lol2) / 2;
+  lol4 := (lol3 + x/lol3) / 2;
+  lol5 := (lol4 + x/lol4) / 2;
+  lol5;
+);
+
+givens (a :: double) (b :: double) :: double[2,2] := (
+  c := 0.0;
+  s := 0.0;
+  if b == 0 then (
+    c <- 1; s <- 0
+  ) else if abs b > abs a then (
+    tau := -a/b; s <- 1/sqrt(1+tau*tau); c <- s*tau
+  ) else (
+    tau := -b/a; c <- 1/sqrt(1+tau*tau); s <- c*tau;
+  );
+  
+  vec(vec(c, s),
+      vec(-s, c));
+);
+
+update
+  {m :: u8}
+  {n :: u8}
+  (A :: double[m, n])
+  :: Void := (
+    for j in 0:n-1,
+        i in m-1:j+1 : -1 -> (
+      rot := givens A[i-1,j] A[i,j];
+      for k in j:n -> (
+        v := A[i-1:i+1, k];
+        A[i-1:i+1, k] <- rot^T * (v :: double[2]);
+      );
+    );
+  );

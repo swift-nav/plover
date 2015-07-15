@@ -18,6 +18,8 @@ import qualified Language.C.Syntax as C
 --import Language.Plover.Compile (writeProgram)
 --import Language.Plover.Expressions (testPVT)
 
+import Language.Plover.Unify
+
 main :: IO ()
 main = do args <- getArgs
           opts <- compilerOpts args

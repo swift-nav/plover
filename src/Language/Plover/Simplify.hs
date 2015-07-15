@@ -4,19 +4,22 @@ module Language.Plover.Simplify
 where
 import qualified Data.Map.Strict as M
 import Control.Monad (foldM)
+import Data.Maybe (mapMaybe)
 
 -- TODO add rebuild to atom
 data Expr e num
   = Sum [(Expr e num)]
   | Mul [(Expr e num)]
+  | Div [(Expr e num)]
   | Atom e
   | Prim num
   | Zero
   | One
  deriving (Show, Eq, Ord)
 
+-- Monomial expression
 data Term e n
-  = Term n (M.Map e Int)
+  = Term n (M.Map e Integer)
   | Z
   deriving (Show, Eq)
 term1 :: Num n => Term atom n
@@ -43,7 +46,7 @@ reduce term x = step x
   step Zero = return $ Z
   step One = return $ term
 
-rebuildTerm :: Num expr => [(expr, Int)] -> expr
+rebuildTerm :: Num expr => [(expr, Integer)] -> expr
 rebuildTerm [] = 1
 rebuildTerm (e : es) = foldl (\acc pair -> acc * fix pair) (fix e) es
  where
@@ -53,14 +56,17 @@ sum' :: (Num a) => [a] -> a
 sum' [] = 0
 sum' xs = foldr1 (+) xs
 
-rebuild :: (Num expr, Num num) => (num -> expr -> expr) -> Polynomial expr num -> expr
-rebuild scale poly = sum' $ map (\(term, coef) -> scale coef (rebuildTerm term)) (M.toList poly)
+rebuild :: (Num expr, Eq num, Num num) => (num -> expr -> expr) -> Polynomial expr num -> expr
+rebuild scale poly = sum' $ mapMaybe fixPair (M.toList poly)
+  where
+    fixPair (_, coef) | coef == 0 = Nothing
+    fixPair (term, coef) = Just $ scale coef (rebuildTerm term)
 
-type Polynomial expr num = M.Map [(expr, Int)] num
+type Polynomial expr num = M.Map [(expr, Integer)] num
 poly0 :: Polynomial expr num
 poly0 = M.empty
 
-addTerm :: (Ord expr, Num num)
+addTerm :: (Ord expr, Eq num, Num num)
         => Term expr num -> Polynomial expr num -> Polynomial expr num
 addTerm Z p = p
 addTerm (Term coefficient m) p =
@@ -69,8 +75,7 @@ addTerm (Term coefficient m) p =
 (.>) :: (a -> b) -> (b -> c) -> a -> c
 (.>) = flip (.)
 
-simplify :: (Ord expr, Num expr, Num num)
+simplify :: (Ord expr, Num expr, Eq num, Num num)
          => (num -> expr -> expr) -> Expr expr num -> expr
-         -- => (expr -> Expr expr num) -> (num -> expr -> expr) -> expr -> expr
 simplify scale = reduce term1 .> foldr addTerm poly0 .> rebuild scale
 
