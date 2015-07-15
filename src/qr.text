@@ -19,7 +19,7 @@ givens (a :: double) (b :: double) :: double[2,2] := (
   ) else (
     tau := -b/a; c <- 1/sqrt(1+tau*tau); s <- c*tau;
   );
-  
+
   vec(vec(c, s),
       vec(-s, c));
 );
@@ -29,8 +29,8 @@ update
   {n :: u8}
   (A :: double[m, n])
   :: Void := (
-    for j in 0:n-1,
-        i in m-1:j+1 : -1 -> (
+    for j in n,
+        i in m-1..j+1 : -1 -> (
       rot := givens A[i-1,j] A[i,j];
       for k in j:n -> (
         v := A[i-1:i+1, k];

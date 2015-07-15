@@ -28,6 +28,7 @@ import Data.Char
 import Data.Data
 import Text.PrettyPrint
 
+import qualified Language.Plover.Simplify as S
 
 -- Core AST
 
@@ -81,9 +82,9 @@ data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
              deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
 rangeLength :: Tag SourcePos -> Range CExpr -> CExpr
-rangeLength pos (Range (IntLit _ _ 0) to (IntLit _ _ 1)) = to
-rangeLength pos (Range from to (IntLit _ _ 1)) = Binary pos Sub to from
-rangeLength pos (Range from to step) = Binary pos Div (Binary pos Sub to from) step
+--rangeLength pos (Range (IntLit _ _ 0) to (IntLit _ _ 1)) = to
+--rangeLength pos (Range from to (IntLit _ _ 1)) = Binary pos Sub to from
+rangeLength pos (Range from to step) = reduceArithmetic $ Binary pos Div (Binary pos Sub to from) step
 
 data Arg a = Arg a
            | ImpArg a
@@ -694,6 +695,39 @@ normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
         tloc = return
         trng = return
 
+reduceArithmetic :: CExpr -> CExpr
+reduceArithmetic expr =
+  case (toExpr expr) of
+    Nothing -> expr
+    Just e' -> S.simplify scale e'
+  where
+    scale :: Integer -> CExpr -> CExpr
+    scale (-1) x = -x
+    scale 1 x = x
+    scale 0 x = 0
+    scale x (IntLit tag tp 1) = IntLit tag tp x
+    scale x y = fromInteger x * y
+
+    toExpr :: CExpr -> Maybe (S.Expr CExpr Integer)
+    toExpr (Unary _ Neg (IntLit _ _ i)) = return $ S.Prim (-i)
+    toExpr (Unary _ Neg a) = do
+      a' <- toExpr a
+      return $ S.Mul [S.Prim (-1), a']
+    toExpr (Binary _ op a b) = do
+      a' <- toExpr a
+      b' <- toExpr b
+      case op of
+        Add -> return $ S.Sum [a', b']
+        Mul -> return $ S.Mul [a', b']
+        Sub -> return $ S.Sum [a', S.Mul [S.Prim (-1), b']]
+        -- TODO
+        Div | S.Prim 1 <- b' -> return a'
+        Div | S.Prim (-1) <- b' -> return $ S.Mul [S.Prim (-1), a']
+        _ -> Nothing
+    toExpr (IntLit _ _ i) = return $ S.Prim i
+    toExpr g@(Get _ (Ref _ _)) = return $ S.Atom g
+    toExpr g@(HoleJ _ _ _) = return $ S.Atom g
+    toExpr _ = Nothing
 
 class PP a where
   pretty :: a -> Doc
@@ -742,7 +776,29 @@ instance (Show a, PP a) => PP (Expr a) where
   pretty (Hole' Nothing) = parens $ text "$hole"
   pretty (Get' loc) = pretty loc
   pretty (Addr' loc) = parens $ hang (text "&") 2 (pretty loc)
+  pretty (Unary' op expr) = parens $ pretty op <+> pretty expr
+  pretty (Binary' op x y) = parens $ pretty x <+> pretty op <+> pretty y
   pretty x = text $ show x
+
+instance PP UnOp where
+  pretty Neg = text "-"
+  pretty Not = text "not"
+  pretty Transpose = text "transpose"
+  pretty Inverse = text "inverse"
+  pretty Sum = text "sum"
+
+instance PP BinOp where
+  pretty Add = text "+"
+  pretty Sub = text "-"
+  pretty Mul = text "*"
+  pretty Div = text "/"
+  pretty Pow = text "^"
+  pretty Concat = text "#"
+  pretty And = text "and"
+  pretty Or = text "or"
+  pretty EqOp = text "=="
+  pretty LTOp = text "<"
+  pretty LTEOp = text "<="
 
 instance PP a => PP (Location a) where
   pretty (Ref ty v) = text v -- <+> text "::" <+> pretty ty

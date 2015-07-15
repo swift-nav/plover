@@ -19,6 +19,7 @@ import qualified Language.C.Syntax as C
 --import Language.Plover.Expressions (testPVT)
 
 import Language.Plover.Unify
+import Language.Plover.Algebra
 
 main :: IO ()
 main = do args <- getArgs

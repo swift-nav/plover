@@ -165,7 +165,7 @@ compileFunction name ft exp = do
                       Void -> False
                       _ -> True
         args' = [(v, dir, ty) | (v, _, dir, ty) <- args, nonVoid ty]
-  
+
 
 compileParams :: [(Variable, ArgDir, Type)] -> CM [C.Param]
 compileParams = mapM compileParam
@@ -484,7 +484,7 @@ compileStat e@(Vec pos v range@(Range cstart cend cstep) exp) = comp
   where comp = Compiled -- TODO consider compiling range object as loc and indexing it
                { noValue = return ()
                , withDest = \dest -> do start <- asExp $ compileStat cstart
-                                        end <- asExp $ compileStat cend
+                                        len <- asExp $ compileStat $ rangeLength pos range
                                         step <- asExp $ compileStat cstep
                                         (body,(i,j)) <- withCode $ newScope $ do
                                                       i <- newName "i" v
@@ -492,7 +492,7 @@ compileStat e@(Vec pos v range@(Range cstart cend cstep) exp) = comp
                                                       dest' <- apIndex dest [cexp| $id:j |]
                                                       withDest (compileStat exp) dest'
                                                       return (i,j)
-                                        writeCode [citems| for($ty:itty $id:i = $start, $id:j=0; $id:i < $end; $id:i += $step, $id:j++) { $items:body } |]
+                                        writeCode [citems| for($ty:itty $id:i = $start, $id:j=0; $id:j < $len; $id:i += $step, $id:j++) { $items:body } |]
                , asExp = defaultAsExp ty comp
                , asLoc = defaultAsLoc ty comp
                }
@@ -502,13 +502,14 @@ compileStat e@(Vec pos v range@(Range cstart cend cstep) exp) = comp
 compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
   where comp = Compiled
                { noValue = do start <- asExp $ compileStat cstart
-                              end <- asExp $ compileStat cend
+                              len <- asExp $ compileStat $ rangeLength pos range
                               step <- asExp $ compileStat cstep
-                              (body,i) <- withCode $ newScope $ do
+                              (body, (i, j)) <- withCode $ newScope $ do
                                             i <- newName "i" v
+                                            j <- freshName "idx"
                                             noValue $ compileStat exp
-                                            return i
-                              writeCode [citems| for($ty:itty $id:i = $start; $id:i < $end; $id:i += $step) { $items:body } |]
+                                            return (i, j)
+                              writeCode [citems| for($ty:itty $id:i = $start, $id:j = 0; $id:j < $len; $id:i += $step, $id:j++) { $items:body } |]
                , asExp = error "Cannot get For as expression"
                , withDest = error "Cannot use For as dest"
                , asLoc = error "Cannot use For as location"
@@ -524,7 +525,7 @@ compileStat exp@(RangeVal _ range) = comp
                , asLoc = return loc
                }
         ty@(VecType _ bty) = normalizeTypes $ getType exp
-        
+
         loc = CmLoc
               { apIndex = \idx -> do exp <- rngExp idx
                                      return $ expLoc bty (return exp)
@@ -819,7 +820,7 @@ compileStat v@(Binary _ op a b)
                          , asLoc = mloc' >>= asLoc
                          }
                   mloc' = compileVectorized aty bty <$> ma <*> mb
-                     
+
         compileVectorized (VecType [] aty) bty aloc bloc = compileVectorized aty bty aloc bloc
         compileVectorized aty (VecType [] bty) aloc bloc = compileVectorized aty bty aloc bloc
         compileVectorized ta@(VecType (abnd:abnds) aty) tb@(VecType (_:bbnds) bty) aloc bloc = comp

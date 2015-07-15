@@ -9,7 +9,7 @@ module Language.Plover.Unify
 import Debug.Trace
 import Language.Plover.Types
 import Language.Plover.UsedNames
-import qualified Language.Plover.Simplify as S
+import Language.Plover.Algebra
 import Data.List
 import Data.Tag
 import Data.Maybe
@@ -115,20 +115,23 @@ getUExprBinding v = do env <- uExprs <$> get
                        return $ M.lookup v env
 
 expandTerm :: TermMappable a => a -> UM a
-expandTerm term = do tenv <- uTypes <$> get
-                     eenv <- uExprs <$> get
-                     let tty (TypeHole (Just v)) | Just (_, ty') <- M.lookup v tenv  = expand ty'
-                         tty ty = return ty
+expandTerm term = do
+  tenv <- uTypes <$> get
+  eenv <- uExprs <$> get
+  let tty (TypeHole (Just v)) | Just (_, ty') <- M.lookup v tenv = expand ty'
+      tty ty = return ty
 
-                         -- TODO maybe unify ty against exp'
-                         texp (HoleJ pos ty v) | Just (_, exp') <- M.lookup v eenv  = expand exp'
-                         texp exp = return exp
+      -- TODO maybe unify ty against exp'
+      texp (HoleJ pos ty v) | Just (_, exp') <- M.lookup v eenv = expand exp'
+                            | otherwise = HoleJ pos <$> expandTerm ty <*> pure v
+      texp exp = return exp
 
-                         tloc = return
-                         trng = return
-                         expand :: TermMappable a => a -> Identity a
-                         expand = traverseTerm tty texp tloc trng
-                     return $ runIdentity $ expand term
+      tloc = return
+      trng = return
+      expand :: TermMappable a => a -> UM a
+      expand = traverseTerm tty texp tloc trng
+
+  expand term
 
 normalizeTypesM :: TermMappable a => a -> UM a
 normalizeTypesM term = normalizeTypes <$> traverseTerm tty texp tloc trng term
@@ -412,46 +415,24 @@ expectBool pos ty = do
   ty' <- unify pos ty BoolType
   return ()
 
-
 isZero :: CExpr -> Bool
 isZero (IntLit _ _ 0) = True
 isZero _ = False
 
-reduceArithmetic :: CExpr -> CExpr
-reduceArithmetic expr =
-  case (toExpr expr) of
-    Nothing -> expr
-    Just e' -> S.simplify scale e'
-  where
-    scale :: Integer -> CExpr -> CExpr
-    scale 1 x = x
-    scale 0 x = 0
-    scale x (IntLit tag tp 1) = IntLit tag tp x
-    scale x y = fromInteger x * y
-
-    toExpr :: CExpr -> Maybe (S.Expr CExpr Integer)
-    toExpr (Unary _ Neg a) = do
-      a' <- toExpr a
-      return $ S.Mul [S.Prim (-1), a']
-    toExpr (Binary _ op a b) = do
-      a' <- toExpr a
-      b' <- toExpr b
-      case op of
-        Add -> return $ S.Sum [a', b']
-        Mul -> return $ S.Mul [a', b']
-        Sub -> return $ S.Sum [a', S.Mul [S.Prim (-1), b']]
-        -- TODO
-        Div -> return $ S.Div [a', b']
-    toExpr (IntLit _ _ i) = return $ S.Prim i
-    toExpr g@(Get _ (Ref _ name)) = return $ S.Atom g
-
 unifyArithmetic :: Tag SourcePos -> CExpr -> CExpr -> UM CExpr
 unifyArithmetic pos x y = do
+  unify pos x x
+  unify pos y y
   x <- expandTerm x
   y <- expandTerm y
-  let mzero = reduceArithmetic (x - y)
-  when (not $ isZero $ mzero) $
-    addUError $ UExFailure pos mzero y
+  let zq = reduceArithmetic (x - y)
+  case substForm zq of
+    Nothing -> do
+      when (not $ isZero zq) $
+        addUError $ UExFailure pos (reduceArithmetic x) (reduceArithmetic y)
+    Just p@(var, e) -> do
+      ty <- TypeHoleJ <$> gensym "lazy"
+      void $ unify pos e (HoleJ pos ty var)
   return $ reduceArithmetic x
 
 typeCheckType :: Tag SourcePos -> Type -> UM Type
@@ -541,12 +522,18 @@ typeCheck (ConcreteApp pos (Get _ (Ref ty v)) args) = do
     tyarg <- typeCheck arg
     unify (MergeTags [pos, gpos]) tyarg vty
   return ret
-typeCheck t@(HoleJ pos ty _) = do t' <- expandTerm t
-                                  case t' of
-                                   HoleJ pos' ty' _ -> typeCheckType (MergeTags [pos, pos']) ty'
-                                   _ -> do ty' <- typeCheck t'
-                                           unify pos ty ty'
-                                           return ty'
+typeCheck t@(HoleJ pos ty v) = do
+  t' <- expandTerm t
+  ty' <- case t' of
+    HoleJ pos' ty' _ -> typeCheckType (MergeTags [pos, pos']) ty'
+    _ -> do ty' <- typeCheck t'
+            unify pos ty ty'
+  mtb <- getUTypeBinding v
+  return ty'
+  case mtb of
+    Nothing -> addUTypeBinding pos v ty' >> return ty'
+    Just (pos', ty'') -> unify (MergeTags [pos, pos']) ty' ty''
+
 typeCheck (Get pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return tyloc
@@ -690,7 +677,7 @@ typeCheckLoc :: Tag SourcePos -> Location CExpr -> UM Type
 typeCheckLoc pos (Ref ty v) = do
   Just (vpos, vty) <- getBinding v
   ty' <- unify (MergeTags [pos, vpos]) ty vty
-  return ty'
+  trace (v ++ ": " ++ show vty) $ return ty'
 typeCheckLoc pos (Index a idxs) = do
   aty <- typeCheck a >>= normalizeTypesM
   --trace ("***" ++ show idxs ++ "\n  --" ++ show aty) $
@@ -755,18 +742,21 @@ universalizeFunType ft = do
     v' <- gensym v
     return (v, v')
   let vMap = M.fromList repAList
-  let args' = [(vMap M.! v, universalizeTypeVars vMap ty)
-              | (v, req, dir, ty) <- args]
-  return $ FnEnv args' (universalizeTypeVars vMap retty)
+  args' <- forM args $ \(v, req, dir, ty) -> do
+    uty <- universalizeTypeVars vMap ty
+    return (vMap M.! v, uty)
+  uretty <- (universalizeTypeVars vMap retty)
+  return $ FnEnv args' uretty
 
 
-
-universalizeTypeVars :: M.Map Variable Variable -> Type -> Type
-universalizeTypeVars repMap ty = runIdentity $ traverseTerm tty texp tloc trng ty
+universalizeTypeVars :: M.Map Variable Variable -> Type -> UM Type
+universalizeTypeVars repMap ty = traverseTerm tty texp tloc trng ty
   where tty = return
         texp expr = case expr of
           Get pos (Ref ty v) -> case M.lookup v repMap of
-            Just v' -> return $ HoleJ pos ty v'
+            Just v' -> do
+              addUTypeBinding NoTag v' ty
+              return $ HoleJ pos ty v'
             Nothing -> return expr
           _ -> return expr
         tloc = return
