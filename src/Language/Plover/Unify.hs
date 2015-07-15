@@ -676,13 +676,15 @@ typeCheckLoc pos (Index a idxs) = do
            _ -> return ()
 typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
-  case aty of
+  case stripPtr aty of
    StructType v (ST fields) -> case lookup field fields of
      Just fieldTy -> return fieldTy -- error "TODO Need to replace dependent fields with struct members"
      Nothing -> do addUError $ UNoField pos field
                    TypeHoleJ <$> gensym "field"
    _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field
            TypeHoleJ <$> gensym "field"
+  where stripPtr (PtrType aty) = stripPtr aty
+        stripPtr aty = aty
 typeCheckLoc pos (Deref a) = do
   aty <- typeCheck a
   g <- gensym "deref"

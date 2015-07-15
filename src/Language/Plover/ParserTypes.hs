@@ -89,7 +89,6 @@ data Expr' a = Vec [(Variable,a)] a
 
             -- Structures
           | Field a String
-          | FieldDeref a String
 
             -- Vectors
           | Index a a
@@ -168,7 +167,6 @@ instance PP a => PP (Expr' a) where
       f op = show op
 
   pretty (Field e field) = parens $ hang (text "Field") 1 $ sep [pretty e, text $ show field]
-  pretty (FieldDeref e field) = parens $ hang (text "FieldDeref") 1 $ sep [pretty e, text $ show field]
 
   pretty (Index e ei) = parens $ hang (text "Index") 1 $ sep [nest 5 $ pretty e, pretty ei]
   pretty (Tuple exps) = parens $ hang (text "Tuple") 1 $ sep (map pretty exps)

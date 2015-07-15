@@ -27,7 +27,7 @@ languageDef =
            , Token.identLetter = alphaNum <|> oneOf "_'"
            , Token.opStart = mzero -- Token.opLetter languageDef   -- No opStart because all operators are reserved
            , Token.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
-           , Token.reservedOpNames = ["::", ":", "<-", "->", ":=", "~", "*", "-", "+", "/", "&",
+           , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", "&",
                                       "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
@@ -35,7 +35,7 @@ languageDef =
              "vec", "for", "sum", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
              "array", "and", "or", "not",
-             "as"
+             "storing"
              ]
            , caseSensitive = True
            }
@@ -122,18 +122,28 @@ tuple = do pos <- getPosition
 
 -- <range> ::= ":" [<typeSpec>] [":" <typeSpec>]
 --           | <typeSpec> [":" [<typeSpec>] [":" <typeSpec>]]
+--           | ".." [<typespec>] [":" <typeSpec>]
+--           | <typespec> [".." [<typespec>] [":" <typespec>]]
 -- (note that the colons must have a space between them, otherwise it is a typeSpec)
 range :: Parser Expr
-range = noStart <|> withStart
-  where noStart = do pos <- getPosition
-                     reservedOp ":"
-                     restRange pos Nothing
+range = noStart1 <|> noStart2 <|> withStart
+  where noStart1 = do pos <- getPosition
+                      reservedOp ":"
+                      restRange1 pos Nothing
         withStart = do pos <- getPosition
                        t <- typeSpec
-                       (reservedOp ":" >> restRange pos (Just t)) <|> return t
-        restRange pos t = do end <- optionMaybe typeSpec
-                             step <- optionMaybe (reservedOp ":" >> typeSpec)
-                             return $ wrapPos pos $ Range t end step
+                       (reservedOp ":" >> restRange1 pos (Just t))
+                         <|> (reservedOp ".." >> restRange2 pos (Just t))
+                         <|> return t
+        restRange1 pos t = do end <- optionMaybe typeSpec
+                              step <- optionMaybe (reservedOp ":" >> typeSpec)
+                              return $ wrapPos pos $ Range t end step
+        noStart2 = do pos <- getPosition
+                      reservedOp ".."
+                      restRange2 pos Nothing
+        restRange2 pos t = do end <- optionMaybe typeSpec
+                              step <- optionMaybe (reservedOp ":" >> typeSpec)
+                              return $ wrapPos pos $ Range t ((+ fromMaybe 1 step) <$> end) step
 
 -- This is hand-coded to make a common error have a better error
 -- message.
@@ -152,7 +162,7 @@ operators = buildExpressionParser ops application
     ops = [ [ Prefix (un Deref (reservedOp "*"))
             , Prefix (un Addr (reservedOp "&"))
             ]
-          , [ Infix (bin Pow (reservedOp "^")) AssocRight ]
+          , [ Infix (bin Pow (reservedOp "^")) AssocRight ] -- TODO how to deal with -x^y and x^-y both properly
           , [ Infix (bin Mul (reservedOp "*")) AssocLeft
             , Infix (bin Div (reservedOp "/")) AssocLeft
             ]
@@ -174,7 +184,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin And (reserved "and")) AssocLeft ]
           , [ Infix (bin Or (reserved "or")) AssocLeft ]
           , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
-          , [ Infix (bin RawCast (reserved "as")) AssocNone ]
+          , [ Infix (bin RawCast (reserved "storing")) AssocNone ]
           ]
     un op s = do pos <- getPosition
                  s

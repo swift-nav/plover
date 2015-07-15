@@ -48,7 +48,7 @@ reportSemErr err
        UNoField tag v -> posStuff tag $ "No such field " ++ show v ++ "\n"
        UGenTyError tag ty msg -> posStuff tag $ msg ++ "\n" ++ nice ty ++ "\n"
   where posStuff tag s = do sls <- mapM showLineFromFile (sort $ nub $ getTags tag)
-                            return $ "Error" ++ unlines (("at " ++) <$> sls) ++ s
+                            return $ "Error " ++ unlines (("at " ++) <$> sls) ++ s
         nice :: PP a => a -> String
         nice t = show $ PP.nest 3 (pretty t)
 

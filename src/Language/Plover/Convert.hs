@@ -91,7 +91,6 @@ makeExpr exp@(PExpr pos e') = case e' of
           tr LTEOp = T.LTEOp
 
   Field _ _ -> T.Get pos <$> makeLocation exp
-  FieldDeref _ _ -> T.Get pos <$> makeLocation exp
   Index _ _ -> T.Get pos <$> makeLocation exp
 
   Tuple _ -> Left $ ConvertError (makePos exp) ["What do we do with tuples?"]
@@ -115,8 +114,6 @@ makeLocation :: Expr -> Either ConvertError (T.Location T.CExpr)
 makeLocation exp@(PExpr pos e') = case e' of
   Field a n -> do a' <- makeExpr a
                   return $ T.Field a' n
-  FieldDeref a n -> do a' <- makeExpr a
-                       return $ T.Deref $ T.Get pos $ T.Field a' n
   Index a (PExpr _ (Tuple idxs)) -> do a' <- makeExpr a
                                        idxs' <- mapM makeExpr idxs
                                        return $ T.Index a' idxs'
@@ -172,8 +169,8 @@ makeType exp@(PExpr _ e') = case e' of
     "s64" -> return $ T.IntType T.S64
     "float" -> return $ T.FloatType T.Float
     "double" -> return $ T.FloatType T.Double
-    "String" -> return $ T.StringType
-    "Bool" -> return $ T.BoolType
+    "string" -> return $ T.StringType
+    "bool" -> return $ T.BoolType
     _ -> return $ T.TypedefType v
   UnExpr Deref a -> T.PtrType <$> makeType a
   VoidExpr -> return T.Void

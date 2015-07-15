@@ -46,16 +46,16 @@ extern struct nkf_t (
   obs_dim :: u32;
   amb_drift_var :: double;
   decor_mtx :: double[MAX_OBS_DIM * MAX_OBS_DIM];
-  decor_obs_mtx :: double[MAX_STATE_DIM * MAX_OBS_DIM] as double[obs_dim, state_dim];
+  decor_obs_mtx :: double[MAX_STATE_DIM * MAX_OBS_DIM] storing double[obs_dim, state_dim];
   decor_obs_cov :: double[MAX_OBS_DIM];
   null_basis_Q :: double[(MAX_STATE_DIM - 3) * MAX_OBS_DIM];
-  state_mean :: double[MAX_STATE_DIM] as double[state_dim];
-  state_cov_U :: double[MAX_STATE_DIM * MAX_STATE_DIM] as UpperUnitTriangular double[state_dim, _];
-  state_cov_D :: double[MAX_STATE_DIM] as Diagonal double[state_dim, _];
+  state_mean :: double[MAX_STATE_DIM] storing double[state_dim];
+  state_cov_U :: double[MAX_STATE_DIM * MAX_STATE_DIM] storing UpperUnitTriangular double[state_dim, _];
+  state_cov_D :: double[MAX_STATE_DIM] storing Diagonal double[state_dim, _];
   l_sos_avg :: double;
 
-  assert (state_dim < MAX_STATE_DIM);
-  assert (ob_dim < MAX_OBS_DIM);
+--  assert (state_dim < MAX_STATE_DIM);
+--  assert (ob_dim < MAX_OBS_DIM);
 );
 
 --const 0 :: double@ConstantMatrix[n,m];

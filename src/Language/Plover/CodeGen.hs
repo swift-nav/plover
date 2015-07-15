@@ -1020,7 +1020,11 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
         strip n (VecType (bnd:bnds) bty) = strip (n - 1) (VecType bnds bty)
 
 compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
-                                  let sex' = [cexp| $sex.$id:field |]
+                                  let sex' = access sex (getType a) field
                                   case getLocType l of
                                    ty@(VecType bnds bty) -> return $ mkVecLoc bty sex' bnds
                                    ty -> return $ expLoc ty (return sex')
+  where access ex (StructType {}) field  = [cexp| $ex.$id:field |]
+        access ex (PtrType aty) field = [cexp| $(access' ex aty)->field |]
+        access' ex (PtrType aty) = [cexp| *$(access' ex aty) |]
+        access' ex aty = ex

@@ -45,14 +45,15 @@ data FloatType = Float | Double
                | FDefault
                deriving (Eq, Ord, Show, Typeable, Data)
 
-data StorageTypes = DenseMatrix
-                  | DiagonalMatrix
-                  | UpperTriangular
-                  | UpperUnitTriangular
-                  | LowerTriangular
-                  | LowerUnitTriangular
-                  | SymmetricMatrix
-                  | BlockMatrix [[Type]]
+-- data StorageType = DenseMatrix
+--                  | DiagonalMatrix
+--                  | UpperTriangular
+--                  | UpperUnitTriangular
+--                  | LowerTriangular
+--                  | LowerUnitTriangular
+--                  | SymmetricMatrix
+--                  | BlockMatrix [[Type]]
+--                  deriving (Eq, Ord, Show, Typeable, Data)
 
 defaultIntType :: IntType
 defaultIntType = IDefault
@@ -140,7 +141,7 @@ data Expr a
 
 data Location a = Ref Type Variable
                 | Index a [a]
-                | Field a String
+                | Field a String -- auto-dereferences 'a' if it is a pointer^n to a struct
                 | Deref a
                 deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
@@ -812,9 +813,11 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
           case normalizeTypes (getType idx) of
            IntType _               ->                getTypeIdx idxs (VecType ibnds bty)
            VecType idxs' idxtybase -> VecType idxs' (getTypeIdx idxs (VecType ibnds bty))
-getLocType (Field a field) = case (getType a) of -- TODO need to replace dependent fields
+getLocType (Field a field) = case stripPtr (getType a) of -- TODO need to replace dependent fields
   StructType v (ST fields) -> case lookup field fields of
     Just fieldTy -> fieldTy
+  where stripPtr (PtrType aty) = stripPtr aty
+        stripPtr aty = aty
 getLocType (Deref a) = let (PtrType a') = getType a
                        in a'
 
