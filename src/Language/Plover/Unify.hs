@@ -500,7 +500,7 @@ typeCheck (VecLit pos ty []) = typeCheckType pos ty
 typeCheck (VecLit pos ty xs) = do
   xtys <- forM xs $ \x -> typeCheck x
   ty' <- foldM (unify pos) (head xtys) $ tail xtys ++ [ty]
-  return $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
+  return $ normalizeTypes $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
   addBinding pos v tyx
@@ -536,7 +536,7 @@ typeCheck t@(HoleJ pos ty v) = do
 
 typeCheck (Get pos loc) = do
   tyloc <- typeCheckLoc pos loc
-  return tyloc
+  return $ normalizeTypes tyloc
 typeCheck (Addr pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return $ PtrType tyloc
@@ -755,7 +755,7 @@ universalizeTypeVars repMap ty = traverseTerm tty texp tloc trng ty
         texp expr = case expr of
           Get pos (Ref ty v) -> case M.lookup v repMap of
             Just v' -> do
-              addUTypeBinding NoTag v' ty
+              addUTypeBinding NoTag v' (normalizeTypes ty)
               return $ HoleJ pos ty v'
             Nothing -> return expr
           _ -> return expr

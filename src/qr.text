@@ -1,20 +1,18 @@
-abs (x :: double) :: double := if 0 > x then -x else x;
+extern fabs (x :: double) :: double;
+extern sqrt (x :: double) :: double;
+extern printf (x :: string) (v :: double) :: ();
 
-sqrt (x :: double) :: double := (
-  lol1 := 2;
-  lol2 := (lol1 + x/lol1) / 2;
-  lol3 := (lol2 + x/lol2) / 2;
-  lol4 := (lol3 + x/lol3) / 2;
-  lol5 := (lol4 + x/lol4) / 2;
-  lol5;
-);
+newline () :: () := printf "\n" 0;
 
-givens (a :: double) (b :: double) :: double[2,2] := (
+print_matrix {n :: s32} {m :: s32} (A :: double[n,m]) :: ()
+  := ( for i in n -> (for j in m -> printf "%f " A[i,j]; newline()) );
+
+static givens (a :: double) (b :: double) :: double[2,2] := (
   c := 0.0;
   s := 0.0;
   if b == 0 then (
     c <- 1; s <- 0
-  ) else if abs b > abs a then (
+  ) else if fabs b > fabs a then (
     tau := -a/b; s <- 1/sqrt(1+tau*tau); c <- s*tau
   ) else (
     tau := -b/a; c <- 1/sqrt(1+tau*tau); s <- c*tau;
@@ -24,17 +22,68 @@ givens (a :: double) (b :: double) :: double[2,2] := (
       vec(-s, c));
 );
 
-update
+--qr_solve
+--  {m :: u8}
+--  {n :: u8}
+--  (inout b :: double[m])
+--  (inout A :: double[m, n])
+--  :: Void
+--  :=
+
+qr_update
   {m :: u8}
   {n :: u8}
-  (A :: double[m, n])
+  (inout b :: double[m])
+  (inout A :: double[m, n])
   :: Void := (
-    for j in n,
-        i in m-1..j+1 : -1 -> (
-      rot := givens A[i-1,j] A[i,j];
-      for k in j:n -> (
-        v := A[i-1:i+1, k];
-        A[i-1:i+1, k] <- rot^T * (v :: double[2]);
+
+    for j in 1 .. n,
+        i in m .. j+1 : -1 -> (
+
+      -- Givens rotation
+      rot := givens A[i-2,j-1] A[i-1,j-1];
+      for k in j..n -> (
+        v := A[i-2 .. i-1, k-1];
+        A[i-2 .. i-1, k-1] <- rot^T * v;
       );
+
+      -- Rotate b vector
+      v := b[i-2 .. i-1];
+      b[i-2 .. i-1] <- rot^T * v;
+
     );
+
+    -- A is now upper triangular; backsolve it into b
+    backsolve A[0:n, 0:n] b[0:n];
   );
+
+-- Back substitution for upper triangular U
+static backsolve
+  {n :: u8}
+  (U :: double[n,n])
+  (inout b :: double[n])
+  :: Void := (
+    b[n-1] <- b[n-1]/U[n-1, n-1];
+    for i in n-1 .. 1 : -1 -> (
+      b[i-1] <- (b[i-1] - U[i-1, i : n] * b[i : n]) / U[i-1, i-1];
+    )
+);
+
+
+-- "Unit test"
+main () :: s32 := (
+  m :=
+   vec(vec(1.0, 0, 2),
+       vec(1,   1, -1),
+       vec(0,   0, 1),
+       vec(0,   0, 22));
+  A := m;
+  b :=
+    vec(5.0, 4, 1.1, 22);
+  update b m;
+  print_matrix m;
+  newline();
+  print_matrix vec(b);
+  print_matrix vec(A * b[0:3]);
+  0;
+)

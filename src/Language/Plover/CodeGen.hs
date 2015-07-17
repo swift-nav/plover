@@ -297,7 +297,7 @@ mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
                             return ([], [cexp| $vec[$idxc] |], [])
           , locType = baseTy
           }
-          where (idx:idxs, bnds) = unzip acc
+          where (idx:idxs, _:bnds) = unzip acc
         mkVecLoc' acc (bnd:bnds) = CmLoc {
           apIndex = \idx -> return $ mkVecLoc' (acc ++ [(idx, bnd)]) bnds
           , store = error "Cannot do simple store into vector"
