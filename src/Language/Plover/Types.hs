@@ -46,15 +46,15 @@ data FloatType = Float | Double
                | FDefault
                deriving (Eq, Ord, Show, Typeable, Data)
 
--- data StorageType = DenseMatrix
---                  | DiagonalMatrix
---                  | UpperTriangular
---                  | UpperUnitTriangular
---                  | LowerTriangular
---                  | LowerUnitTriangular
---                  | SymmetricMatrix
---                  | BlockMatrix [[Type]]
---                  deriving (Eq, Ord, Show, Typeable, Data)
+data StorageType = DenseMatrix
+                 | DiagonalMatrix
+                 | UpperTriangular
+                 | UpperUnitTriangular
+                 | LowerTriangular
+                 | LowerUnitTriangular
+                 | SymmetricMatrix
+                 | BlockMatrix [[Type]]
+                 deriving (Eq, Ord, Show)
 
 defaultIntType :: IntType
 defaultIntType = IDefault
@@ -82,8 +82,6 @@ data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
              deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
 rangeLength :: Tag SourcePos -> Range CExpr -> CExpr
---rangeLength pos (Range (IntLit _ _ 0) to (IntLit _ _ 1)) = to
---rangeLength pos (Range from to (IntLit _ _ 1)) = Binary pos Sub to from
 rangeLength pos (Range from to step) = reduceArithmetic $ Binary pos Div (Binary pos Sub to from) step
 
 data Arg a = Arg a
@@ -203,9 +201,8 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                           then internReturn args' retty
                                           else ((FnT args' retty), Nothing)
   where complexRet :: Type -> Bool
-        complexRet (VecType _ _) = True
---        complexRet (TypedefType _) = True  -- don't worry about structs: C will provide!
---        complexRet (StructType _ _) = True
+        complexRet (VecType {}) = True
+        -- TODO tuple
         -- Any mistake in here will just end up causing a "don't know how to program this" message later
         complexRet _ = False
 
@@ -218,19 +215,13 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
         -- in order to record these things better
         internReturn :: [(Variable, Bool, ArgDir, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
         internReturn args retty = (FnT (args ++ [(retName, True, ArgOut, retty')]) Void, Just (retName, retty'))
-          where retName = genName [v | (v, _, _, _) <- args] "result$"
+          where retName = genName [v | (v, _, _, _) <- args] "result$" -- since $ cannot occur in a normal argument
                 genName :: [Variable] -> Variable -> Variable
                 genName names test = if test `elem` names
                                      then genName names (test ++ "$")
                                      else test
                 retty' = retty
 
--- | Adds a void argument if there are no required arguments.
-withPossibleVoid :: FunctionType -> FunctionType
-withPossibleVoid (FnT args retty) = FnT (maybeAddVoid args) retty
-  where maybeAddVoid :: [(Variable, Bool, ArgDir, Type)] -> [(Variable, Bool, ArgDir, Type)]
-        maybeAddVoid args | null [True | (_,r,_,_) <- args, r]  = args ++ [("", True, ArgIn, Void)]
-                          | otherwise                           = args
 
 -- withoutVoids :: FunctionType -> FunctionType
 -- withoutVoids (FnT args retty) = FnT (removeVoid args) retty
@@ -238,7 +229,7 @@ withPossibleVoid (FnT args retty) = FnT (maybeAddVoid args) retty
 --         removeVoid = filter
 
 data Type' a
-  = VecType [a] (Type' a)
+  = VecType StorageType [a] (Type' a)
   | Void
   | FnType FunctionType
 --  | Dimension a
@@ -261,9 +252,6 @@ numType = NumType
 
 stringType :: Type
 stringType = StringType
-
-vecType :: [CExpr] -> Type
-vecType t = VecType t NumType
 
 data Definition = FunctionDef (Maybe CExpr) FunctionType
                 | StructDef [(Variable, Type)]
@@ -378,7 +366,7 @@ extendTypedef var t = modify $ \s -> s { typedefs = (var, t) : typedefs s }
 
 normalizeType :: Type -> M Type
 normalizeType (TypedefType name) = typedefType name >>= normalizeType
-normalizeType (VecType [] t) = return t
+normalizeType (VecType _ [] t) = return t
 normalizeType t = return t
 
 --sep :: (Show a, Show b) => a -> b -> String
@@ -484,7 +472,7 @@ class TermMappable a where
 
 instance TermMappable Type where
   mapTerm tty texp tloc trng ty = case ty of
-    VecType idxs ety -> VecType <$> mapM texp idxs <*> tty ety
+    VecType st idxs ety -> VecType st <$> mapM texp idxs <*> tty ety
     PtrType pty -> PtrType <$> tty pty
     FnType (FnT args retty) -> do
       args' <- forM args $ \(v, b, dir, ty) -> do
@@ -658,8 +646,8 @@ typeCanHold :: Type -> Type -> Bool
 typeCanHold ty1 ty2 = typeCanHold' (normalizeTypes ty1) (normalizeTypes ty2)
 
 typeCanHold' :: Type -> Type -> Bool
-typeCanHold' (VecType idxs1 bty1) (VecType idxs2 bty2)
-  | length idxs1 == length idxs2  = typeCanHold' bty1 bty2
+typeCanHold' (VecType st1 idxs1 bty1) (VecType st2 idxs2 bty2)
+  | st1 == st2 && length idxs1 == length idxs2  = typeCanHold' bty1 bty2
 typeCanHold' Void Void = True
 typeCanHold' (FnType _) (FnType _) = False -- TODO
 typeCanHold' NumType NumType = True
@@ -688,8 +676,8 @@ typeCanHold' _ _ = False
 normalizeTypes :: TermMappable a => a -> a
 normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
   where tty ty = case ty of
-          VecType [] ty -> return ty
-          VecType idxs1 (VecType idxs2 ty) -> return $ VecType (idxs1 ++ idxs2) ty
+          VecType _ [] ty -> return ty
+          VecType DenseMatrix idxs1 (VecType DenseMatrix idxs2 ty) -> return $ VecType DenseMatrix (idxs1 ++ idxs2) ty
           _ -> return ty
         texp = return
         tloc = return
@@ -741,7 +729,9 @@ instance PP (a (Fix a)) => PP (Fix a) where
 
 instance PP Type where
   pretty v@(VecType {}) = case normalizeTypes v of
-                           VecType idxs ty -> pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
+                           VecType st idxs ty -> pst $ pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
+                             where pst = case st of
+                                     DenseMatrix -> id
                            ty' -> pretty ty'
   pretty Void = text "Void"
   pretty (FnType (FnT args retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
@@ -808,18 +798,18 @@ instance PP a => PP (Location a) where
 
 
 getType :: CExpr -> Type
-getType (Vec pos _ range base) = VecType [rangeLength pos range] (getType base)
+getType (Vec pos _ range base) = VecType DenseMatrix [rangeLength pos range] (getType base)
 getType (For {}) = Void
 -- getType (Return ) -- what type?
 -- getType (Assert )
-getType (RangeVal pos range) = VecType [rangeLength pos range] (IntType IDefault)
+getType (RangeVal pos range) = VecType DenseMatrix [rangeLength pos range] (IntType IDefault)
 getType (If pos a b c) = getType b
 getType (VoidExpr pos) = Void
 getType (IntLit pos t _) = IntType t
 getType (FloatLit pos t _) = FloatType t
 getType (StrLit {}) = StringType
 getType (BoolLit {}) = BoolType
-getType (VecLit pos ty xs) = VecType [IntLit pos IDefault (fromIntegral $ length xs)] ty
+getType (VecLit pos ty xs) = VecType DenseMatrix [IntLit pos IDefault (fromIntegral $ length xs)] ty
 getType (Let pos v x body) = getType body
 getType (Uninitialized pos ty) = ty
 getType (Seq pos a b) = getType b
@@ -834,29 +824,31 @@ getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
 getType (Unary pos Neg a) = getVectorizedType (getType a) (getType a)
 getType (Unary pos Sum a) = case getVectorizedType (getType a) (getType a) of
-  VecType (idx:idxs) aty' -> normalizeTypes $ VecType idxs aty'
+  VecType _ (idx:idxs) aty' -> normalizeTypes $ VecType DenseMatrix idxs aty'
   aty' -> aty'
 getType (Unary pos Inverse a) = do
   case normalizeTypes $ getType a of
-   VecType [a, _] aty' -> VecType [a, a] (getArithType aty' $ FloatType defaultFloatType)
+   -- TODO for instance, inverse of upper triangular is upper triangular
+   VecType _ [a, _] aty' -> VecType DenseMatrix [a, a] (getArithType aty' $ FloatType defaultFloatType)
    _ -> error "Unary inverse on not a rectangular vector"
 getType (Unary pos Transpose a) = do
   case normalizeTypes $ getType a of
-   VecType (i1:i2:idxs) aty' -> VecType (i2:i1:idxs) aty'
-   VecType [idx] aty' -> VecType [1,idx] aty'
+   -- TODO for instance, transpose of symmetric matrix is symmetric
+   VecType _ (i1:i2:idxs) aty' -> VecType DenseMatrix (i2:i1:idxs) aty'
+   VecType _ [idx] aty' -> VecType DenseMatrix [1,idx] aty'
    _ -> error "Unary transpose not on vector."
 getType (Binary pos op a b)
   | op `elem` [Add, Sub, Div] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
-    (VecType [a, _] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty')
-    (VecType [a] aty', VecType [_, c] bty') -> VecType [a, c] (getArithType aty' bty') -- left vector is a x 1
-    (VecType [a, _] aty', VecType [c] bty') -> VecType [a] (getArithType aty' bty')
-    (VecType [a] aty', VecType [_] bty') -> getArithType aty' bty' -- dot product
+    (VecType _ [a, _] aty', VecType _ [_, c] bty') -> VecType DenseMatrix [a, c] (getArithType aty' bty')
+    (VecType _ [a] aty', VecType _ [_, c] bty') -> VecType DenseMatrix [a, c] (getArithType aty' bty') -- left vector is a x 1
+    (VecType _ [a, _] aty', VecType _ [c] bty') -> VecType DenseMatrix [a] (getArithType aty' bty')
+    (VecType _ [a] aty', VecType _ [_] bty') -> getArithType aty' bty' -- dot product
     (VecType {}, VecType {}) -> error "getType: Bad vector sizes for multiplication"
     _ -> getArithType aty bty
   | op == Concat = case (aty, bty) of
-    (VecType (aidx:aidxs) aty', VecType (bidx:_) bty') -> VecType [Binary pos Add aidx bidx]
-                                                          (getArithType aty' bty')
+    (VecType _ (aidx:aidxs) aty', VecType _ (bidx:_) bty') -> VecType DenseMatrix [Binary pos Add aidx bidx]
+                                                              (getArithType aty' bty')
   | otherwise = error "getType for binary not implemented"
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
@@ -865,10 +857,10 @@ getLocType :: Location CExpr -> Type
 getLocType (Ref ty v) = ty
 getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ getType a)
   where getTypeIdx [] aty = aty
-        getTypeIdx (idx:idxs) (VecType (ibnd:ibnds) bty) =
+        getTypeIdx (idx:idxs) (VecType _ (ibnd:ibnds) bty) =
           case normalizeTypes (getType idx) of
-           IntType _               ->                getTypeIdx idxs (VecType ibnds bty)
-           VecType idxs' idxtybase -> VecType idxs' (getTypeIdx idxs (VecType ibnds bty))
+           IntType _               ->                getTypeIdx idxs (VecType DenseMatrix ibnds bty)
+           VecType st idxs' idxtybase -> VecType st idxs' (getTypeIdx idxs (VecType DenseMatrix ibnds bty))
 getLocType (Field a field) = case stripPtr (getType a) of -- TODO need to replace dependent fields
   StructType v (ST fields) -> case lookup field fields of
     Just fieldTy -> fieldTy
@@ -885,14 +877,14 @@ getLocType (Deref a) = let (PtrType a') = getType a
 --  3) if neither are, it is just A + B
 getVectorizedType :: Type -> Type -> Type
 getVectorizedType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
-   (VecType [] bty1, ty2) -> getVectorizedType bty1 ty2
-   (ty1, VecType [] bty2) -> getVectorizedType ty1 bty2
-   (VecType (idx1:idxs1) bty1, VecType (idx2:idxs2) bty2)  ->
-     case getVectorizedType (VecType idxs1 bty1) (VecType idxs2 bty2) of
-      VecType idxs' bty' -> VecType (idx1:idxs') bty'
-      bty' -> VecType [idx1] bty'
-   (VecType idxs1 bty1, ty2)  -> VecType idxs1 (getVectorizedType bty1 ty2)
-   (ty1, VecType idxs2 bty2) -> VecType idxs2 (getVectorizedType ty1 bty2)
+   (VecType _ [] bty1, ty2) -> getVectorizedType bty1 ty2
+   (ty1, VecType _ [] bty2) -> getVectorizedType ty1 bty2
+   (VecType _ (idx1:idxs1) bty1, VecType _ (idx2:idxs2) bty2)  -> -- TODO sum of symmetric and symmetric is symmetric
+     case getVectorizedType (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2) of
+      VecType _ idxs' bty' -> VecType DenseMatrix (idx1:idxs') bty'
+      bty' -> VecType DenseMatrix [idx1] bty'
+   (VecType _ idxs1 bty1, ty2)  -> VecType DenseMatrix idxs1 (getVectorizedType bty1 ty2)
+   (ty1, VecType _ idxs2 bty2) -> VecType DenseMatrix idxs2 (getVectorizedType ty1 bty2)
    (ty1, ty2) -> getArithType ty1 ty2
 
 getArithType :: Type -> Type -> Type

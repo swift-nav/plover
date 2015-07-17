@@ -382,9 +382,9 @@ fillValHoles exp = case exp of
 
 fillTypeHoles :: Tag SourcePos -> Type -> SemChecker Type
 fillTypeHoles pos ty = case ty of
-  VecType idxs ety -> do ety' <- fillTypeHoles pos ety
-                         idxs' <- mapM fillValHoles idxs
-                         return $ VecType idxs' ety'
+  VecType st idxs ety -> do ety' <- fillTypeHoles pos ety
+                            idxs' <- mapM fillValHoles idxs
+                            return $ VecType st idxs' ety'
   Void -> return ty
   FnType (FnT args ret) -> do addError $ SemError pos "COMPILER ERROR. Scoping issues when filling type holes of function type."
                               return ty

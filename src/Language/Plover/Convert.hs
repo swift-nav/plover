@@ -153,10 +153,10 @@ makeType :: Expr -> Either ConvertError (T.Type)
 makeType exp@(PExpr _ e') = case e' of
   Index a (PExpr _ (Tuple idxs)) -> do a' <- makeType a
                                        idxs' <- mapM makeExpr idxs
-                                       return $ T.VecType idxs' a'
+                                       return $ T.VecType T.DenseMatrix idxs' a'
   Index a b -> do a' <- makeType a
                   b' <- makeExpr b
-                  return $ T.VecType [b'] a'
+                  return $ T.VecType T.DenseMatrix [b'] a'
   -- (no way to write the type of a function.)
   Ref v -> case v of
     "u8" -> return $ T.IntType T.U8

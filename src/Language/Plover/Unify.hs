@@ -239,10 +239,10 @@ instance Unifiable Type where
   unify pos (TypeHoleJ v) y = unifyTVar pos v y
   unify pos x (TypeHoleJ v) = unifyTVar pos v x
 
-  unify pos (VecType idxs1 ty1) (VecType idxs2 ty2) | length idxs1 == length idxs2  = do
+  unify pos (VecType st1 idxs1 ty1) (VecType st2 idxs2 ty2) | st1 == st2 && length idxs1 == length idxs2  = do
     ty' <- unify pos ty1 ty2
     idxs' <- forM (zip idxs1 idxs2) $ \(i1, i2) -> unifyArithmetic pos i1 i2
-    return $ VecType idxs' ty'
+    return $ VecType st1 idxs' ty'
   unify pos Void Void = return Void
   unify pos x@(FnType _) (FnType _) = return x -- TODO handle this better.
   unify pos NumType NumType = return NumType
@@ -436,13 +436,13 @@ unifyArithmetic pos x y = do
   return $ reduceArithmetic x
 
 typeCheckType :: Tag SourcePos -> Type -> UM Type
-typeCheckType pos (VecType idxs ty) = do
+typeCheckType pos (VecType st idxs ty) = do
   idxs' <- forM idxs $ \idx -> do
     idxty <- typeCheck idx
     expectInt pos idxty
     return idx
   ty' <- typeCheckType pos ty
-  return $ VecType idxs' ty'
+  return $ VecType st idxs' ty'
 typeCheckType pos Void = return Void
 typeCheckType pos (FnType fn) = do
   let (FnT args retty) = fn
@@ -469,7 +469,7 @@ typeCheck (Vec pos v range body) = do
   -- alpha renamed, so can just add v to scope
   addBinding pos v (IntType rt)
   bt <- typeCheck body
-  return $ VecType [rangeLength pos range] bt
+  return $ VecType DenseMatrix [rangeLength pos range] bt
 typeCheck (For pos v range body) = do
   rt <- typeCheckRange pos range
   -- alpha renamed, so can just add v to scope
@@ -484,7 +484,7 @@ typeCheck (Assert pos a) = do
   return Void
 typeCheck (RangeVal pos range) = do
   rt <- typeCheckRange pos range
-  return $ VecType [rangeLength pos range] (IntType rt)
+  return $ VecType DenseMatrix [rangeLength pos range] (IntType rt)
 typeCheck (If pos a b c) = do
   tya <- typeCheck a
   expectBool pos tya
@@ -500,7 +500,7 @@ typeCheck (VecLit pos ty []) = typeCheckType pos ty
 typeCheck (VecLit pos ty xs) = do
   xtys <- forM xs $ \x -> typeCheck x
   ty' <- foldM (unify pos) (head xtys) $ tail xtys ++ [ty]
-  return $ normalizeTypes $ VecType [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
+  return $ normalizeTypes $ VecType DenseMatrix [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
   addBinding pos v tyx
@@ -563,22 +563,22 @@ typeCheck (Unary pos Sum a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   aty' <- numTypeVectorize pos aty aty
   case aty' of
-   VecType (idx:idxs) aty'' -> return $ normalizeTypes $ VecType idxs aty''
+   VecType _ (idx:idxs) aty'' -> return $ normalizeTypes $ VecType DenseMatrix idxs aty''
    _ -> return aty'
 typeCheck (Unary pos Inverse a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   case aty of
-   VecType [i1, i2] aty' -> do i' <- unify pos i1 i2
-                               aty'' <- unify pos aty' (FloatType defaultFloatType)
-                               return $ VecType [i', i'] aty''
+   VecType _ [i1, i2] aty' -> do i' <- unify pos i1 i2
+                                 aty'' <- unify pos aty' (FloatType defaultFloatType)
+                                 return $ VecType DenseMatrix [i', i'] aty''
    _ -> do addUError $ UError pos "Inverse must be of a square matrix."
            hole <- gensym "hole"
            return $ TypeHoleJ hole
 typeCheck (Unary pos Transpose a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   case aty of
-   VecType (i1:i2:idxs) aty' -> return $ VecType (i2:i1:idxs) aty'
-   VecType [idx] aty' -> return $ VecType [1,idx] aty'
+   VecType _ (i1:i2:idxs) aty' -> return $ VecType DenseMatrix (i2:i1:idxs) aty'
+   VecType _ [idx] aty' -> return $ VecType DenseMatrix [1,idx] aty'
    _ -> do addUError $ UError pos "Transpose must be of a vector."
            hole <- gensym "hole"
            return $ TypeHoleJ hole
@@ -593,19 +593,19 @@ typeCheck (Binary pos op a b)
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       case (aty, bty) of
-       (VecType [a, b1] aty', VecType [b2, c] bty') -> do
+       (VecType _ [a, b1] aty', VecType _ [b2, c] bty') -> do
          _ <- unifyArithmetic pos b1 b2
          ty' <- arithType pos aty' bty'
-         return $ VecType [a, c] ty'
-       (VecType [a] aty', VecType [b2, c] bty') -> do -- Left vector is treated as column vector matrix (n x 1)
+         return $ VecType DenseMatrix [a, c] ty'
+       (VecType _ [a] aty', VecType _ [b2, c] bty') -> do -- Left vector is treated as column vector matrix (n x 1)
          _ <- unifyArithmetic pos 1 b2
          ty' <- arithType pos aty' bty'
-         return $ VecType [a, c] ty'
-       (VecType [a, b1] aty', VecType [b2] bty') -> do -- Right vector is treated as column vector (result is vector)
+         return $ VecType DenseMatrix [a, c] ty'
+       (VecType _ [a, b1] aty', VecType _ [b2] bty') -> do -- Right vector is treated as column vector (result is vector)
          _ <- unifyArithmetic pos b1 b2
          ty' <- arithType pos aty' bty'
-         return $ VecType [a] ty'
-       (VecType [a1] aty', VecType [a2] bty') -> do -- Special case: vector times vector is dot product
+         return $ VecType DenseMatrix [a] ty'
+       (VecType _ [a1] aty', VecType _ [a2] bty') -> do -- Special case: vector times vector is dot product
          _ <- unifyArithmetic pos a1 a2
          ty' <- arithType pos aty' bty'
          return $ ty'
@@ -617,9 +617,9 @@ typeCheck (Binary pos op a b)
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       case (aty, bty) of
-       (VecType (aidx:aidxs) aty', VecType (bidx:bidxs) bty') -> do
-         ty' <- unify pos (VecType aidxs aty') (VecType bidxs bty')
-         typeCheckType pos $ normalizeTypes $ VecType [Binary pos Add aidx bidx] ty'
+       (VecType _ (aidx:aidxs) aty', VecType _ (bidx:bidxs) bty') -> do
+         ty' <- unify pos (VecType DenseMatrix aidxs aty') (VecType DenseMatrix bidxs bty')
+         typeCheckType pos $ normalizeTypes $ VecType DenseMatrix [Binary pos Add aidx bidx] ty'
        _ -> do addUError $ UError pos "Bad argument types to concatenation operator."
                hole <- gensym "hole"
                return $ TypeHoleJ hole
@@ -633,20 +633,20 @@ typeCheck (Binary pos op a b)
 numTypeVectorize :: Tag SourcePos -> Type -> Type -> UM Type
 numTypeVectorize pos ty1 ty2 =
   case (ty1, ty2) of
-   (VecType [] bty1, ty2) -> numTypeVectorize pos bty1 ty2
-   (ty1, VecType [] bty2) -> numTypeVectorize pos ty1 bty2
-   (VecType (idx1:idxs1) bty1, VecType (idx2:idxs2) bty2)  -> do
+   (VecType _ [] bty1, ty2) -> numTypeVectorize pos bty1 ty2
+   (ty1, VecType _ [] bty2) -> numTypeVectorize pos ty1 bty2
+   (VecType _ (idx1:idxs1) bty1, VecType _ (idx2:idxs2) bty2)  -> do
      idx' <- unify pos idx1 idx2
-     subty <- numTypeVectorize pos (VecType idxs1 bty1) (VecType idxs2 bty2)
+     subty <- numTypeVectorize pos (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2)
      case normalizeTypes subty of
-      VecType idxs' bty' -> return $ VecType (idx':idxs') bty'
-      bty' -> return $ VecType [idx'] bty'
-   (VecType idxs1 bty1, ty2)  -> do
+      VecType _ idxs' bty' -> return $ VecType DenseMatrix (idx':idxs') bty'
+      bty' -> return $ VecType DenseMatrix [idx'] bty'
+   (VecType _ idxs1 bty1, ty2)  -> do
      bty' <- numTypeVectorize pos bty1 ty2
-     return $ VecType idxs1 bty'
-   (ty1, VecType idxs2 bty2) -> do
+     return $ VecType DenseMatrix idxs1 bty'
+   (ty1, VecType _ idxs2 bty2) -> do
      bty' <- numTypeVectorize pos ty1 bty2
-     return $ VecType idxs2 bty'
+     return $ VecType DenseMatrix idxs2 bty'
    (ty1, ty2) -> arithType pos ty1 ty2
 
 arithType :: Tag SourcePos -> Type -> Type -> UM Type
@@ -683,16 +683,16 @@ typeCheckLoc pos (Index a idxs) = do
   --trace ("***" ++ show idxs ++ "\n  --" ++ show aty) $
   typeCheckIdx aty idxs aty
   where typeCheckIdx oty [] aty = normalizeTypesM aty
-        typeCheckIdx oty (idx:idxs) (VecType (ibnd:ibnds) bty) = do
+        typeCheckIdx oty (idx:idxs) (VecType st (ibnd:ibnds) bty) = do
           -- idx is next index value, ibnd is next vec bound
           unifyRangeIndex pos idx ibnd
           idxty <- normalizeTypes <$> typeCheck idx
           case idxty of
-           IntType _ -> typeCheckIdx oty idxs (VecType ibnds bty)
-           VecType idxs' idxtybase -> do -- result shape equals shape of index
+           IntType _ -> typeCheckIdx oty idxs (VecType DenseMatrix ibnds bty)
+           VecType st' idxs' idxtybase -> do -- result shape equals shape of index
              expectInt pos idxtybase -- consider tuple
-             bty' <- typeCheckIdx oty idxs (VecType ibnds bty)
-             return $ VecType idxs' bty'
+             bty' <- typeCheckIdx oty idxs (VecType DenseMatrix ibnds bty)
+             return $ VecType st' idxs' bty'
            _ -> do unify pos (IntType defaultIntType) idxty -- probably should be int by default?
                    hole <- gensym "hole"
                    return $ TypeHoleJ hole

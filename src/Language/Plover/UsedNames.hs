@@ -52,7 +52,7 @@ allNamesInLocation (Field v _) = allNames v
 allNamesInLocation (Deref v) = allNames v
 
 allNamesInType :: Type -> [Variable]
-allNamesInType (VecType idxs t) = (idxs >>= allNames) ++ allNamesInType t
+allNamesInType (VecType _ idxs t) = (idxs >>= allNames) ++ allNamesInType t
 allNamesInType (FnType ft) = allNamesInFunType ft
 allNamesInType (PtrType t) = allNamesInType t
 allNamesInType (TypedefType v) = [v]

@@ -63,8 +63,8 @@ extern struct nkf_t (
 -- @Block (double[2,2],double[2,m-3]; , const 0) double[n,m]
 
 static get_sos_innov (kf :: *nkf_t) (decor_obs :: double[kf.obs_dim]) :: double
-  := ( assert (kf != NULL);
-       assert (decor_obs != NULL);
+  := ( -- assert (kf != NULL);
+       -- assert (decor_obs != NULL);
 
        if kf.state_dim == 0 or kf.obs_dim == 0
          then return 0;
