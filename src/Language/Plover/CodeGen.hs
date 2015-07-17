@@ -11,7 +11,7 @@ module Language.Plover.CodeGen where
 import Language.C.Quote.C
 import qualified Language.C.Syntax as C
 import Language.C.Pretty
-import Text.PrettyPrint.Mainland
+import qualified Text.PrettyPrint.Mainland as Mainland
 
 import Data.Either
 import Data.Tag
@@ -43,7 +43,7 @@ type CM a = State CodeGenState a
 -- | Returns the output header file and the output source file.
 doCompile :: [DefBinding] -> (String, String)
 doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
-                            return (show $ ppr header, show $ ppr code)
+                            return (Mainland.pretty 80 $ Mainland.ppr header, Mainland.pretty 80 $ Mainland.ppr code)
 
 runCM :: CM a -> a
 runCM m = evalState m (CodeGenState M.empty [] [])
@@ -119,11 +119,11 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                              lookupName (error "Invalid top-level name") (binding defb)
                            decls <- fmap concat $ forM (filter (not . static) defbs') $ \defb ->
                                     newScope $ case definition defb of
-                                                 FunctionDef mexp ft -> compileFunctionDecl (binding defb) ft
+                                                 FunctionDef mexp ft -> compileFunctionDecl defb (binding defb) ft
                                                  _ -> return []
                            declstatic <- fmap concat $ forM (filter static defbs') $ \defb ->
                                          newScope $ case definition defb of
-                                                      FunctionDef mexp ft -> compileFunctionDecl (binding defb) ft
+                                                      FunctionDef mexp ft -> compileFunctionDecl defb (binding defb) ft
                                                       _ -> return []
                            ddef <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
@@ -134,17 +134,22 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                                $esc:("#include <stdio.h>")
                                $esc:("#include \"linear_algebra.h\"") |]
 
-compileFunctionDecl :: String -> FunctionType -> CM [C.Definition]
-compileFunctionDecl name ft = do
+compileFunctionDecl :: DefBinding -> String -> FunctionType -> CM [C.Definition]
+compileFunctionDecl defb name ft = do
   args'' <- compileParams args'
   return $ case args'' of
-    [] -> [ [cedecl| $ty:(compileType retty) $id:(name)(void); |] ]
-    _ ->  [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')); |] ]
+    [] -> [ addStorage [cedecl| $ty:(compileType retty) $id:(name)(void); |] ]
+    _ ->  [ addStorage [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')); |] ]
   where (FnT args retty, _) = getEffectiveFunType ft
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
         args' = [(v, dir, ty) | (v, _, dir, ty) <- args, nonVoid ty]
+        addStatic (C.DecDef (C.InitGroup (C.DeclSpec storage tqual tspec srclocd) attrs inits srclocf) srclocfd)
+          = C.DecDef (C.InitGroup (C.DeclSpec (storage ++ [C.Tstatic srclocd]) tqual tspec srclocd)
+                               attrs inits srclocf) srclocfd
+--        addStatic f = f
+        addStorage = if static defb then addStatic else id
 
 compileFunction :: String -> FunctionType -> CExpr -> CM [C.Definition]
 compileFunction name ft exp = do
