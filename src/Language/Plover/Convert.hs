@@ -146,6 +146,8 @@ makeSequence pos (x@(PExpr pos' x') : xs) = case x' of
                         : xs)
     Ref v -> do b' <- makeExpr b
                 T.Let pos' v b' <$> makeSequence pos xs
+  (BinExpr Type (PExpr pos'' (Ref v)) vt) -> do vt' <- makeType vt
+                                                T.Let pos' v (T.Uninitialized pos'' vt') <$> makeSequence pos xs
   _ -> T.Seq pos <$> makeExpr x <*> makeSequence pos xs
 
 
