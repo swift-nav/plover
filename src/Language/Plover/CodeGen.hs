@@ -130,7 +130,9 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                              _ -> return []
                            return (ext_includes ++ decls, int_includes ++ declstatic ++ ddef)
   where ext_includes = [cunit| $esc:("#include \"common.h\"") |]
-        int_includes = [cunit| $esc:("#include <math.h>") $esc:("#include \"linear_algebra.h\"") |]
+        int_includes = [cunit| $esc:("#include <math.h>")
+                               $esc:("#include <stdio.h>")
+                               $esc:("#include \"linear_algebra.h\"") |]
 
 compileFunctionDecl :: String -> FunctionType -> CM [C.Definition]
 compileFunctionDecl name ft = do
@@ -1041,3 +1043,10 @@ compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
         access ex (PtrType aty) field = [cexp| $(access' ex aty)->field |]
         access' ex (PtrType aty) = [cexp| *$(access' ex aty) |]
         access' ex aty = ex
+
+compileLoc l@(Deref a) = do
+  sex <- asExp $ compileStat a
+  case normalizeTypes (getLocType l) of
+    VecType _ idxs bty -> do
+      return $ mkVecLoc bty [cexp| *$sex|] idxs
+    ty -> return $ expLoc ty (return [cexp| *$sex|])

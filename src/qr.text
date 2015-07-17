@@ -1,8 +1,9 @@
 extern fabs (x :: double) :: double;
 extern sqrt (x :: double) :: double;
 extern printf (x :: string) (v :: double) :: ();
+extern puts (x :: string) :: ();
 
-newline () :: () := printf "\n" 0;
+newline () :: () := puts "";
 
 print_matrix {n, m} (A :: double[n,m]) :: ()
   := ( for i in n -> (for j in m -> printf "%f " A[i,j]; newline()) );
@@ -22,16 +23,31 @@ static givens (a :: double) (b :: double) :: double[2,2] := (
       vec(-s, c));
 );
 
---qr_solve
---  {m :: u8}
---  {n :: u8}
---  (inout b :: double[m])
---  (inout A :: double[m, n])
---  :: Void
---  :=
+norm {n} (v :: double[n]) :: double := sqrt (v * v);
 
-qr_update
-  {m, n}
+-- Assumes m >= n
+-- See "Matrix Computations" 4th ed. Golub and Van Loan
+qr_solve {m, n}
+  (inout A :: double[m, n])
+  (inout b :: double[m])
+
+  (out solution :: double[n])
+
+  :: double := (
+
+  qr_update b A;
+
+  -- A is now upper triangular; backsolve it into b
+  backsolve A[0:n, 0:n] b[0:n];
+
+  -- Solution stored in first n elements
+  solution <- b[0:n];
+
+  -- Norm of error = norm of last m-n elements
+  norm b[n:m];
+);
+
+qr_update {m, n}
   (inout b :: double[m])
   (inout A :: double[m, n])
   :: Void := (
@@ -41,6 +57,7 @@ qr_update
 
       -- Givens rotation
       rot := givens A[i-2,j-1] A[i-1,j-1];
+      -- Rotate one column at a time
       for k in j..n -> (
         v := A[i-2 .. i-1, k-1];
         A[i-2 .. i-1, k-1] <- rot^T * v;
@@ -51,18 +68,15 @@ qr_update
       b[i-2 .. i-1] <- rot^T * v;
 
     );
-
-    -- A is now upper triangular; backsolve it into b
-    backsolve A[0:n, 0:n] b[0:n];
   );
 
 -- Back substitution for upper triangular U
-static backsolve
-  {n}
+static backsolve {n}
   (U :: double[n,n])
   (inout b :: double[n])
   :: Void := (
     b[n-1] <- b[n-1]/U[n-1, n-1];
+
     for i in n-1 .. 1 : -1 -> (
       b[i-1] <- (b[i-1] - U[i-1, i : n] * b[i : n]) / U[i-1, i-1];
     )
@@ -77,12 +91,22 @@ main () :: s32 := (
        vec(0,   0, 1),
        vec(0,   0, 22));
   A := m;
-  b :=
-    vec(5.0, 4, 1.1, 22);
-  qr_update b m;
+
+  b := vec(5.0, 4, 1.1, 22);
+  v := b;
+
+  solution :: double[3];
+
+  residual := qr_solve m b solution;
+
   print_matrix m;
+
   newline();
-  print_matrix vec(b);
-  print_matrix vec(A * b[0:3]);
+
+  printf "residual:\n%f\n" residual;
+  puts "solution:";
+  print_matrix vec(solution);
+  puts "residual vector:";
+  print_matrix vec(A * b[0:3] - v);
   0;
 )
