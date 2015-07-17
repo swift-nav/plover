@@ -4,7 +4,7 @@ extern printf (x :: string) (v :: double) :: ();
 
 newline () :: () := printf "\n" 0;
 
-print_matrix {n :: s32} {m :: s32} (A :: double[n,m]) :: ()
+print_matrix {n, m} (A :: double[n,m]) :: ()
   := ( for i in n -> (for j in m -> printf "%f " A[i,j]; newline()) );
 
 static givens (a :: double) (b :: double) :: double[2,2] := (
@@ -31,8 +31,7 @@ static givens (a :: double) (b :: double) :: double[2,2] := (
 --  :=
 
 qr_update
-  {m :: u8}
-  {n :: u8}
+  {m, n}
   (inout b :: double[m])
   (inout A :: double[m, n])
   :: Void := (
@@ -59,7 +58,7 @@ qr_update
 
 -- Back substitution for upper triangular U
 static backsolve
-  {n :: u8}
+  {n}
   (U :: double[n,n])
   (inout b :: double[n])
   :: Void := (
@@ -80,7 +79,7 @@ main () :: s32 := (
   A := m;
   b :=
     vec(5.0, 4, 1.1, 22);
-  update b m;
+  qr_update b m;
   print_matrix m;
   newline();
   print_matrix vec(b);

@@ -754,7 +754,7 @@ instance PP Type where
   pretty (StructType v _) = text v
   pretty (TypeHole (Just v)) = text v -- should have $ so shouldn't conflict
   pretty (TypeHole Nothing) = text "$hole"
-  pretty x = text $ show x
+--  pretty x = text $ show x
 
 instance (Show a, PP a) => PP (Expr a) where
   pretty (VoidExpr') = text "Void"

@@ -232,6 +232,8 @@ funArgs ((Arg e@(PExpr _ pe)):args) = case pe of
   VoidExpr -> funArgs args
   _ -> Left $ ConvertError (makePos e) ["Argument definition must have explicit type."]
 funArgs ((ImpArg e@(PExpr _ pe)):args) = case pe of
+  Tuple idxs -> funArgs ((map ImpArg idxs) ++ args)
+  Ref v -> ([(v, False, T.ArgIn, T.IntType T.IDefault)] ++) <$> funArgs args
   BinExpr Type (PExpr _ (Ref v)) b  -> do t <- makeType b
                                           ([(v, False, T.ArgIn, t)] ++) <$> funArgs args
   _ -> Left $ ConvertError (makePos e) ["Implicit argument definition must have explicit type."]
