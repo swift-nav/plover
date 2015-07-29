@@ -6,6 +6,7 @@ import System.Exit
 import Language.Plover.CLI
 import Control.Monad
 import Control.Applicative ((<$>))
+import Data.List
 import qualified Language.Plover.ParserTypes as PT
 import qualified Language.Plover.Parser as Parser
 import qualified Language.Plover.Convert as Convert
@@ -124,7 +125,7 @@ doTypeCheck opts mdefs = do
   case edefs of
    Left err -> return $ Left err
    Right defs -> case SemCheck.doSemCheck defs of
-                  Left errs -> Left . unlines <$> mapM SemCheck.reportSemErr errs
+                  Left errs -> Left . unlines <$> mapM SemCheck.reportSemErr (nub errs)
                   Right defs' -> return $ Right defs'
 
 doCodegen :: CompilerOpts -> IO (Either String [T.DefBinding]) -> IO (Either String (String, String))

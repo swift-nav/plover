@@ -11,11 +11,10 @@ static rot_small (x :: double) :: double[3,3]
         vec(-x, 1.0, 0.0),
         vec(0.0, 0.0, 1.0));
 
-static norm {n :: u32} (v :: double[n]) :: double
---  := sqrt (sum i in n -> (v[i] * v[i]));
-  := sqrt (s := 0.0; for i in n -> (s <- s + v[i] * v[i]); s);
-static normalize {n :: u32} (v :: double[n]) :: double[n]
-  := v / norm {n} v; -- Should be a test of loop invariant code motion
+static norm {n} (v :: double[n]) :: double
+  := sqrt (v * v);
+static normalize {n} (v :: double[n]) :: double[n]
+  := v / norm v; -- Should be a test of loop invariant code motion
 
 pvt {n_used :: u8}
     (sat_pos :: double[n_used,3])
@@ -28,19 +27,19 @@ pvt {n_used :: u8}
 
   := (
     los := vec j in 0:n_used -> (
-             tau := norm {3} (rx_state - sat_pos[j]) / GPS_C;
+             tau := norm (rx_state - sat_pos[j]) / GPS_C;
              xk_new := rot_small (GPS_OMEGAE_DOT * tau) * sat_pos[j];
              xk_new - rx_state;
            );
-    G <- vec j in 0:n_used -> normalize {4} (-los[j] # vec(1));
-    omp := vec i in 0:n_used -> nav_meas[i].pseudorange - norm {3} los[i];
+    G <- vec j in 0:n_used -> normalize (-los[j] # vec(1));
+    omp := vec i in 0:n_used -> nav_meas[i].pseudorange - norm los[i];
     X <- (G^T * G)^(-1) * G^T;
     correction <- X * omp;
   );
-{-
+
 extern MAX_OBS_DIM :: u32;
 extern MAX_STATE_DIM :: u32;
-
+{-
 extern struct nkf_t (
   state_dim :: u32;
   obs_dim :: u32;
@@ -73,7 +72,7 @@ static get_sos_innov (kf :: *nkf_t) (decor_obs :: double[kf.obs_dim]) :: double
        hu := kf.decor_obs_mtx * kf.state_cov_U   :: double[kf.obs_dim, kf.state_dim];
        t := diag (hu * kf.state_cov_D * hu^T);
        y := predicted_obs - decor_obs;
-       sos := y^T * Diagonal (1 / t) * y as double;
+       sos := (y^T * Diagonal (1 / t) * y)[0];
        return sos;
      );
 

@@ -17,8 +17,9 @@ flattenSum (Binary _ Add a b) = flattenSum a ++ flattenSum b
 flattenSum x = [x]
 
 isSimpleHole :: CExpr -> Maybe (Integer, Variable)
-isSimpleHole (HoleJ _ _ v) = Just (1, v)
-isSimpleHole (Binary _ Mul (IntLit _ _ u) (HoleJ _ _ v)) | isUnit u = Just (u, v)
+isSimpleHole (HoleJ _ v) = Just (1, v)
+isSimpleHole (Unary _ Neg (HoleJ _ v)) = Just (-1, v)
+isSimpleHole (Binary _ Mul (IntLit _ _ u) (HoleJ _ v)) | isUnit u = Just (u, v)
   where
     isUnit x = x == 1 || x == -1
 isSimpleHole _ = Nothing

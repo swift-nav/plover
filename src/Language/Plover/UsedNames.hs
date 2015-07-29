@@ -1,4 +1,10 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
+
 module Language.Plover.UsedNames
        where
 
@@ -10,56 +16,73 @@ import Control.Monad.State
 -- variables do not come from this set.
 
 allToplevelNames :: [DefBinding] -> [Variable]
-allToplevelNames dbs = nub $ dbs >>= allNamesInDefBinding
+allToplevelNames dbs = nub $ allNames dbs
 
-allNamesInDefBinding :: DefBinding -> [Variable]
-allNamesInDefBinding db = [binding db] ++ allNamesInDefinition (definition db)
+class NameContainer a where
+  allNames :: a -> [Variable]
 
-allNamesInDefinition :: Definition -> [Variable]
-allNamesInDefinition (FunctionDef cexpr ft) = maybe [] allNames cexpr ++ allNamesInFunType ft
-allNamesInDefinition (StructDef defs) = map fst defs
-allNamesInDefinition (ValueDef cexpr t) = maybe [] allNames cexpr ++ allNamesInType t
+instance NameContainer a => NameContainer [a] where
+  allNames xs = xs >>= allNames
 
-allNames :: CExpr -> [Variable]
-allNames (Vec _ v rng x) = [v] ++ allNamesInRange rng ++ allNames x
-allNames (Return _ x) = allNames x
-allNames (Assert _ x) = allNames x
-allNames (RangeVal _ rng) = allNamesInRange rng
-allNames (If _ a b c) = [a, b, c] >>= allNames
-allNames (VecLit _ ty xs) = allNamesInType ty ++ (xs >>= allNames)
-allNames (Let _ v d x) = [v] ++ allNames d ++ allNames x
-allNames (Seq _ a b) = [a, b] >>= allNames
-allNames (App _ f args) = allNames f ++ (args >>= allNames . unarg)
-  where unarg (Arg x) = x
-        unarg (ImpArg x) = x
-allNames (ConcreteApp _ f args) = allNames f ++ (args >>= allNames)
-allNames (HoleJ _ ty v) = allNamesInType ty ++ [v]
-allNames (Get _ loc) = allNamesInLocation loc
-allNames (Addr _ loc) = allNamesInLocation loc
-allNames (Set _ loc v) = allNamesInLocation loc ++ allNames v
-allNames (AssertType _ v t) = allNames v ++ allNamesInType t
-allNames (Unary _ op x) = allNames x
-allNames (Binary _ op x y) = allNames x ++ allNames y
-allNames expr = []
+instance NameContainer DefBinding where
+  allNames db = [binding db] ++ allNames (definition db)
 
-allNamesInRange :: Range CExpr -> [Variable]
-allNamesInRange rng = [rangeFrom rng, rangeTo rng, rangeStep rng] >>= allNames
+instance NameContainer Definition where
+  allNames def = case def of
+    FunctionDef cexpr ft -> maybe [] allNames cexpr ++ allNames ft
+    StructDef defs -> map fst defs
+    ValueDef cexpr t -> maybe [] allNames cexpr ++ allNames t
 
-allNamesInLocation :: Location CExpr -> [Variable]
-allNamesInLocation (Ref t v) = allNamesInType t ++ [v]
-allNamesInLocation (Index v idxs) = allNames v ++ (idxs >>= allNames)
-allNamesInLocation (Field v _) = allNames v
-allNamesInLocation (Deref v) = allNames v
+instance NameContainer CExpr where
+  allNames ex = case ex of
+    Vec _ v rng x -> [v] ++ allNames rng ++ allNames x
+    For _ v rng x -> [v] ++ allNames rng ++ allNames x
+    Return _ ty x -> allNames ty ++ allNames x
+    Assert _ x -> allNames x
+    RangeVal _ rng -> allNames rng
+    If _ a b c -> allNames [a, b, c]
+    VecLit _ ty xs -> allNames ty ++ allNames xs
+    TupleLit _ xs -> allNames xs
+    Let _ v d x -> [v] ++ allNames d ++ allNames x
+    Uninitialized _ ty -> allNames ty
+    Seq _ a b -> allNames [a, b]
+    App _ f args -> let unarg (Arg x) = x
+                        unarg (ImpArg x) = x
+                    in allNames f ++ allNames (map unarg args)
+    ConcreteApp _ f args rty -> allNames f ++ allNames args ++ allNames rty
+    HoleJ _ v -> [v]
+    Get _ loc -> allNames loc
+    Addr _ loc -> allNames loc
+    Set _ loc v -> allNames loc ++ allNames v
+    AssertType _ v t -> allNames v ++ allNames t
+    Unary _ op x -> allNames x
+    Binary _ op x y -> allNames x ++ allNames y
+    _ -> []
 
-allNamesInType :: Type -> [Variable]
-allNamesInType (VecType _ idxs t) = (idxs >>= allNames) ++ allNamesInType t
-allNamesInType (FnType ft) = allNamesInFunType ft
-allNamesInType (PtrType t) = allNamesInType t
-allNamesInType (TypedefType v) = [v]
-allNamesInType (StructType v (ST members)) = [v] ++ (members >>= (\(mv, mt) -> [mv] ++ allNamesInType mt))
-allNamesInType (TypeHole (Just v)) = [v]
-allNamesInType t = []
+instance NameContainer (Range CExpr) where
+  allNames rng = allNames [rangeFrom rng, rangeTo rng, rangeStep rng]
 
-allNamesInFunType :: FunctionType -> [Variable]
-allNamesInFunType ft = let ((FnT args rt), _) = getEffectiveFunType ft
-                       in (args >>= \(v, _, _, t) -> [v] ++ allNamesInType t) ++ allNamesInType rt
+instance NameContainer (Location CExpr) where
+  allNames loc = case loc of
+    Ref t v -> allNames t ++ [v]
+    Index v idxs -> allNames v ++ allNames idxs
+    Field v _ -> allNames v
+    Deref v -> allNames v
+
+instance NameContainer Type where
+  allNames ty = case ty of
+    VecType st idxs t -> allNames st ++ allNames idxs ++ allNames t
+    TupleType tys -> allNames tys
+    FnType ft -> allNames ft
+    PtrType t -> allNames t
+    TypedefType v -> [v]
+    StructType v _ -> [v]
+    TypeHole (Just v) -> [v]
+    _ -> []
+
+instance NameContainer FunctionType where
+  allNames ft = let ((FnT args rt), _) = getEffectiveFunType ft
+                in (args >>= \(_, v, _, _, t) -> [v] ++ allNames t) ++ allNames rt
+
+instance NameContainer StorageType where
+  allNames st = []

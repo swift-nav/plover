@@ -27,7 +27,7 @@ languageDef =
            , Token.identLetter = alphaNum <|> oneOf "_'"
            , Token.opStart = mzero -- Token.opLetter languageDef   -- No opStart because all operators are reserved
            , Token.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
-           , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", "&",
+           , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", ".*", "&",
                                       "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
@@ -35,7 +35,8 @@ languageDef =
              "vec", "for", "sum", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
              "array", "and", "or", "not",
-             "storing"
+             "storing",
+             "return", "assert"
              ]
            , caseSensitive = True
            }
@@ -165,6 +166,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin Pow (reservedOp "^")) AssocRight ] -- TODO how to deal with -x^y and x^-y both properly
           , [ Infix (bin Mul (reservedOp "*")) AssocLeft
             , Infix (bin Div (reservedOp "/")) AssocLeft
+            , Infix (bin Hadamard (reservedOp ".*")) AssocLeft
             ]
           , [ Prefix (un Neg (reservedOp "-"))
             , Prefix (un Pos (reservedOp "+"))
@@ -184,7 +186,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin And (reserved "and")) AssocLeft ]
           , [ Infix (bin Or (reserved "or")) AssocLeft ]
           , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
-          , [ Infix (bin RawCast (reserved "storing")) AssocNone ]
+          , [ Infix (bin Storing (reserved "storing")) AssocNone ]
           ]
     un op s = do pos <- getPosition
                  s
@@ -252,7 +254,7 @@ antiquote = do reservedOp "~"
                       return $ before ++ during ++ after
 
 form :: Parser Expr
-form = iter Vec "vec" <|> iter Sum "sum" <|> iter For "for" <|> ifexpr
+form = iter Vec "vec" <|> iter Sum "sum" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp
   where iter cons s = withPos $ do
           reserved s
           vs <- sepBy ((,) <$> identifier <* reserved "in" <*> range) (symbol ",")
@@ -269,6 +271,14 @@ form = iter Vec "vec" <|> iter Sum "sum" <|> iter For "for" <|> ifexpr
           reserved "else"
           alt <- expr
           return $ If cond cons alt
+
+        retexp = withPos $ do
+          reserved "return"
+          ex <- expr <|> withPos (return VoidExpr)
+          return $ Return ex
+        assertexp = withPos $ do
+          reserved "assert"
+          Assert <$> expr
 
 -- Parse semicolon-separated sequenced statements
 mstatements :: Parser Expr

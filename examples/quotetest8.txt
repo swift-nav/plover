@@ -1,0 +1,10 @@
+foo {n} (A :: double[3]) :: double[3]
+  := (return A-A[0]; A);
+
+bar {n} (C :: double) :: double
+  := (
+     A := 3.2;
+     B := 2;
+     assert B > 3;
+     return A + B;
+    );

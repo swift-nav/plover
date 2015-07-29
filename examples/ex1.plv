@@ -1,0 +1,9 @@
+-- Test having a prototype:
+foo1 {n :: s32} (A :: Diagonal double[n,n]) (v :: double[n]) :: double;
+
+-- And test multiplying with a diagonal matrix:
+foo1 {n :: s32} (A :: Diagonal double[n,n]) (v :: double[n]) :: double
+  := (v^T * A * v)[0];
+
+foo2 {n :: s32} (A :: Symmetric double[n,n]) (v :: double[n]) :: double
+  := (v^T * A * v)[0];

@@ -54,8 +54,8 @@ data BinOp = Add
            | Sub
            | Mul
            | Div
+           | Hadamard
            | Pow
-           | Dot
            | Concat
            | Type
            | And
@@ -64,7 +64,7 @@ data BinOp = Add
            | NEqOp
            | LTOp
            | LTEOp
-           | RawCast
+           | Storing
            deriving (Show, Eq, Typeable, Data)
 
 data Expr' a = Vec [(Variable,a)] a
@@ -73,7 +73,6 @@ data Expr' a = Vec [(Variable,a)] a
             
             -- Elementary Expressions
           | Ref Variable
-          | VoidExpr
           | T
           | Hole
           | IntLit IntType Integer
@@ -82,6 +81,8 @@ data Expr' a = Vec [(Variable,a)] a
           | StrLit String
           | VecLit [a]
           | If a a a
+          | Return a
+          | Assert a
 
             -- Operators
           | UnExpr UnOp a
@@ -118,6 +119,8 @@ data Arg a = ImpArg a
            | Arg a
            deriving (Eq, Show, Functor, Traversable, Typeable, Foldable, Data)
 
+pattern VoidExpr = Tuple []
+
 instance Num Expr where
   x * y = PExpr NoTag (BinExpr Mul x y)
   x + y = PExpr NoTag (BinExpr Add x y)
@@ -141,7 +144,6 @@ float x = FloatLit defaultFloatType x
 
 instance PP a => PP (Expr' a) where
   pretty (Ref v) = text v
-  pretty VoidExpr = text "Void"
   pretty T = text "T"
   pretty Hole = text "_"
   pretty (IntLit t x) = parens $ text $ "IntLit " ++ show t ++ " " ++ show x
@@ -152,12 +154,16 @@ instance PP a => PP (Expr' a) where
 
   pretty (If a b c) = parens $ (text "if" <+> nest 3 (pretty a)) $$ (nest 1 (vcat [text "then" <+> pretty b, text "else" <+> pretty c]))
 
+  pretty (Return a) = parens $ (text "return" <+> nest 7 (pretty a))
+  pretty (Assert a) = parens $ (text "assert" <+> nest 7 (pretty a))
+
   pretty (UnExpr op exp) = parens $ hang (text $ show op) 1 (pretty exp)
   pretty (BinExpr op a b) = parens $ hang (text $ f op) (length (f op) + 1) $ sep [pretty a, pretty b]
     where
       f Add = "+"
       f Sub = "-"
       f Mul = "*"
+      f Hadamard = ".*"
       f Div = "/"
       f Pow = "^"
       f EqualOp = "=="
@@ -169,6 +175,7 @@ instance PP a => PP (Expr' a) where
   pretty (Field e field) = parens $ hang (text "Field") 1 $ sep [pretty e, text $ show field]
 
   pretty (Index e ei) = parens $ hang (text "Index") 1 $ sep [nest 5 $ pretty e, pretty ei]
+  pretty (Tuple []) = text "Void"
   pretty (Tuple exps) = parens $ hang (text "Tuple") 1 $ sep (map pretty exps)
   pretty (Range a b c) = parens $ hang (text "Range") 1 $
                          hcat $ punctuate (text ":") [p a, p b, p c]

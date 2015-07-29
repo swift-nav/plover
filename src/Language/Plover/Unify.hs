@@ -19,12 +19,31 @@ import Control.Applicative ((<$>), (<*>), (<*), pure)
 import qualified Data.Map as M
 import Text.ParserCombinators.Parsec (SourcePos)
 
+-- [unification] The unifier is trying to solve for the types of each
+-- type and value hole which appear in the program.  These generally
+-- arise from the use of implicit arguments to functions.
+--
+-- The UnifierData object contains two maps from names.  Value holes
+-- use both so that they have both an expanded expression and a type.
+-- Type holes only use the map to types.
+--
+-- During unification, all references to (non-unification-)variables
+-- should be of the form (Ref (TypeHole Nothing) v).  The (TypeHole
+-- Nothing) will be filled in during the expansion phase.
+--
+-- Thou shalt not introduce unification variables which use parameters
+-- from multiple functions: this is a purpose of universalizeFunType.
+--
+-- Thou shalt give types to value holes as they are introduced (if
+-- known)
+
 data UnifierData = UnifierData
                    { usedVars :: [Variable]
-                   , uTypes :: M.Map Variable (Tag SourcePos, Type) -- ^ unification variables -> types
-                   , uExprs :: M.Map Variable (Tag SourcePos, CExpr) -- ^ unification variables -> exprs
+                   , uTypes :: M.Map Variable (Tag SourcePos, Type) -- ^ unification variables -> types (see note [unification])
+                   , uExprs :: M.Map Variable (Tag SourcePos, CExpr) -- ^ unification variables -> exprs (see note [unification])
                    , uErrors :: [UnificationError]
                    , uTypeEnv :: M.Map Variable (Tag SourcePos, Type) -- ^ variables -> types
+                   , uRetType :: Maybe (Tag SourcePos, Type) -- ^ The expected return type of the current function
                    }
                    deriving Show
 
@@ -35,6 +54,7 @@ data UnificationError = UError (Tag SourcePos) String
                       | ULocFailure (Tag SourcePos) (Location CExpr) (Location CExpr)
                       | UTyOccurs (Tag SourcePos) Variable Type
                       | UExOccurs (Tag SourcePos) Variable CExpr
+                      | URefOccurs (Tag SourcePos) Variable Type
                       | UNoField (Tag SourcePos) Variable
                       | UGenTyError (Tag SourcePos) Type String -- ^ A generic type error with a message
                       deriving (Show, Eq, Ord)
@@ -56,6 +76,7 @@ instance TermMappable UnificationError where
     ULocFailure tag loc1 loc2 -> ULocFailure tag <$> tloc loc1 <*> tloc loc2
     UTyOccurs tag v ty -> UTyOccurs tag v <$> tty ty
     UExOccurs tag v ex -> UExOccurs tag v <$> texp ex
+    URefOccurs tag v ty -> URefOccurs tag v <$> tty ty
     UNoField {} -> return err
     UGenTyError tag ty str -> UGenTyError tag <$> tty ty <*> pure str
   termMapper = error "Cannot get termMapper for UnificationError"
@@ -73,11 +94,19 @@ initUniData defbs = UnifierData
                     , uErrors = []
                     , uTypeEnv = M.fromList [(binding d, (bindingPos d, definitionType d))
                                             | d <- defbs]
+                    , uRetType = error "Return type not set"
                     }
 
 addUError :: UnificationError -> UM ()
 addUError err = do s <- get
                    put $ s { uErrors = uErrors s ++ [err] }
+
+-- | Used for checking whether the typechecking should be aborted,
+-- since the typechecking occurs in two passes (once to solve, once to
+-- recompute bindings during full expansion).
+hasUErrors :: UM Bool
+hasUErrors = do errs <- uErrors <$> get
+                return $ not (null errs)
 
 gensym :: String -> UM String
 gensym prefix = do names <- usedVars <$> get
@@ -97,15 +126,15 @@ addBinding pos v ty = do bindings <- uTypeEnv <$> get
 getBinding :: String -> UM (Maybe (Tag SourcePos, Type))
 getBinding v = do env <- uTypeEnv <$> get
                   return $ M.lookup v env
--- | Adds a type for a typehole
+-- | Adds a type for a typehole or hole
 addUTypeBinding :: Tag SourcePos -> String -> Type -> UM ()
 addUTypeBinding pos v ty = do bindings <- uTypes <$> get
                               modify $ \state -> state { uTypes = M.insert v (pos, ty) bindings }
--- | Gets a type for a typehole
+-- | Gets a type for a typehole or hole
 getUTypeBinding :: Variable -> UM (Maybe (Tag SourcePos, Type))
 getUTypeBinding v = do env <- uTypes <$> get
                        return $ M.lookup v env
--- | Adds a type for a typehole
+-- | Adds an expression for a hole
 addUExprBinding :: Tag SourcePos -> String -> CExpr -> UM ()
 addUExprBinding pos v ex = do bindings <- uExprs <$> get
                               modify $ \state -> state { uExprs = M.insert v (pos, ex) bindings }
@@ -118,20 +147,52 @@ expandTerm :: TermMappable a => a -> UM a
 expandTerm term = do
   tenv <- uTypes <$> get
   eenv <- uExprs <$> get
-  let tty (TypeHole (Just v)) | Just (_, ty') <- M.lookup v tenv = expand ty'
+  let tty (TypeHoleJ v) | Just (_, ty') <- M.lookup v tenv = expand ty'
       tty ty = return ty
 
-      -- TODO maybe unify ty against exp'
-      texp (HoleJ pos ty v) | Just (_, exp') <- M.lookup v eenv = expand exp'
-                            | otherwise = HoleJ pos <$> expandTerm ty <*> pure v
+      texp (HoleJ pos v) | Just (_, exp') <- M.lookup v eenv = expand exp'
       texp exp = return exp
 
       tloc = return
       trng = return
+
       expand :: TermMappable a => a -> UM a
       expand = traverseTerm tty texp tloc trng
 
   expand term
+
+
+-- | Removes holes like `expandTerm`, and adds types to Refs (so then getType may be used).
+fullExpandTerm :: TermMappable a => a -> UM a
+fullExpandTerm term = do
+  tenv <- uTypes <$> get
+  eenv <- uExprs <$> get
+  let tty (TypeHoleJ v) | Just (_, ty') <- M.lookup v tenv = expand ty'
+      tty ty = return ty
+
+      texp (Return pos ty v) = do ty' <- expand ty
+                                  v' <- expand v
+                                  -- Default continuation type is Void
+                                  case ty' of
+                                    TypeHole {} -> return $ Return pos Void v'
+                                    _ -> return $ Return pos ty' v'
+      texp (HoleJ pos v) | Just (_, exp') <- M.lookup v eenv = expand exp'
+      texp exp = return exp
+
+      tloc (Ref _ v) = do mty <- getBinding v
+                          te <- uTypeEnv <$> get
+                          let Just (_, ty) = mty
+                          ty' <- expand ty
+                          return $ Ref ty' v
+      tloc loc = return loc
+
+      trng = return
+
+      expand :: TermMappable a => a -> UM a
+      expand = traverseTerm tty texp tloc trng
+
+  expand term
+
 
 normalizeTypesM :: TermMappable a => a -> UM a
 normalizeTypesM term = normalizeTypes <$> traverseTerm tty texp tloc trng term
@@ -164,72 +225,100 @@ exprOccursIn :: TermMappable a => Variable -> a -> Bool
 exprOccursIn v exp = isNothing $ traverseTerm tty texp tloc trng exp
   where tty = return
 
-        texp exp@(HoleJ pos _ v') | v == v'  = Nothing
+        texp exp@(HoleJ pos v') | v == v'  = Nothing
         texp exp = Just exp
 
         tloc = return
         trng = return
 
+-- | "occurs check" for refs.  Used to check that a vector of vectors
+-- does not having changing-size subvectors
+refOccursIn :: TermMappable a => Variable -> a -> Bool
+refOccursIn v exp = isNothing $ traverseTerm tty texp tloc trng exp
+  where tty = return
+
+        texp = return
+
+        tloc loc@(Ref _ v') | v == v'  = Nothing
+        tloc loc = Just loc
+
+        trng = return
+
+-- | This is the main unification function.
 typeCheckToplevel :: [DefBinding] -> UM [DefBinding]
-typeCheckToplevel defbs = do
-  forM_ defbs $ \def -> do
-    withNewUScope $ typeCheckDefBinding def
-  defbs' <- forM defbs $ \def -> do
-    withNewUScope $ typeCheckDefBinding def
-  s <- get
-  --trace (show s) $
-  return defbs'
+typeCheckToplevel defbs = do mapM_ (withNewUScope . typeCheckDefBinding) defbs
+                             errsp <- hasUErrors
+                             if errsp
+                               then return []
+                               else expandToplevel defbs
+
+expandToplevel :: [DefBinding] -> UM [DefBinding]
+expandToplevel defbs = mapM (withNewUScope . expandDefBinding) defbs
 
 withNewUScope :: UM a -> UM a
 withNewUScope m = do
   bindings <- uTypeEnv <$> get
+  retty <- uRetType <$> get
   v <- m
-  modify $ \state -> state { uTypeEnv = bindings }
+  modify $ \state -> state { uTypeEnv = bindings, uRetType = retty }
   return v
 
-typeCheckDefBinding :: DefBinding -> UM DefBinding
-typeCheckDefBinding def = do
-  d' <- case definition def of
-    FunctionDef mexp ft -> do (FnType (FnT args retty)) <- typeCheckType (bindingPos def) (FnType ft)
-                              case mexp of
-                               Just exp | not (extern def) -> do
-                                 expty <- typeCheck exp
-                                 unifyN (bindingPos def) expty retty
-                                  
-                                 exp' <- expandTerm exp
-                                 args' <- forM args $ \(v, b, dir, ty) -> do
-                                   ty' <- expandTerm ty
-                                   return (v, b, dir, ty')
-                                 retty' <- expandTerm retty
+typeCheckDefBinding :: DefBinding -> UM ()
+typeCheckDefBinding def = case definition def of
+  FunctionDef mexp ft -> do
+    (FnType (FnT args retty)) <- typeCheckType (bindingPos def) (FnType ft) -- this introduces function arguments into scope
+    retty' <- typeCheckType (bindingPos def) retty
+    modify $ \state -> state { uRetType = Just (bindingPos def, retty') }
+    case mexp of
+      Just exp | not (extern def) -> do
+                   expty <- typeCheck exp
+                   void $ unifyN (bindingPos def) expty retty'
+      _ -> return ()
+  StructDef fields -> return () -- TODO actually typecheck
+  ValueDef mexp ty -> do
+    ty' <- typeCheckType (bindingPos def) ty
+    case mexp of
+      Just exp -> do
+        expty <- typeCheck exp
+        void $ unifyN (bindingPos def) expty ty
+      Nothing -> return ()
 
-                                 expty' <- expandTerm expty
-                                 when (not $ typeCanHold retty' expty') $
-                                   addUError $ UTyAssertFailure (MergeTags [bindingPos def, getTag exp]) expty' retty'
-                                    
-                                 return $ FunctionDef (Just exp') (FnT args' retty')
-                               _ -> do args' <- forM args $ \(v, b, dir, ty) -> do
-                                         ty' <- expandTerm ty
-                                         return (v, b, dir, ty')
-                                       retty' <- expandTerm retty
-                                       return $ FunctionDef Nothing (FnT args' retty')
-    StructDef fields -> return $ StructDef fields
-    ValueDef mexp ty -> do ty' <- typeCheckType (bindingPos def) ty
-                           case mexp of
-                            Just exp -> do
-                              expty <- typeCheck exp
-                              unify (bindingPos def) expty ty
+expandDefBinding :: DefBinding -> UM DefBinding
+expandDefBinding db = do def' <- expandDefBinding' db
+                         return $ db { definition = def' }
 
-                              exp' <- expandTerm exp
-                              ty' <- expandTerm ty
-                              return $ ValueDef (Just exp') ty'
-                            Nothing -> do ty' <- expandTerm ty
-                                          return $ ValueDef Nothing ty'
-  return $ def { definition = d' }
-
+expandDefBinding' :: DefBinding -> UM Definition
+expandDefBinding' def = case definition def of
+  FunctionDef mexp ft -> do
+    (FnType (FnT args retty)) <- typeCheckType (bindingPos def) (FnType ft) -- this introduces function arguments into scope (TODO just add them directly)
+    case mexp of
+      Just exp | not (extern def) -> do
+                   args' <- forM args $ \(pos, v, b, dir, ty) -> do
+                     ty' <- fullExpandTerm ty
+                     return (pos, v, b, dir, ty')
+                   modify $ \state -> state { uRetType = Just (bindingPos def, retty) }
+                   retty' <- fullExpandTerm retty
+                   _ <- typeCheck exp -- need to typeCheck to introduce bindings
+                   exp' <- fullExpandTerm exp
+                   return $ FunctionDef (Just exp') (FnT args' retty')
+      _ -> do args' <- forM args $ \(pos, v, b, dir, ty) -> do
+                ty' <- fullExpandTerm ty
+                return (pos, v, b, dir, ty')
+              retty' <- fullExpandTerm retty
+              return $ FunctionDef Nothing (FnT args' retty')
+  StructDef fields -> return $ StructDef fields -- TODO actually expand!
+  ValueDef mexp ty -> do
+    ty' <- fullExpandTerm ty
+    case mexp of
+      Just exp -> do
+        exp' <- fullExpandTerm exp
+        return $ ValueDef (Just exp') ty'
+      Nothing -> return $ ValueDef Nothing ty'
 
 class Unifiable a where
   unify :: Tag SourcePos -> a -> a -> UM a
 
+-- | Unifies after normalizing types (i.e., replacing TypedefType with StructType)
 unifyN :: (Unifiable a, TermMappable a) => Tag SourcePos -> a -> a -> UM a
 unifyN pos x y = do x' <- normalizeTypesM x
                     y' <- normalizeTypesM y
@@ -239,25 +328,28 @@ instance Unifiable Type where
   unify pos (TypeHoleJ v) y = unifyTVar pos v y
   unify pos x (TypeHoleJ v) = unifyTVar pos v x
 
+  -- See note [Dense matrix rules]
+  unify pos (VecType DenseMatrix [] ty1) y = unify pos ty1 y
+  unify pos x (VecType DenseMatrix [] ty2) = unify pos x ty2
+  unify pos (VecType DenseMatrix (idx1:idxs1) ty1) (VecType DenseMatrix (idx2:idxs2) ty2) = do
+    idx <- unifyArithmetic pos idx1 idx2
+    subvecty <- unify pos (VecType DenseMatrix idxs1 ty1) (VecType DenseMatrix idxs2 ty2)
+    return $ normalizeTypes $ VecType DenseMatrix [idx] subvecty
   unify pos (VecType st1 idxs1 ty1) (VecType st2 idxs2 ty2) | st1 == st2 && length idxs1 == length idxs2  = do
     ty' <- unify pos ty1 ty2
     idxs' <- forM (zip idxs1 idxs2) $ \(i1, i2) -> unifyArithmetic pos i1 i2
     return $ VecType st1 idxs' ty'
-  unify pos Void Void = return Void
-  unify pos x@(FnType _) (FnType _) = return x -- TODO handle this better.
-  unify pos NumType NumType = return NumType
-  -- NumType always loses
-  unify pos NumType y@(IntType {}) = return y
-  unify pos x@(IntType {}) NumType = return x
-  unify pos NumType y@(FloatType {}) = return y
-  unify pos x@(FloatType {}) NumType = return x
+  unify pos (TupleType tys1) (TupleType tys2) | length tys1 == length tys2 = do
+    tys <- forM (zip tys1 tys2) $ \(ty1, ty2) -> unify pos ty1 ty2
+    return $ TupleType tys
+  unify pos x@(FnType _) (FnType _) = return x -- TODO handle this better (or at all? it shouldn't show up)
   -- IntType loses to FloatType
   unify pos (IntType {}) y@(FloatType {}) = return y
   unify pos x@(FloatType {}) (IntType {}) = return x
   -- integers can go into bigger sizes
   unify pos (IntType t1) (IntType t2) = return $ IntType $ intMerge t1 t2
   unify pos (FloatType t1) (FloatType t2) = return $ FloatType $ floatMerge t1 t2
-  
+
   unify pos StringType StringType = return StringType
   unify pos BoolType BoolType = return BoolType
 
@@ -266,30 +358,29 @@ instance Unifiable Type where
     return $ PtrType a'
 
   unify pos s@(StructType v1 _) (StructType v2 _) | v1 == v2  = return s
-  
+
   unify pos x y = do addUError $ UTyFailure pos x y
                      return x
 
+-- N.B. This instance mainly shows up in index unification
 instance Unifiable CExpr where
-  unify pos (HoleJ pos1 ty1 v) y = do ex <- unifyEVar (MergeTags [pos, pos1]) v y
-                                      exty <- typeCheck ex
-                                      unify pos ty1 exty
-                                      return ex
+  unify pos (HoleJ pos1 v) y = do ex <- unifyEVar pos1 v y
+--                                      exty <- typeCheck ex
+--                                      unify pos ty1 exty
+                                  return ex
   unify pos x y@(HoleJ {}) = unify pos y x
 
-  -- skipping Vec
+  -- skipping Vec/For
   -- skipping Return/Assert
 
   unify pos (RangeVal pos1 rng1) (RangeVal pos2 rng2) = RangeVal pos' <$> unify pos' rng1 rng2
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
 
   unify pos (If pos1 a1 b1 c1) (If pos2 a2 b2 c2) =
     If pos' <$> unify pos' a1 a2 <*> unify pos' b1 b2 <*> unify pos' c1 c2
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
 
-  unify pos (VoidExpr pos1) (VoidExpr pos2) = return $ VoidExpr (MergeTags [pos, pos1, pos2])
-
-  unify pos x@(IntLit {}) y@(IntLit {}) | x == y  = return x  -- TODO consider lifting integer types later?
+  unify pos x@(IntLit {}) y@(IntLit {}) | x == y  = return x
   unify pos x@(FloatLit {}) y@(FloatLit {}) | x == y  = return x
   unify pos x@(StrLit {}) y@(StrLit {}) | x == y = return x
   unify pos x@(BoolLit {}) y@(BoolLit {}) | x == y = return x
@@ -298,42 +389,52 @@ instance Unifiable CExpr where
     ty' <- unify pos' ty1 ty2
     xs' <- forM (zip xs1 xs2) $ \(x1, x2) -> unify pos' x1 x2
     return $ VecLit pos' ty' xs'
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
+
+  unify pos (TupleLit pos1 xs1) (TupleLit pos2 xs2) | length xs1 == length xs2 = do
+    xs <- forM (zip xs1 xs2) $ \(x1, x2) -> unify pos' x1 x2
+    return $ TupleLit pos' xs
+    where pos' = MergeTags [pos1, pos2]
 
   -- skipping Let
   -- skipping Uninitialized
 
   unify pos x@(Seq pos1 a1 b1) y@(Seq pos2 a2 b2) = Seq pos' <$> unify pos' a1 b1 <*> unify pos' a2 b2
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
 
   -- skipping App
-  unify pos (ConcreteApp pos1 f1 args1) (ConcreteApp pos2 f2 args2) | length args1 == length args2 = do
+  unify pos (ConcreteApp pos1 f1 args1 rty1) (ConcreteApp pos2 f2 args2 rty2) | length args1 == length args2 = do
     f' <- unify pos' f1 f2
     args' <- forM (zip args1 args2) $ \(a1, a2) -> unify pos' a1 a2
-    return $ ConcreteApp pos' f' args'
-    where pos' = MergeTags [pos, pos1, pos2]
+    rty' <- unify pos' rty1 rty2
+    return $ ConcreteApp pos' f' args' rty'
+    where pos' = MergeTags [pos1, pos2]
 
   unify pos (Get pos1 loc1) (Get pos2 loc2) = Get pos' <$> unify pos' loc1 loc2
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
   unify pos (Addr pos1 loc1) (Addr pos2 loc2) = Addr pos' <$> unify pos' loc1 loc2
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
   unify pos (Set pos1 loc1 v1) (Set pos2 loc2 v2) = Set pos' <$> unify pos' loc1 loc2 <*> unify pos' v1 v2
-    where pos' = MergeTags [pos, pos1, pos2]
+    where pos' = MergeTags [pos1, pos2]
 
   -- skipping AssertType  TODO handle it later?
 
   -- TODO Perhaps need algebraic simplification?
-  unify pos (Unary pos1 op1 a1) (Unary pos2 op2 a2) | op1 == op2 = Unary pos' op1 <$> unify pos' a1 a2
-    where pos' = MergeTags [pos, pos1, pos2]
-  unify pos (Binary pos1 op1 a1 b1) (Binary pos2 op2 a2 b2) | op1 == op2 =
-    Binary pos' op1 <$> unify pos' a1 a2 <*> unify pos' b1 b2
-    where pos' = MergeTags [pos, pos1, pos2]
+  unify pos (Unary pos1 op1 a1) (Unary pos2 op2 a2)
+    | op1 == op2 =
+      Unary pos' op1 <$> unify pos' a1 a2
+    where pos' = MergeTags [pos1, pos2]
+  unify pos (Binary pos1 op1 a1 b1) (Binary pos2 op2 a2 b2)
+    | op1 == op2 =
+      Binary pos' op1 <$> unify pos' a1 a2 <*> unify pos' b1 b2
+    where pos' = MergeTags [pos1, pos2]
 
   unify pos x y = do addUError $ UExFailure pos x y
                      return x
 
 instance Unifiable (Location CExpr) where
   unify pos x@(Ref _ v1) (Ref _ v2) | v1 == v2   = return x
+  -- The rules for Index may be incorrect: (see [indexing rules])
   unify pos (Index a1 idxs1) (Index a2 idxs2) | length idxs1 == length idxs2  = do
     a' <- unify pos a1 a2
     idxs' <- forM (zip idxs1 idxs2) $ \(i1, i2) -> unify pos i1 i2
@@ -379,19 +480,19 @@ unifyTVar pos v1 t = do mb1 <- getUTypeBinding v1
 
 
 unifyEVar :: Tag SourcePos -> Variable -> CExpr -> UM CExpr
-unifyEVar pos v1 (HoleJ posv2 ty2 v2)
-  | v1 == v2  = return (HoleJ (MergeTags [pos, posv2]) ty2 v1)
+unifyEVar pos v1 (HoleJ posv2 v2)
+  | v1 == v2  = return (HoleJ (MergeTags [pos, posv2]) v1)
   | otherwise = do mb1 <- getUExprBinding v1
                    case mb1 of
                     Just (pos1, b1) -> unify (MergeTags [pos, posv2, pos1])
-                                       b1 (HoleJ posv2 ty2 v2)
+                                       b1 (HoleJ posv2 v2)
                     Nothing ->
                       do mb2 <- getUExprBinding v2
                          case mb2 of
                           Just (pos2, b2) -> unify (MergeTags [pos, posv2, pos2])
-                                             (HoleJ (MergeTags [pos, posv2, pos2]) ty2 v1) b2
-                          Nothing -> do addUExprBinding pos v1 (HoleJ (MergeTags [pos, posv2]) ty2 v2)
-                                        return $ HoleJ (MergeTags [pos, posv2]) ty2 v2
+                                             (HoleJ (MergeTags [pos, posv2, pos2]) v1) b2
+                          Nothing -> do addUExprBinding pos v1 (HoleJ (MergeTags [pos, posv2]) v2)
+                                        return $ HoleJ (MergeTags [pos, posv2]) v2
 unifyEVar pos v1 t = do mb1 <- getUExprBinding v1
                         case mb1 of
                          Just (pos1, b1) -> unify (MergeTags [pos, pos1])
@@ -431,8 +532,7 @@ unifyArithmetic pos x y = do
       when (not $ isZero zq) $
         addUError $ UExFailure pos (reduceArithmetic x) (reduceArithmetic y)
     Just p@(var, e) -> do
-      ty <- TypeHoleJ <$> gensym "lazy"
-      void $ unify pos e (HoleJ pos ty var)
+      void $ unify pos (reduceArithmetic e) (HoleJ pos var)
   return $ reduceArithmetic x
 
 typeCheckType :: Tag SourcePos -> Type -> UM Type
@@ -442,17 +542,27 @@ typeCheckType pos (VecType st idxs ty) = do
     expectInt pos idxty
     return idx
   ty' <- typeCheckType pos ty
+  case st of
+    DenseMatrix -> return ()
+    DiagonalMatrix -> checkSqrType idxs >> return ()
+    UpperTriangular -> checkSqrType idxs >> return ()
+    UpperUnitTriangular -> checkSqrType idxs >> return ()
+    LowerTriangular -> checkSqrType idxs >> return ()
+    LowerUnitTriangular -> checkSqrType idxs >> return ()
+    SymmetricMatrix -> checkSqrType idxs >> return ()
   return $ VecType st idxs' ty'
-typeCheckType pos Void = return Void
-typeCheckType pos (FnType fn) = do
+  where checkSqrType [m, n] = do unifyArithmetic pos m n
+                                 return ()
+        checkSqrType _ = addUError $ UError pos "Expecting two-dimensional vector type."
+typeCheckType pos (TupleType tys) = TupleType <$> mapM (typeCheckType pos) tys
+typeCheckType pos (FnType fn) = do  -- Adds function parameters as bindings
   let (FnT args retty) = fn
-  args' <- forM args $ \(v, b, dir, vty) -> do
-    vty' <- typeCheckType pos vty 
-    addBinding pos v vty' -- assumes bindings cleared between functions
-    return (v, b, dir, vty')
+  args' <- forM args $ \(vpos, v, b, dir, vty) -> do
+    vty' <- typeCheckType vpos vty
+    addBinding vpos v vty' -- assumes bindings cleared between functions
+    return (vpos, v, b, dir, vty')
   retty' <- typeCheckType pos retty
   return $ FnType $ FnT args' retty' -- N.B. this is the effective func type
-typeCheckType pos NumType = return NumType
 typeCheckType pos t@(IntType {}) = return t
 typeCheckType pos t@(FloatType {}) = return t
 typeCheckType pos StringType = return StringType
@@ -461,7 +571,6 @@ typeCheckType pos (PtrType ty) = PtrType <$> typeCheckType pos ty
 typeCheckType pos t@(TypedefType _) = normalizeTypesM t >>= typeCheckType pos
 typeCheckType pos t@(StructType v (ST fields)) = return t
 typeCheckType pos t@(TypeHole {}) = expandTerm t
---typeCheckType pos ty = return ty
 
 typeCheck :: CExpr -> UM Type
 typeCheck (Vec pos v range body) = do
@@ -469,6 +578,8 @@ typeCheck (Vec pos v range body) = do
   -- alpha renamed, so can just add v to scope
   addBinding pos v (IntType rt)
   bt <- typeCheck body
+  when (refOccursIn v bt) $ do
+    addUError $ URefOccurs pos v bt
   return $ VecType DenseMatrix [rangeLength pos range] bt
 typeCheck (For pos v range body) = do
   rt <- typeCheckRange pos range
@@ -476,11 +587,15 @@ typeCheck (For pos v range body) = do
   addBinding pos v (IntType rt)
   typeCheck body
   return Void
-typeCheck (Return pos a) = do
-  typeCheck a
-  return Void
+typeCheck (Return pos ty a) = do
+  mretty <- uRetType <$> get
+  aty <- typeCheck a
+  case mretty of
+    Nothing -> addUError $ UError pos "Unexpected 'return' outside function."
+    Just (pos', retty) -> void $ unify (MergeTags [pos, pos']) aty retty
+  return ty
 typeCheck (Assert pos a) = do
-  typeCheck a
+  expectBool pos =<< typeCheck a
   return Void
 typeCheck (RangeVal pos range) = do
   rt <- typeCheckRange pos range
@@ -491,49 +606,44 @@ typeCheck (If pos a b c) = do
   tyb <- typeCheck b
   tyc <- typeCheck c
   unify pos tyb tyc
-typeCheck (VoidExpr {}) = return Void
 typeCheck (IntLit pos ty _) = return $ IntType ty
 typeCheck (FloatLit pos ty _) = return $ FloatType ty
 typeCheck (StrLit {}) = return $ StringType
 typeCheck (BoolLit {}) = return $ BoolType
 typeCheck (VecLit pos ty []) = typeCheckType pos ty
 typeCheck (VecLit pos ty xs) = do
-  xtys <- forM xs $ \x -> typeCheck x
+  xtys <- mapM typeCheck xs
+  -- Take care to unify against ty last so that ty doesn't become wrong number type too early:
   ty' <- foldM (unify pos) (head xtys) $ tail xtys ++ [ty]
   return $ normalizeTypes $ VecType DenseMatrix [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
+typeCheck (TupleLit pos xs) = TupleType <$> mapM typeCheck xs
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
-  addBinding pos v tyx
+  addBinding pos v tyx -- alpha renamed, so ok
   bt <- typeCheck body
-  return  bt
+  return bt
 typeCheck (Uninitialized pos ty) = typeCheckType pos ty
 typeCheck (Seq pos a b) = do
   typeCheck a
   typeCheck b
 -- skip App
-typeCheck (ConcreteApp pos (Get _ (Ref ty v)) args) = do
+typeCheck (ConcreteApp pos (Get _ (Ref _ v)) args rty) = do
   Just (gpos, (FnType fty)) <- getBinding v
-  unify pos ty (FnType fty)
   FnEnv fargs ret <- universalizeFunType fty
   when (length args /= length fargs) $ do
     addUError $ UError (MergeTags [pos, gpos]) "COMPILER ERROR. Incorrect number of arguments."
-  forM_ (zip args fargs) $ \(arg, (v, vty)) -> do
-    unify (MergeTags [pos, gpos]) arg (HoleJ pos vty v)
+  forM_ (zip args fargs) $ \(arg, (vpos, v, vty)) -> do
+    unify (MergeTags [vpos, pos, gpos]) arg (HoleJ pos v)
     tyarg <- typeCheck arg
-    unify (MergeTags [pos, gpos]) tyarg vty
+    unify (MergeTags [vpos, pos, gpos]) tyarg vty
+  unify (MergeTags [pos, gpos]) rty ret
   return ret
-typeCheck t@(HoleJ pos ty v) = do
+typeCheck t@(HoleJ pos v) = do
   t' <- expandTerm t
   ty' <- case t' of
-    HoleJ pos' ty' _ -> typeCheckType (MergeTags [pos, pos']) ty'
-    _ -> do ty' <- typeCheck t'
-            unify pos ty ty'
-  mtb <- getUTypeBinding v
-  return ty'
-  case mtb of
-    Nothing -> addUTypeBinding pos v ty' >> return ty'
-    Just (pos', ty'') -> unify (MergeTags [pos, pos']) ty' ty''
-
+    HoleJ pos' v' -> typeCheckType pos' (TypeHoleJ v')
+    _ -> typeCheck t'
+  unify pos ty' (TypeHoleJ v)
 typeCheck (Get pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return $ normalizeTypes tyloc
@@ -541,27 +651,28 @@ typeCheck (Addr pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return $ PtrType tyloc
 typeCheck (Set pos loc v) = do
-  tyloc <- typeCheckLoc pos loc >>= normalizeTypesM
-  tyv <- typeCheck v >>= normalizeTypesM
-  unify pos tyloc tyv
-  tyv <- expandTerm tyv
-  tyloc <- expandTerm tyloc
-  when (not $ typeCanHold tyloc tyv) $ addUError $ UTyAssertFailure pos tyv tyloc
+  tyloc <- typeCheckLoc pos loc >>= expandTerm >>= normalizeTypesM
+  tyv <- typeCheck v >>= expandTerm >>= normalizeTypesM
+  unifySet tyloc tyv
   return $ Void
+  where unifySet :: Type -> Type -> UM ()
+        unifySet (VecType _ [] bty1) ty2 = unifySet bty1 ty2
+        unifySet ty1 (VecType _ [] bty2) = unifySet ty1 bty2
+        unifySet (VecType st1 (idx1:idxs1) bty1) (VecType st2 (idx2:idxs2) bty2)
+          = do unify pos idx1 idx2
+               unifySet (VecType st1 idxs1 bty1) (VecType st2 idxs2 bty2)
+        unifySet ty1 ty2 = void $ unify pos ty1 ty2
 typeCheck (AssertType pos v ty) = do
   vty <- typeCheck v
   ty' <- typeCheckType pos ty
-  unify pos vty ty'
-  ty' <- expandTerm ty
-  vty <- expandTerm vty
-  when (not $ typeCanHold ty' vty) $ addUError $ UTyAssertFailure pos vty ty'
+  _ <- unifyN pos vty ty'
   return ty'
-typeCheck (Unary pos Neg a) = do
+typeCheck (Unary pos op a) | op `elem` [Pos, Neg] = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   numTypeVectorize pos aty aty
 typeCheck (Unary pos Sum a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
-  aty' <- numTypeVectorize pos aty aty
+  aty' <- numTypeVectorize pos aty aty -- HACK
   case aty' of
    VecType _ (idx:idxs) aty'' -> return $ normalizeTypes $ VecType DenseMatrix idxs aty''
    _ -> return aty'
@@ -572,7 +683,7 @@ typeCheck (Unary pos Inverse a) = do
                                  aty'' <- unify pos aty' (FloatType defaultFloatType)
                                  return $ VecType DenseMatrix [i', i'] aty''
    _ -> do addUError $ UError pos "Inverse must be of a square matrix."
-           hole <- gensym "hole"
+           hole <- gensym "inverse"
            return $ TypeHoleJ hole
 typeCheck (Unary pos Transpose a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
@@ -580,12 +691,11 @@ typeCheck (Unary pos Transpose a) = do
    VecType _ (i1:i2:idxs) aty' -> return $ VecType DenseMatrix (i2:i1:idxs) aty'
    VecType _ [idx] aty' -> return $ VecType DenseMatrix [1,idx] aty'
    _ -> do addUError $ UError pos "Transpose must be of a vector."
-           hole <- gensym "hole"
+           hole <- gensym "transpose"
            return $ TypeHoleJ hole
-
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
-  | op `elem` [Add, Sub, Div]  = do
+  | op `elem` [Add, Sub, Hadamard, Div]  = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       numTypeVectorize pos aty bty
@@ -621,7 +731,7 @@ typeCheck (Binary pos op a b)
          ty' <- unify pos (VecType DenseMatrix aidxs aty') (VecType DenseMatrix bidxs bty')
          typeCheckType pos $ normalizeTypes $ VecType DenseMatrix [Binary pos Add aidx bidx] ty'
        _ -> do addUError $ UError pos "Bad argument types to concatenation operator."
-               hole <- gensym "hole"
+               hole <- gensym "concat"
                return $ TypeHoleJ hole
   | op `elem` [EqOp, LTOp, LTEOp] = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
@@ -636,11 +746,9 @@ numTypeVectorize pos ty1 ty2 =
    (VecType _ [] bty1, ty2) -> numTypeVectorize pos bty1 ty2
    (ty1, VecType _ [] bty2) -> numTypeVectorize pos ty1 bty2
    (VecType _ (idx1:idxs1) bty1, VecType _ (idx2:idxs2) bty2)  -> do
-     idx' <- unify pos idx1 idx2
-     subty <- numTypeVectorize pos (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2)
-     case normalizeTypes subty of
-      VecType _ idxs' bty' -> return $ VecType DenseMatrix (idx':idxs') bty'
-      bty' -> return $ VecType DenseMatrix [idx'] bty'
+     idx' <- unifyArithmetic pos idx1 idx2
+     normalizeTypes <$> (VecType DenseMatrix [idx'] <$> numTypeVectorize pos
+                         (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2))
    (VecType _ idxs1 bty1, ty2)  -> do
      bty' <- numTypeVectorize pos bty1 ty2
      return $ VecType DenseMatrix idxs1 bty'
@@ -650,56 +758,70 @@ numTypeVectorize pos ty1 ty2 =
    (ty1, ty2) -> arithType pos ty1 ty2
 
 arithType :: Tag SourcePos -> Type -> Type -> UM Type
-arithType pos ty1 ty2 =
-  case (ty1, ty2) of
-     (NumType, _) -> arithType pos (IntType IDefault) ty2
-     (_, NumType) -> arithType pos ty1 (IntType IDefault)
-     (IntType t1, IntType t2) -> return $ IntType $ arithInt t1 t2
-     (FloatType t1, IntType {}) -> return $ FloatType $ promoteFloat t1
-     (IntType {}, FloatType t2) -> return $ FloatType $ promoteFloat t2
-     (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
-     _ -> do ty' <- unify pos ty1 ty2
-             unify pos ty' NumType
-             return NumType
+arithType pos ty1 ty2 = do ty1' <- expandTerm ty1
+                           ty2' <- expandTerm ty2
+                           arithType' ty1' ty2'
+  where arithType' :: Type -> Type -> UM Type
+        arithType' ty1 ty2 = case (ty1, ty2) of
+          (TypeHoleJ {}, _) -> do ty1' <- unify pos (IntType defaultIntType) ty1
+                                  arithType' ty1' ty2
+          (_, TypeHoleJ {}) -> do ty2' <- unify pos (IntType defaultIntType) ty2
+                                  arithType' ty1 ty2'
+          (IntType t1, IntType t2) -> return $ IntType $ arithInt t1 t2
+          (FloatType t1, IntType {}) -> return $ FloatType $ promoteFloat t1
+          (IntType {}, FloatType t2) -> return $ FloatType $ promoteFloat t2
+          (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
+          _ -> do addUError $ UError pos "Invalid types for arithmetic."
+                  return $ IntType defaultIntType
 
+-- Ranges must give signed integers because they might be counting
+-- down to zero.
 typeCheckRange :: Tag SourcePos -> Range CExpr -> UM IntType
 typeCheckRange pos (Range from to step) = do
   t1 <- typeCheck from >>= expectInt pos
   t2 <- typeCheck to >>= expectInt pos
   t3 <- typeCheck step >>= expectInt pos
-  case intPromotePreserveBits t1 t2 >>= intPromotePreserveBits t3 of
-   Just t -> return $ t
-   Nothing -> do addUError $ UError (MergeTags [pos, getTag from, getTag to, getTag step])
-                   "Cannot promote to same integer types."
-                 return $ t1
+  let ty = intMerge S32 $ arithInt (arithInt t1 t2) t3
+  when (intUnsigned ty) $
+    addUError $ UError (MergeTags [pos, getTag from, getTag to, getTag step])
+      "Range integer type became unsigned, but it must be signed."
+  return ty
 
 typeCheckLoc :: Tag SourcePos -> Location CExpr -> UM Type
-typeCheckLoc pos (Ref ty v) = do
+typeCheckLoc pos (Ref _ v) = do -- We DO NOT unify against the type of the Ref.  Filled in later.
   Just (vpos, vty) <- getBinding v
-  ty' <- unify (MergeTags [pos, vpos]) ty vty
-  trace (v ++ ": " ++ show vty) $ return ty'
-typeCheckLoc pos (Index a idxs) = do
-  aty <- typeCheck a >>= normalizeTypesM
-  --trace ("***" ++ show idxs ++ "\n  --" ++ show aty) $
-  typeCheckIdx aty idxs aty
-  where typeCheckIdx oty [] aty = normalizeTypesM aty
-        typeCheckIdx oty (idx:idxs) (VecType st (ibnd:ibnds) bty) = do
-          -- idx is next index value, ibnd is next vec bound
+  return vty
+typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLocType`
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  normalizeTypes <$> typeCheckIdx aty idxs aty
+  where typeCheckIdx :: Type -- ^ type of 'a' (never changes)
+                        -> [CExpr] -- ^ indexes
+                        -> Type -- ^ type of 'a' (recursively destructured)
+                        -> UM Type -- ^ type after indexing
+        typeCheckIdx oty [] aty = normalizeTypesM aty
+        typeCheckIdx oty (idx:idxs) aty@(VecType _ (ibnd:_) _) = do
           unifyRangeIndex pos idx ibnd
-          idxty <- normalizeTypes <$> typeCheck idx
-          case idxty of
-           IntType _ -> typeCheckIdx oty idxs (VecType DenseMatrix ibnds bty)
-           VecType st' idxs' idxtybase -> do -- result shape equals shape of index
-             expectInt pos idxtybase -- consider tuple
-             bty' <- typeCheckIdx oty idxs (VecType DenseMatrix ibnds bty)
-             return $ VecType st' idxs' bty'
-           _ -> do unify pos (IntType defaultIntType) idxty -- probably should be int by default?
-                   hole <- gensym "hole"
-                   return $ TypeHoleJ hole
+          idxty <- typeCheck idx
+          typeCheckIdxty oty idxty idxs aty
         typeCheckIdx oty (idx:idxs) ty = do
           addUError $ UGenTyError pos oty "Too many indices on expression of type"
-          hole <- gensym "hole"
-          return $ TypeHoleJ hole
+          return ty
+
+        typeCheckIdxty :: Type -> Type -> [CExpr] -> Type -> UM Type
+        typeCheckIdxty oty idxty idxs (VecType st ibnds bty) =
+          case normalizeTypes idxty of
+           VecType st' idxs' idxtybase -> -- result shape equals shape of index
+             VecType st' idxs' <$> (typeCheckIdxty oty idxtybase idxs $ VecType st ibnds bty)
+           ty -> do nidxs <- iSize ty
+                    when (nidxs > length ibnds) $
+                      addUError $ UGenTyError pos oty "Too many indices on expression of type"
+                    typeCheckIdx oty idxs (VecType DenseMatrix (drop nidxs ibnds) bty)
+
+        iSize :: Type -> UM Int
+        iSize (IntType {}) = return 1
+        iSize (TupleType tys) = sum <$> mapM iSize tys
+        iSize ty = iSize . IntType =<< expectInt pos ty -- Default to int
+
         unifyRangeIndex pos idx ibound = do
           case idx of
             -- N.B. this is a special case so that ranges with
@@ -713,7 +835,7 @@ typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
   case stripPtr aty of
    StructType v (ST fields) -> case lookup field fields of
-     Just fieldTy -> return fieldTy -- error "TODO Need to replace dependent fields with struct members"
+     Just (fpos, fieldTy) -> return fieldTy -- TODO Need to replace dependent fields with struct members
      Nothing -> do addUError $ UNoField pos field
                    TypeHoleJ <$> gensym "field"
    _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field
@@ -724,11 +846,11 @@ typeCheckLoc pos (Deref a) = do
   aty <- typeCheck a
   g <- gensym "deref"
   aty' <- unify pos aty (PtrType (TypeHoleJ g))
-  case aty of
+  case aty' of
    PtrType dty -> return dty
    _ -> return (TypeHoleJ g)
 
-data FunctionEnv = FnEnv [(Variable, Type)] Type
+data FunctionEnv = FnEnv [(Tag SourcePos, Variable, Type)] Type
                  deriving Show
 
 -- | When unifying against a function type, it is something like
@@ -738,14 +860,15 @@ data FunctionEnv = FnEnv [(Variable, Type)] Type
 universalizeFunType :: FunctionType -> UM FunctionEnv
 universalizeFunType ft = do
   let ft'@(FnT args retty)= ft
-  repAList <- forM args $ \(v, req, dir, ty) -> do
+  repAList <- forM args $ \(pos, v, req, dir, ty) -> do
     v' <- gensym v
     return (v, v')
   let vMap = M.fromList repAList
-  args' <- forM args $ \(v, req, dir, ty) -> do
+  args' <- forM args $ \(pos, v, req, dir, ty) -> do
     uty <- universalizeTypeVars vMap ty
-    return (vMap M.! v, uty)
-  uretty <- (universalizeTypeVars vMap retty)
+    addUTypeBinding pos (vMap M.! v) uty
+    return (pos, vMap M.! v, uty)
+  uretty <- universalizeTypeVars vMap retty
   return $ FnEnv args' uretty
 
 
@@ -754,9 +877,7 @@ universalizeTypeVars repMap ty = traverseTerm tty texp tloc trng ty
   where tty = return
         texp expr = case expr of
           Get pos (Ref ty v) -> case M.lookup v repMap of
-            Just v' -> do
-              addUTypeBinding NoTag v' (normalizeTypes ty)
-              return $ HoleJ pos ty v'
+            Just v' -> return $ HoleJ pos v'
             Nothing -> return expr
           _ -> return expr
         tloc = return

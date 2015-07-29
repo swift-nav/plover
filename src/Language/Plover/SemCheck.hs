@@ -21,6 +21,7 @@ import Text.ParserCombinators.Parsec (SourcePos)
 data SemError = SemError (Tag SourcePos) String
               | SemUnbound (Tag SourcePos) Variable
               | SemUnboundType (Tag SourcePos) Variable
+              | SemStorageError (Tag SourcePos) Type Type
               | SemUniError UnificationError
               deriving (Show, Eq, Ord)
 
@@ -31,6 +32,8 @@ reportSemErr err
      SemError tag msg -> posStuff tag $ msg ++ "\n"
      SemUnbound tag v -> posStuff tag $ "Unbound identifier " ++ show v ++ ".\n"
      SemUnboundType tag v -> posStuff tag $ "Unbound type " ++ show v ++ ".\n"
+     SemStorageError tag ty1 ty2 -> posStuff tag $ "Expecting\n"
+                                    ++ nice ty1 ++ "\nbut given\n" ++ nice ty2 ++ "\n"
      SemUniError err -> case err of
        UError tag msg -> posStuff tag $ msg ++ "\n"
        UTyFailure tag t1 t2 -> posStuff tag $ "Could not unify type\n"
@@ -45,19 +48,22 @@ reportSemErr err
                              ++ " in type\n" ++ nice ty ++ "\n"
        UExOccurs tag v ex -> posStuff tag $ "Occurs check error for " ++ show v
                              ++ " in expression\n" ++ nice ex ++ "\n"
+       URefOccurs tag v ty -> posStuff tag $ "Variable " ++ show v
+                              ++ " occurs in type\n" ++ nice ty ++ "\n"
        UNoField tag v -> posStuff tag $ "No such field " ++ show v ++ "\n"
        UGenTyError tag ty msg -> posStuff tag $ msg ++ "\n" ++ nice ty ++ "\n"
   where posStuff tag s = do sls <- mapM showLineFromFile (sort $ nub $ getTags tag)
                             return $ "Error " ++ unlines (("at " ++) <$> sls) ++ s
-        nice :: PP a => a -> String
-        nice t = show $ PP.nest 3 (pretty t)
+        nice :: (Show a, PP a) => a -> String
+        nice t = show $ PP.nest 3 $ if True then pretty t else PP.text $ show t
 
 
 data SemCheckData = SemCheckData
                     { semErrors :: [SemError]
-                    , gensymState :: [String] -- already-used variables
+                    , gensymState :: [String] -- ^ already-used variables
                     , globalBindings :: Map Variable DefBinding
-                    , localBindings :: Map Variable (Tag SourcePos, Variable) -- for α-renaming
+                    , localBindings :: Map Variable (Tag SourcePos, Variable) -- ^ for α-renaming
+                    , semRetType :: Type -- the current function's return type
                     }
                   deriving Show
 
@@ -67,8 +73,10 @@ newSemCheckData vs = SemCheckData
                      , gensymState = vs
                      , globalBindings = M.empty
                      , localBindings = M.empty
+                     , semRetType = error "semRetType not defined"
                      }
 
+type SemChecker = State SemCheckData
 
 runSemChecker :: SemChecker v -> Either [SemError] v
 runSemChecker m = let (v, s) = runState m (newSemCheckData [])
@@ -88,34 +96,33 @@ doSemCheck defs = runSemChecker dochecks
                       he <- hasErrors
                       if not he
                         then case runUM defs' (typeCheckToplevel defs') of
-                              Right defs'' -> return defs''
-                              Left errs -> do mapM_ (addError . SemUniError) errs
-                                              return []
+                          Right defs'' -> do topVerifyStorage defs''
+                                             return defs''
+                          Left errs -> do mapM_ (addError . SemUniError) errs
+                                          return []
                         else return []
---                      globalBindings <$> get
-
 
 gensym :: String -> SemChecker String
 gensym prefix = do names <- gensymState <$> get
-                   gensym' names (length names)
-  where gensym' :: [String] -> Int -> SemChecker String
-        gensym' names i = let newName = prefix ++ "$" ++ show i
-                          in if newName `elem` names
-                             then gensym' names (1 + i)
-                             else do modify $ \state -> state { gensymState = newName : gensymState state }
-                                     return newName
+                   gensym' (length names) names
+  where gensym' :: Int -> [String] -> SemChecker String
+        gensym' i names = if newName `elem` names
+                          then gensym' (1 + i) names
+                          else do modify $ \state -> state { gensymState = newName : gensymState state }
+                                  return newName
+          where newName = prefix ++ "$" ++ show i
 
 -- | Generates a fresh variable name.
 genVar :: SemChecker Variable
 genVar = gensym ""
 
+-- | Generates a fresh unification variable with a given prefix
 genUVarP :: String -> SemChecker UVar
 genUVarP = gensym
 
+-- | Generates a fresh unification variable
 genUVar :: SemChecker UVar
 genUVar = genUVarP ""
-
-type SemChecker = State SemCheckData
 
 addError :: SemError -> SemChecker ()
 addError e = do sd <- get
@@ -124,7 +131,7 @@ addError e = do sd <- get
 hasErrors :: SemChecker Bool
 hasErrors = not . null . semErrors <$> get
 
--- | Adds the error to the error list of the condition is false.
+-- | Adds the error to the error list if the condition is false.
 semAssert :: Bool -> SemError -> SemChecker ()
 semAssert b e = if b then return () else addError e
 
@@ -245,7 +252,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                          ValueDef mexp ty -> do ty' <- fillTypeHoles pos ty
                                                 return $ ValueDef mexp ty'
                          StructDef members -> do
-                           members' <- forM members $ \(v,ty) -> do
+                           members' <- forM members $ \(v,(vpos,ty)) -> do
                              ty' <- fillTypeHoles pos ty
                              mtag <- addNewLocalBinding pos v v
                              case mtag of
@@ -253,26 +260,26 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                                 addError $ SemError (MergeTags [otag, pos]) $
                                   "Redefinition of member " ++ show v ++ " in struct."
                               Nothing -> return ()
-                             return (v, ty')
+                             return (v, (vpos, ty'))
                            return $ StructDef members'
                        return $ defb { definition = def' }
                      modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
 
 completeFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
 completeFunType pos ft = do let FnT args rty = ft
-                            args' <- forM args $ \(v, req, dir, vty) -> do
-                              vty' <- fillTypeHoles pos vty
+                            args' <- forM args $ \(vpos, v, req, dir, vty) -> do
+                              vty' <- fillTypeHoles vpos vty
                               mglob <- lookupGlobalBinding v
                               when (isJust mglob) $ addError $
                                 SemError (MergeTags [bindingPos (fromJust mglob), pos]) $
-                                "Argument " ++ show v ++ " cannot mask global definition."
-                              mlastpos <- addNewLocalBinding pos v v
+                                "Parameter " ++ show v ++ " cannot mask global definition."
+                              mlastpos <- addNewLocalBinding vpos v v
                               case mlastpos of
                                Just otag -> do
-                                 addError $ SemError (MergeTags [otag, pos]) $
-                                   "Redefinition of argument " ++ show v ++ " in function type."
+                                 addError $ SemError (MergeTags [otag, vpos]) $
+                                   "Redefinition of parameter " ++ show v ++ " in function type."
                                Nothing -> return ()
-                              return (v, req, dir, vty')
+                              return (vpos, v, req, dir, vty')
                             rty' <- fillTypeHoles pos rty
                             return $ FnT args' rty'
                                        
@@ -280,8 +287,8 @@ completeFunType pos ft = do let FnT args rty = ft
 withinFun :: Tag SourcePos -> FunctionType -> SemChecker a -> SemChecker a
 withinFun pos ft m = withNewScope $ do
   let (FnT args rty, _) = getEffectiveFunType ft
-  forM_ args $ \(v, req, dir, vty) -> do
-    void $ addNewLocalBinding pos v v
+  forM_ args $ \(vpos, v, req, dir, vty) -> do
+    void $ addNewLocalBinding vpos v v
   m
 
 -- | Fill holes in AST, add implicit arguments, check for undefined
@@ -325,17 +332,17 @@ fillValHoles exp = case exp of
       _ <- addNewLocalBinding pos v v'
       expr' <- fillValHoles expr
       return $ For pos v' range' expr'
-  Return pos v -> Return pos <$> fillValHoles v
+  Return pos ty v -> Return pos <$> fillTypeHoles pos ty <*> fillValHoles v
   Assert pos a -> Assert pos <$> fillValHoles a
   RangeVal pos range -> RangeVal pos <$> fillRangeHoles range
   If pos a b c -> do [a', b', c'] <- mapM fillValHoles [a, b, c]
                      return $ If pos a' b' c'
-  VoidExpr _ -> return exp
   IntLit _ _ _ -> return exp
   FloatLit _ _ _ -> return exp
   StrLit _ _ -> return exp
   BoolLit _ _ -> return exp
   VecLit pos ty exprs -> VecLit pos <$> fillTypeHoles pos ty <*> mapM fillValHoles exprs
+  TupleLit pos exprs -> TupleLit pos <$> mapM fillValHoles exprs
   Let pos v val expr -> do
     val' <- fillValHoles val
     withNewScope $ do
@@ -348,28 +355,26 @@ fillValHoles exp = case exp of
   App pos fn@(Get _ (Ref _ f)) args -> do
     mf <- lookupGlobalType f
     case mf of
-     Just (FnType ft) -> (ConcreteApp pos fn <$> matchArgs pos args ft) >>= fillValHoles
+     Just (FnType ft) -> (ConcreteApp pos fn <$> matchArgs pos args ft <*> return (TypeHole Nothing)) >>= fillValHoles
      Just _ -> do addError $ SemError pos "Cannot call non-function."
                   return exp
      Nothing -> do addError $ SemError pos "No such global function."
                    return exp
   App pos _ _ -> do addError $ SemError pos "Cannot call expression."
                     return exp
-  ConcreteApp pos fn@(Get _ (Ref _ f)) args -> do
+  ConcreteApp pos fn@(Get _ (Ref _ f)) args rty -> do
     mf <- lookupGlobalType f
     case mf of
      Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == length fargs) $
                                               SemError pos "Incorrect number of arguments in function application."
-                                            ConcreteApp pos <$> fillValHoles fn <*> mapM fillValHoles args
+                                            ConcreteApp pos <$> fillValHoles fn <*> mapM fillValHoles args <*> fillTypeHoles pos rty
      Just _ -> do addError $ SemError pos "Cannot call non-function."
                   return exp
      Nothing -> do addError $ SemError pos "No such global function."
                    return exp
-  ConcreteApp pos _ _ -> do addError $ SemError pos "Cannot call expression."
-                            return exp
-  Hole pos Nothing -> do name <- genUVar
-                         ty <- genUVar
-                         return $ HoleJ pos (TypeHoleJ ty) name
+  ConcreteApp pos _ _ _ -> do addError $ SemError pos "Cannot call expression."
+                              return exp
+  Hole pos Nothing -> HoleJ pos <$> genUVar
   Hole _ _ -> return exp
   Get pos loc -> Get pos <$> fillLocHoles pos loc
   Addr pos loc -> Addr pos <$> fillLocHoles pos loc
@@ -385,10 +390,9 @@ fillTypeHoles pos ty = case ty of
   VecType st idxs ety -> do ety' <- fillTypeHoles pos ety
                             idxs' <- mapM fillValHoles idxs
                             return $ VecType st idxs' ety'
-  Void -> return ty
+  TupleType tys -> TupleType <$> mapM (fillTypeHoles pos) tys
   FnType (FnT args ret) -> do addError $ SemError pos "COMPILER ERROR. Scoping issues when filling type holes of function type."
                               return ty
-  NumType -> return ty
   IntType mt -> return ty
   FloatType mt -> return ty
   StringType -> return ty
@@ -415,8 +419,7 @@ fillLocHoles :: Tag SourcePos -> Location CExpr -> SemChecker (Location CExpr)
 fillLocHoles pos loc = case loc of
   Ref ty v -> do mv' <- lookupSym v
                  case mv' of
-                  Just (_, v') -> do ty' <- fillTypeHoles pos ty
-                                     return $ Ref ty' v'
+                  Just (_, v') -> return $ Ref ty v'
                   Nothing -> do addError $ SemUnbound pos v
                                 return loc
   Index a idxs -> do a' <- fillValHoles a
@@ -438,29 +441,88 @@ matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
 matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
   where
     -- A passed argument matches a required argument
-    matchArgs' i (Arg x : xs) ((v, True, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
+    matchArgs' i (Arg x : xs) ((vpos, v, True, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- An omitted implicit argument is filled with a value hole
-    matchArgs' i xs@(Arg _ : _) ((v, False, _, ty) : fxs) = addImplicit i v ty xs fxs
-    matchArgs' i [] ((v, False, _, ty) : fxs) = addImplicit i v ty [] fxs
+    matchArgs' i xs@(Arg _ : _) ((vpos, v, False, _, ty) : fxs) = addImplicit i v ty xs fxs
+    matchArgs' i [] ((vpos, v, False, _, ty) : fxs) = addImplicit i v ty [] fxs
     -- (error) An implicit argument where a required argument is expected
-    matchArgs' i (ImpArg x : xs) ((v, True, dir, ty) : fxs) = do
-      addError $ SemError pos $ "Unexpected implicit argument in position " ++ show i ++ "."
-      matchArgs' (1 + i) xs ((v, True, dir, ty) : fxs)
+    matchArgs' i (ImpArg x : xs) ((vpos, v, True, dir, ty) : fxs) = do
+      addError $ SemError vpos $ "Unexpected implicit argument in position " ++ show i ++ "."
+      matchArgs' (1 + i) xs ((vpos, v, True, dir, ty) : fxs)
     -- An implicit argument given where an implicit argument expected
-    matchArgs' i (ImpArg x : xs) ((v, False, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
+    matchArgs' i (ImpArg x : xs) ((vpos, v, False, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- (error) Fewer arguments than parameters
     matchArgs' i [] (fx : fxs) = do addError $ SemError pos $ "Not enough arguments.  Given " ++ show i ++ "; " ++ validRange
                                     name <- genUVar -- try to recover for error message's sake
-                                    ty <- genUVar
-                                    (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i [] fxs
+                                    (HoleJ pos name :) <$> matchArgs' i [] fxs
     -- Exactly the correct number of arguments
     matchArgs' i [] [] = return []
     matchArgs' i xs [] = do addError $ SemError pos $ "Too many arguments.  Given " ++ show i ++ ", " ++ validRange ++ "."
                             return []
 
-    numReq = length $ filter (\(_, b, _, _) -> b) fargs
+    numReq = length $ filter (\(_, _, b, _, _) -> b) fargs
     validRange = "expecting " ++ show numReq ++ " required and " ++ show (length fargs - numReq) ++ " implicit arguments"
 
     addImplicit i v ty xs fxs = do name <- genUVarP v
-                                   ty <- genUVar
-                                   (HoleJ pos (TypeHoleJ ty) name :) <$> matchArgs' i xs fxs
+                                   (HoleJ pos name :) <$> matchArgs' i xs fxs
+
+
+
+-- | The unifier does not check type inequalities (like "float storage
+-- contains int"). We check them here.  We also check that all holes
+-- have been filled.
+topVerifyStorage :: [DefBinding] -> SemChecker ()
+topVerifyStorage dbs = mapM_ verifyStorageDefBinding dbs
+
+verifyStorageDefBinding :: DefBinding -> SemChecker ()
+verifyStorageDefBinding db = case definition db of
+  FunctionDef mexp (FnT args retty) -> do
+    forM_ args $ \(pos, v, b, dir, ty) -> do
+      verifyStorage pos ty
+    verifyStorage (bindingPos db) retty
+    modify $ \state -> state { semRetType = retty }
+    case mexp of
+      Nothing -> return ()
+      Just exp -> do verifyStorage (bindingPos db) exp
+                     when (not $ typeCanHold retty (getType exp)) $
+                       addError $ SemStorageError (bindingPos db) retty (getType exp)
+  StructDef fields -> return () -- TODO actually verify
+  ValueDef mexp ty -> do
+    verifyStorage (bindingPos db) ty
+    case mexp of
+      Nothing -> return ()
+      Just exp -> do verifyStorage (bindingPos db) exp
+                     when (not $ typeCanHold ty (getType exp)) $
+                       addError $ SemStorageError (bindingPos db) ty (getType exp)
+
+verifyStorage :: TermMappable a => Tag SourcePos -> a -> SemChecker ()
+verifyStorage rpos = void . traverseTerm tty texp tloc trng
+  where tty ty@(TypeHole {}) = do addError $ SemError rpos $ "Unresolved type hole " ++ show ty
+                                  return ty
+        tty ty = return ty
+
+        texp ex@(Return pos _ v) = do verifyStorage pos v
+                                      let vty = getType v
+                                      retty <- semRetType <$> get
+                                      when (not $ typeCanHold retty vty) $
+                                        addError $ SemStorageError (getTag v) retty vty
+                                      return ex
+        texp ex@(Set pos loc v) = do verifyStorage pos loc
+                                     verifyStorage pos v
+                                     let lty = getLocType loc
+                                         vty = getType v
+                                     when (not $ typeCanHold lty vty) $
+                                       addError $ SemStorageError (getTag v) lty vty
+                                     return ex
+        texp ex@(AssertType pos v ty) = do verifyStorage pos v
+                                           verifyStorage pos ty
+                                           let vty = getType v
+                                           when (not $ typeCanHold ty vty) $ -- TODO is typeCanHold correct?
+                                             addError $ SemStorageError pos ty vty
+                                           return ex
+        texp ex@(Hole pos _) = do addError $ SemError pos $ "Unresolved hole."
+                                  return ex
+        texp ex = return ex
+
+        tloc = return
+        trng = return

@@ -34,8 +34,8 @@ data CodeGenState = CodeGenState
                     { bindings :: M.Map String String
                     , usedNames :: [String]
                     , genCode :: [C.BlockItem]
+                    , genRetLoc :: Maybe CmLoc
                     }
-                    deriving Show
 
 
 type CM a = State CodeGenState a
@@ -46,7 +46,7 @@ doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
                             return (Mainland.pretty 80 $ Mainland.ppr header, Mainland.pretty 80 $ Mainland.ppr code)
 
 runCM :: CM a -> a
-runCM m = evalState m (CodeGenState M.empty [] [])
+runCM m = evalState m (CodeGenState M.empty [] [] Nothing)
 
 writeCode :: [C.BlockItem] -> CM ()
 writeCode code = modify $ \state -> state { genCode = genCode state ++ code }
@@ -58,6 +58,11 @@ withCode m = do code <- genCode <$> get
                 code' <- genCode <$> get
                 modify $ \state -> state { genCode = code }
                 return (code', x)
+
+mkIf :: C.Exp -> [C.BlockItem] -> [C.BlockItem] -> CM ()
+mkIf aexp bbl [] = writeCode [citems| if ($aexp) { $items:bbl } |]
+mkIf aexp [] cbl = writeCode [citems| if (!$aexp) { $items:cbl } |]
+mkIf aexp bbl cbl = writeCode [citems| if ($aexp) { $items:bbl } else { $items:cbl } |]
 
 newScope :: CM a -> CM a
 newScope m = do bs <- bindings <$> get
@@ -144,7 +149,7 @@ compileFunctionDecl defb name ft = do
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
-        args' = [(v, dir, ty) | (v, _, dir, ty) <- args, nonVoid ty]
+        args' = [(v, dir, ty) | (_, v, _, dir, ty) <- args, nonVoid ty]
         addStatic (C.DecDef (C.InitGroup (C.DeclSpec storage tqual tspec srclocd) attrs inits srclocf) srclocfd)
           = C.DecDef (C.InitGroup (C.DeclSpec (storage ++ [C.Tstatic srclocd]) tqual tspec srclocd)
                                attrs inits srclocf) srclocfd
@@ -157,8 +162,9 @@ compileFunction name ft exp = do
   (blks,_) <- withCode $ case mret of
     Just (v, retty') -> do v' <- lookupName "arg" v
                            let dest = case normalizeTypes retty' of
-                                       VecType st bnds retty'' -> mkVecLoc retty'' [cexp| $id:(v') |] bnds
+                                       VecType {} -> mkVecLoc retty' [cexp| $id:(v') |]
                                        retty'' -> refLoc retty'' v'
+                           modify $ \state -> state { genRetLoc = Just dest }
                            withDest (compileStat exp) dest
     Nothing ->  case retty of
                   Void -> noValue $ compileStat exp
@@ -171,7 +177,7 @@ compileFunction name ft exp = do
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
-        args' = [(v, dir, ty) | (v, _, dir, ty) <- args, nonVoid ty]
+        args' = [(v, dir, ty) | (_, v, _, dir, ty) <- args, nonVoid ty]
 
 
 compileParams :: [(Variable, ArgDir, Type)] -> CM [C.Param]
@@ -187,8 +193,16 @@ compileParam (v, dir, ty) = do v' <- lookupName "arg" v
 compileType :: Type -> C.Type
 compileType = compileType' . normalizeTypes
 
+-- | Produces the c type for a reference to a vector
+compileVecType :: Type -> C.Type
+compileVecType ty = [cty|$ty:(compileType (vecBaseType ty))*|]
+
+vecBaseType :: Type -> Type
+vecBaseType (VecType _ _ bty) = vecBaseType bty
+vecBaseType bty = bty
+
 compileType' :: Type -> C.Type
-compileType' (VecType _ _ ty) = [cty|$ty:(compileType ty)*|] -- make sure type is normalized
+compileType' (VecType _ _ ty) = compileVecType ty
 compileType' Void = [cty|void|]
 compileType' (IntType IDefault) = compileType (IntType actualDefaultIntType)
 compileType' (IntType U8) = [cty|typename u8|]
@@ -215,10 +229,46 @@ compileInitType :: Type -> CM C.Type
 compileInitType ty = compileInitType' (normalizeTypes ty)
 
 compileInitType' :: Type -> CM C.Type
-compileInitType' (VecType _ idxs base) = do sizeex <- asExp $ compileStat (foldr1 (*) idxs)
-                                            basety <- compileInitType base
-                                            return [cty|$ty:basety[$sizeex] |]
+compileInitType' vec@(VecType {}) = compileVecInitType vec
 compileInitType' t = return $ compileType t
+
+-- | Produces the c type for initializing a vector
+compileVecInitType :: Type -> CM C.Type
+compileVecInitType vec = do (sizeex, bty) <- typeSize vec
+                            let basety = compileType bty
+                            return [cty|$ty:basety[$sizeex]|]
+
+storageTypeSize :: StorageType -> [CExpr] -> CExpr
+storageTypeSize DenseMatrix bnds = foldr1 (*) bnds
+storageTypeSize DiagonalMatrix [m, _] = m
+storageTypeSize UpperTriangular [m, _] = m * (m + 1) / 2
+storageTypeSize UpperUnitTriangular [m, _] = m * (m - 1) / 2
+storageTypeSize LowerTriangular bnds = storageTypeSize UpperTriangular bnds
+storageTypeSize LowerUnitTriangular bnds = storageTypeSize UpperUnitTriangular bnds
+storageTypeSize SymmetricMatrix [m, _] = m * (m + 1) / 2
+
+-- | Returns the compiled number of elements for a vector type
+typeSize :: Type -> CM (C.Exp, Type)
+typeSize ty = do let (size, bty) = accumulateBounds [] ty
+                 sizeex <- asExp $ compileStat $ case size of
+                   [] -> 1
+                   _ -> foldr1 (*) size
+                 return (sizeex, bty)
+  where accumulateBounds :: [CExpr] -> Type -> ([CExpr], Type)
+        accumulateBounds abnds (VecType st bnds base) = accumulateBounds (abnds ++ [storageTypeSize st bnds]) base
+        accumulateBounds abnds ty = (abnds, ty)
+
+-- | Gets an expression for uninitialized data if it's needed.
+compileUninit :: Type -> C.Exp
+compileUninit (VecType _ _ ty) = [cexp|($ty:(compileType ty)*)NULL|]
+compileUninit Void = [cexp|(void)0|]
+compileUninit (IntType {}) = [cexp|0|]
+compileUninit (FloatType {}) = [cexp|0.0|]
+compileUninit StringType = [cexp|""|]
+compileUninit BoolType = [cexp|false|]
+compileUninit (PtrType {}) = [cexp|NULL|]
+--compileUninit (TypedefType v) = [cexp|(typename $id:v){}|]
+--compileUninit (StructType v) = [cexp|(typename $id:v){}|]
 
 data Compiled = Compiled { noValue :: CM ()
                          , withDest :: CmLoc -> CM ()
@@ -252,21 +302,28 @@ data CmLoc = CmLoc { apIndex :: C.Exp -> CM CmLoc
 
 -- | makes a location based on an expression
 expLoc :: Type -> CM C.Exp -> CmLoc
-expLoc ty mexp =
-    CmLoc
-    { apIndex = \idx -> case normalizeTypes ty of
-                          VecType _ bnds baseTy -> do exp <- mexp
-                                                      apIndex (mkVecLoc baseTy exp bnds) idx
-                          _ -> error "Cannot apIndex simple expLoc"
-    , store = \v -> do exp <- mexp
-                       case normalizeTypes ty of
-                         VecType _ bnds baseTy -> error "Cannot simple store into vector expLoc"
-                         _ -> writeCode [citems| $exp = $v; |]
-    , asRValue = compPureExpr ty mexp -- not correct for vector, but shouldn't be used anyway
-    , asArgument = do exp <- mexp
-                      return ([], exp, [])
-    , locType = ty
-    }
+expLoc ty mexp = case normalizeTypes ty of
+  ty'@(VecType {}) -> vecLoc ty'
+  ty' -> simpleLoc ty'
+
+  where simpleLoc ty = CmLoc
+                       { apIndex = error "Cannot apIndex simple expLoc"
+                       , store = \v -> do exp <- mexp
+                                          writeCode [citems| $exp = $v; |]
+                       , asRValue = compPureExpr ty mexp
+                       , asArgument = do exp <- mexp
+                                         return ([], exp, [])
+                       , locType = ty
+                       }
+        vecLoc vty = CmLoc
+                     { apIndex = \idx -> do exp <- mexp
+                                            apIndex (mkVecLoc vty exp) idx
+                     , store = error "Cannot simple store into vector expLoc"
+                     , asRValue = error "Cannot get expLoc vector as R value"
+                     , asArgument = do exp <- mexp
+                                       asArgument (mkVecLoc vty exp)
+                     , locType = ty
+                     }
 
 -- | takes a C identifier and makes a simple-valued location
 refLoc :: Type -> String -> CmLoc
@@ -280,48 +337,168 @@ freshLoc v ty = do v' <- freshName v
 -- | generates a stack location using the C identifier
 makeLoc :: String -> Type -> CM CmLoc
 makeLoc v ty = case normalizeTypes ty of
-  VecType _ idxs bty -> do vty <- compileInitType ty
-                           writeCode [citems| $ty:vty $id:v; |]
-                           return $ mkVecLoc bty [cexp| $id:v |] idxs
-  _ -> do vty <- compileInitType ty
-          writeCode [citems| $ty:vty $id:v; |]
-          return $ refLoc ty v
+  ty'@(VecType {}) -> do vty <- compileInitType ty'
+                         writeCode [citems| $ty:vty $id:v; |]
+                         return $ mkVecLoc ty' [cexp| $id:v |]
+  ty' -> do vty <- compileInitType ty'
+            writeCode [citems| $ty:vty $id:v; |]
+            return $ refLoc ty' v
+
+data VecOffset = NoOffset | Offset C.Exp
+-- | Takes an unscaled offset along with a scaling width and
+-- (maybe) an interior offset, producing a new, scaled offset.
+shiftOffset :: VecOffset -> C.Exp -> Maybe C.Exp -> VecOffset
+shiftOffset NoOffset _ Nothing = NoOffset
+shiftOffset NoOffset _ (Just i) = Offset i
+shiftOffset (Offset k) w Nothing = if w == [cexp| 1 |]
+                                   then Offset k
+                                   else Offset [cexp| $w * $k |]
+shiftOffset (Offset k) w (Just i) = Offset [cexp| $w * $k + $i |]
+-- | Converts the offset to a C expression.
+getOffset :: VecOffset -> C.Exp
+getOffset NoOffset = [cexp| 0 |]
+getOffset (Offset i) = i
+-- | Takes a completed offset and applies it to some array
+applyOffset :: C.Exp -> VecOffset -> C.Exp
+applyOffset exp off = [cexp| $exp[$(getOffset off)] |]
+-- | Takes a completed offset and applies it to some array, getting the address
+applyOffsetAddr :: C.Exp -> VecOffset -> C.Exp
+applyOffsetAddr exp NoOffset = exp
+applyOffsetAddr exp (Offset i) = [cexp| &$exp[$i] |]
 
 -- | Type is normalized type of vector.  Creates a vector based on
 -- using C indexing of the expression, assuming the expression is
 -- stored linearly in memory.
-mkVecLoc :: Type -> C.Exp -> [CExpr] -> CmLoc
-mkVecLoc baseTy vec bnds = mkVecLoc' [] bnds
-  where mkVecLoc' :: [(C.Exp, CExpr)] -> [CExpr] -> CmLoc
-        mkVecLoc' acc [] = CmLoc {
-          apIndex = error "All indices already applied."
-          , store = \exp -> do idxc <- collapseIdx idx idxs bnds
-                               writeCode [citems| $vec[$idxc] = $exp; |]
-          , asRValue = compImpureExpr baseTy $
-                       do idxc <- collapseIdx idx idxs bnds
-                          return [cexp| $vec[$idxc] |]
-          , asArgument = do idxc <- collapseIdx idx idxs bnds
-                            return ([], [cexp| $vec[$idxc] |], [])
+mkVecLoc :: Type -> C.Exp -> CmLoc
+mkVecLoc ty exp = mkVecLoc' exp NoOffset (denormalizeTypes ty)
+
+-- | The offset is _unscaled_ (i.e., it represents that this is the offset'th of this kind in the array)
+mkVecLoc' :: C.Exp -> VecOffset -> Type -> CmLoc
+mkVecLoc' array offset vty@(VecType storageType bnds baseTy) = collectIdxs [] bnds
+  where collectIdxs :: [(C.Exp, C.Exp)] -> [CExpr] -> CmLoc  -- tuple is of index, compiled bound expression
+        collectIdxs acc [] = CmLoc {
+          apIndex = \idx -> buildLoc acc >>= flip apIndex idx
+          , store = \exp -> buildLoc acc >>= flip store exp
+          , asRValue = defaultAsRValue (buildLoc acc)
+          , asArgument = buildLoc acc >>= asArgument
           , locType = baseTy
           }
-          where (idx:idxs, _:bnds) = unzip acc
-        mkVecLoc' acc (bnd:bnds) = CmLoc {
-          apIndex = \idx -> return $ mkVecLoc' (acc ++ [(idx, bnd)]) bnds
+        collectIdxs acc (bnd:bnds) = CmLoc {
+          apIndex = \idx -> do bndex <- asExp $ compileStat bnd
+                               return $ collectIdxs (acc ++ [(bndex, idx)]) bnds
           , store = error "Cannot do simple store into vector"
-          , asRValue = error "Cannot get vector as rvalue" -- compPureExpr (VecType (bnd:bnds) baseTy) $ return ([], vec) -- TODO ?
+          , asRValue = error "Cannot get vector as rvalue"
           , asArgument = case acc of
-              [] -> return ([], vec, [])
-              _ -> do let (idx:idxs, bnds') = unzip (acc ++ zip (repeat [cexp|0|]) (bnd:bnds))
-                      idxc <- collapseIdx idx idxs bnds'
-                      return ([], [cexp| $vec + $idxc |], [])
-          , locType = VecType DenseMatrix (bnd:bnds) baseTy
-        }
+             [] -> do absOffset <- mabsOffset
+                      return ([], [cexp| $(applyOffsetAddr array absOffset) |], [])
+             _ -> error "partial application asArgument unimplemented"
+          , locType = case acc of
+                        [] -> VecType storageType (bnd:bnds) baseTy
+                        _ -> VecType DenseMatrix (bnd:bnds) baseTy
+          }
 
-        collapseIdx :: C.Exp -> [C.Exp] -> [CExpr] -> CM C.Exp
-        collapseIdx accidx [] _ = return accidx
-        collapseIdx accidx (idx:idxs) (bnd:bnds) = do bndex <- asExp $ compileStat bnd
-                                                      collapseIdx [cexp| $bndex * $accidx + $idx |]
-                                                                  idxs bnds
+        mabsOffset = do (sizeex, bty) <- typeSize vty
+                        return $ shiftOffset offset sizeex Nothing
+
+        -- | acc is a list of (width, idx) tuples
+        buildLoc :: [(C.Exp, C.Exp)] -> CM CmLoc
+        buildLoc acc = let subloc w i = mkVecLoc' array (shiftOffset offset w (Just i)) baseTy
+                       in indexStorage storageType acc subloc
+        
+mkVecLoc' array offset ty = expLoc ty (return $ applyOffset array offset)
+
+
+-- | Takes a storage type, a list of (bnd, idx) tuples, a function
+-- creating a location from a width and an index for the sublocation,
+-- and returns a location.
+indexStorage :: StorageType -> [(C.Exp, C.Exp)] -> (C.Exp -> C.Exp -> CmLoc) -> CM CmLoc
+indexStorage DenseMatrix acc subLoc = return $ subLoc width i
+  where i = getOffset (foldl (\off (w, idx) ->
+                                 shiftOffset off w (Just idx))
+                       NoOffset acc)
+        width = foldl1 (\wid w -> [cexp| $wid * $w |])
+                (map fst acc)
+indexStorage DiagonalMatrix [(w, i), (_, j)] subLoc =
+  if i == j -- this check is so that storeLoc can give better code
+  then return sl
+  else return $ condLoc [cexp| $i == $j |] sl (constLoc vty uninit)
+  where sl = subLoc w i
+        vty = locType sl
+        bty = vecBaseType vty
+        uninit = compileUninit bty
+indexStorage LowerTriangular [(w, i), (_, j)] subLoc =
+  return $ condLoc [cexp| $i >= $j |] sl (constLoc vty uninit)
+  where sl = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $i * ($i + 1) / 2 + $j|]
+        vty = locType sl
+        bty = vecBaseType vty
+        uninit = compileUninit bty
+indexStorage UpperTriangular [(w, i), (_, j)] subLoc =
+  return $ condLoc [cexp| $j >= $i |] sl (constLoc vty uninit)
+  where sl = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $j * ($j + 1) / 2 + $i|]
+        vty = locType sl
+        bty = vecBaseType vty
+        uninit = compileUninit bty
+indexStorage SymmetricMatrix [(w, i), (_, j)] subLoc =
+  return $ condLoc [cexp| $i >= $j |] sl1 sl2
+  where sl1 = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $i * ($i + 1) / 2 + $j|]
+        sl2 = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $j * ($j + 1) / 2 + $i|]
+        vty = locType sl1
+        bty = vecBaseType vty
+        uninit = compileUninit bty
+
+-- | A location which is a constant, pure value.  Accepts storing of
+-- simple values by ignoring.
+constLoc :: Type -> C.Exp -> CmLoc
+constLoc ty exp = constLoc' (denormalizeTypes ty)
+  where constLoc' vty@(VecType _ _ bty) = loc
+          where loc = CmLoc
+                      { apIndex = \idx -> return $ constLoc bty exp
+                      , store = error "no store in vec constLoc"
+                      , asRValue = error "no asRValue in vec constLoc"
+                      , asArgument = defaultAsArgument loc
+                      , locType = vty }
+        constLoc' ty = CmLoc
+                       { apIndex = error "no apIndex in simple constLoc"
+                       , store = \v -> return ()
+                       , asRValue = compPureExpr ty (return exp)
+                       , asArgument = return ([], exp, [])
+                       , locType = ty }
+
+-- | If the expression is true, then it's the first location.
+-- Otherwise, it's the second.
+condLoc :: C.Exp -> CmLoc -> CmLoc -> CmLoc
+condLoc cond cons alt = condLoc' (denormalizeTypes $ locType cons) cons alt
+  where condLoc' vty@(VecType _ _ bty) cons alt = loc
+          where loc = CmLoc
+                      { apIndex = \idx -> do cons' <- apIndex cons idx
+                                             alt' <- apIndex alt idx
+                                             return $ condLoc' bty cons' alt'
+                      , store = error "no store in vec condLoc"
+                      , asRValue = error "no asRValue in vec condLoc"
+                      , asArgument = defaultAsArgument loc
+                      , locType = vty }
+        condLoc' ty cons alt = loc
+          where loc = CmLoc {
+                  apIndex = error "no apIndex in simple condLoc"
+                  , store = \v -> do (consSt, _) <- withCode $ newScope $ store cons v
+                                     (altSt, _) <- withCode $ newScope $ store alt v
+                                     mkIf cond consSt altSt
+                  , asRValue = comp
+                  , asArgument = defaultAsArgument loc
+                  , locType = ty }
+
+                cons' = asRValue cons
+                alt' = asRValue alt
+
+                comp = Compiled
+                       { noValue = do (bbl,_) <- withCode $ newScope $ noValue cons'
+                                      (cbl,_) <- withCode $ newScope $ noValue alt'
+                                      mkIf cond bbl cbl
+                       , withDest = \d -> do (bbl,_) <- withCode $ newScope $ withDest cons' d
+                                             (cbl,_) <- withCode $ newScope $ withDest alt' d
+                                             mkIf cond bbl cbl
+                       , asExp = defaultAsExp ty comp
+                       , asLoc = return loc }
 
 -- | Creates a location which lets indices be applied on a given
 -- location a fixed number of times before handing the location to a
@@ -339,13 +516,6 @@ deferLoc ty loc n f = return dloc
                , asArgument = defaultAsArgument dloc
                , locType = ty
                }
-        -- comp = Compiled
-        --        { withDest = \dest -> storeLoc dest dloc
-        --        , withValue = defaultWithValue ty comp
-        --        , noValue = defaultNoValue ty comp
-        --        , asLoc = return ([], dloc)
-        --        }
-
         VecType _ (bnd:bnds) bty = normalizeTypes ty
         ty' = VecType DenseMatrix bnds bty
 
@@ -425,12 +595,16 @@ spillLoc loc = do (bef, exp, _) <- asArgument loc
 
 storeExp :: CmLoc -> C.Exp -> CM ()
 storeExp dst exp = case normalizeTypes (locType dst) of
-  VecType _ idxs bty -> storeLoc dst (mkVecLoc bty exp idxs)
+  vty@(VecType {}) -> storeLoc dst (mkVecLoc vty exp)
   _ -> store dst exp
 
 storeLoc :: CmLoc -> CmLoc -> CM ()
-storeLoc dst src = case normalizeTypes (locType dst) of
-  VecType _ (idx:idxs) bty -> makeFor idx $ \i -> do
+storeLoc dst src = case denormalizeTypes (locType dst) of
+  VecType DiagonalMatrix [bnd, _] bty -> makeFor bnd $ \i -> do
+    dst'' <- apIndex dst i >>= flip apIndex i
+    src'' <- apIndex src i >>= flip apIndex i
+    storeLoc dst'' src''
+  VecType _ (bnd:bnds) bty -> makeFor bnd $ \i -> do
     dst' <- apIndex dst i
     src' <- apIndex src i
     storeLoc dst' src'
@@ -468,8 +642,10 @@ compImpureExpr ty mexpr = comp
                , asLoc = defaultAsLoc ty comp
                }
 
-defaultAsRValue :: Type -> CM CmLoc -> Compiled
-defaultAsRValue ty mloc = comp
+-- | (Possibly misleading name) Uses a Cm CmLoc to make a Compiled fit
+-- for asRValue.
+defaultAsRValue :: CM CmLoc -> Compiled
+defaultAsRValue mloc = comp
   where comp = Compiled
                { noValue = mloc >>= noValue . asRValue
                , withDest = \dest -> mloc >>= storeLoc dest
@@ -522,7 +698,29 @@ compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
                , asLoc = error "Cannot use For as location"
                }
         itty = compileType $ getType $ rangeLength pos range
-
+compileStat (Return pos cty exp) = comp
+  where comp = Compiled
+               { noValue = case getType exp of
+                   Void -> writeCode [citems|return;|]
+                   _ -> do retLoc <- genRetLoc <$> get
+                           case retLoc of
+                             Just dest -> do withDest (compileStat exp) dest
+                                             writeCode [citems|return;|]
+                             Nothing -> do ret <- asExp $ compileStat exp
+                                           writeCode [citems|return $ret;|]
+               , asExp = do noValue comp
+                            return $ compileUninit cty
+               , withDest = \dest -> noValue comp
+               , asLoc = defaultAsLoc cty comp
+               }
+compileStat (Assert pos exp) = comp
+  where comp = Compiled
+               { noValue = do test <- asExp $ compileStat exp
+                              writeCode [citems|assert($test);|]
+               , asExp = error "Cannot get Assert as expression"
+               , withDest = error "Cannot use Assert as dest"
+               , asLoc = error "Cannot use Assert as location"
+               }
 compileStat exp@(RangeVal _ range) = comp
   where comp = Compiled
                { noValue = defaultNoValue ty comp
@@ -567,7 +765,6 @@ compileStat (If _ a b c) = comp
                , asExp = defaultAsExp (getType b) comp
                , asLoc = defaultAsLoc (getType b) comp
                }
-        mkIf aexp bbl cbl = writeCode [citems| if ($aexp) { $items:bbl } else { $items:cbl } |]
 
 compileStat (VoidExpr _) = Compiled { noValue = return ()
                                     , withDest = \v -> error "Cannot store VoidExpr"
@@ -625,9 +822,9 @@ compileStat (Seq _ a b) = comp
                             asLoc $ compileStat b
                }
 
-compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args) = comp
-  where (FnT params retty, mret) = getEffectiveFunType ft
-        dirs = map (\(_,_,dir,_) -> dir) params
+compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args retty) = comp
+  where (FnT params _, mret) = getEffectiveFunType ft
+        dirs = map (\(_,_,_,dir,_) -> dir) params
 
         -- Compiled forms for the arguments
         margs' :: CM [([C.BlockItem],C.Exp,[C.BlockItem])]
@@ -638,17 +835,17 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args) = comp
                           return $ args' ++ [(b,e,a)] -- TODO tuple dest
 
         comp = case mret of
-                Just (_, retty') -> Compiled
-                                    { withDest = \dest -> do args' <- margs'' dest
-                                                             let dargs = zip (dirs ++ [ArgOut]) args'
-                                                                 (bbl, fexp, bbl') = theCall f dargs
-                                                             writeCode bbl
-                                                             writeCode [citems| $fexp; |]
-                                                             writeCode bbl'
-                                    , asExp = defaultAsExp retty' comp
-                                    , noValue = defaultNoValue retty' comp
-                                    , asLoc = defaultAsLoc retty' comp
-                                    }
+                Just _ -> Compiled
+                          { withDest = \dest -> do args' <- margs'' dest
+                                                   let dargs = zip (dirs ++ [ArgOut]) args'
+                                                       (bbl, fexp, bbl') = theCall f dargs
+                                                   writeCode bbl
+                                                   writeCode [citems| $fexp; |]
+                                                   writeCode bbl'
+                          , asExp = defaultAsExp retty comp
+                          , noValue = defaultNoValue retty comp
+                          , asLoc = defaultAsLoc retty comp
+                          }
                 Nothing -> Compiled
                            { asExp = do dargs <- (zip dirs) <$> margs'
                                         let (bbl, fexp, bbl') = theCall f dargs
@@ -690,7 +887,7 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args) = comp
 compileStat (Hole {}) = error "No holes allowed"
 
 compileStat (Get pos (Index a [])) = compileStat a
-compileStat v@(Get pos loc) = defaultAsRValue (getType v) (compileLoc loc)
+compileStat v@(Get pos loc) = defaultAsRValue (compileLoc loc)
 
 compileStat v@(Addr pos loc) = comp
   where comp = Compiled
@@ -810,13 +1007,14 @@ compileStat v@(Unary _ Transpose a) = comp
 -- -- binary
 
 compileStat v@(Binary _ op a b)
-  | op `elem` [Add, Sub, Div] = compileVectorized' aty bty (asLoc (compileStat a)) (asLoc (compileStat b))
+  | op `elem` [Add, Sub, Hadamard, Div] = compileVectorized' aty bty (asLoc (compileStat a)) (asLoc (compileStat b))
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
 
         opExp a b = case op of
                      Add -> [cexp| $a + $b |]
                      Sub -> [cexp| $a - $b |]
+                     Hadamard -> [cexp| $a * $b |]
                      Div -> [cexp| $a / $b |]
 
         compileVectorized' aty bty ma mb = comp
@@ -1010,8 +1208,8 @@ compileStat v = error $ "compileStat not implemented: " ++ show v
 
 compileLoc :: Location CExpr -> CM CmLoc
 compileLoc (Ref ty v) = case normalizeTypes ty of
-  VecType _ idxs bty -> do v <- lookupName "v" v
-                           return $ mkVecLoc bty [cexp| $id:v |] idxs
+  vty@(VecType {}) -> do v <- lookupName "v" v
+                         return $ mkVecLoc vty [cexp| $id:v |]
   _ -> do v' <- lookupName "v" v
           return $ refLoc ty v'
 
@@ -1042,7 +1240,7 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
 compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
                                   let sex' = access sex (getType a) field
                                   case getLocType l of
-                                   ty@(VecType _ bnds bty) -> return $ mkVecLoc bty sex' bnds
+                                   ty@(VecType {}) -> return $ mkVecLoc ty sex'
                                    ty -> return $ expLoc ty (return sex')
   where access ex (StructType {}) field  = [cexp| $ex.$id:field |]
         access ex (PtrType aty) field = [cexp| $(access' ex aty)->field |]
@@ -1052,6 +1250,6 @@ compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
 compileLoc l@(Deref a) = do
   sex <- asExp $ compileStat a
   case normalizeTypes (getLocType l) of
-    VecType _ idxs bty -> do
-      return $ mkVecLoc bty [cexp| *$sex|] idxs
+    vty@(VecType {}) -> do
+      return $ mkVecLoc vty [cexp| *$sex|]
     ty -> return $ expLoc ty (return [cexp| *$sex|])

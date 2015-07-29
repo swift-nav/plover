@@ -1,0 +1,16 @@
+extern struct Pair (
+  x :: double;
+  y :: double;
+);
+
+blah (z :: *(*Pair)) :: double
+  := (y := 22;
+      y := 23;
+      z.x);
+
+--         VecType StorageType [(start :: a, length :: a)] (Type' a)
+
+--blah {n :: s32} (A :: double[n]) :: double[n]   := A[n-1:-1:-1];
+
+--blah2 {n :: s32} (A :: double[n]) :: ()  := A <- blah A;
+

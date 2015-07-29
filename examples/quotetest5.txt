@@ -35,7 +35,7 @@ extern dotp {n :: u32} (A :: double[n]) (B :: double[n]) :: double;
 
 matmul {l :: u32} {m :: u32} {n :: u32}  (A :: double[l,m]) (B :: double[m,n]) :: double[l,n]
   :=  vec i in (:), j in (:) -> dotp A[i,:] B[:,j];
-  
+
 hmm() :: u8 := 2;
 
 blah22 {n :: u8} (A :: double[n,n]) (B :: double[n,n])

@@ -1,0 +1,2 @@
+foo {n} (B :: double[n,n]) (A :: (int, int)[3]) :: double
+  :=  B[A][0];

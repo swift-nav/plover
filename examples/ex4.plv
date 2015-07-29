@@ -1,0 +1,3 @@
+foo() :: double
+  := (A :: (UpperTriangular double[5,5])[2];
+      2.2;);

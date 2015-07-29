@@ -1,0 +1,4 @@
+-- Tests that vectors must be rectangular.
+
+foo() :: _
+  := vec i in 5 -> vec j in i -> i + j;

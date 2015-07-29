@@ -1,0 +1,22 @@
+-- zeros {n :: u8} :: double[n]
+--   := vec i in n -> 0;
+
+-- extern printd (x :: double[5]) :: ();
+
+-- main() :: ()
+--   := ( printd (zeros ()); );
+
+-- matmul {l :: u8} {m :: u8} {n :: u8}  (A :: double[l,m]) (B :: double[m,n]) :: double[l,n]
+--   :=  vec i in :, j in : -> A[i,:] * B[:,j];
+
+-- outer {n :: u8} (v :: double[n]) (w :: double[n]) :: double[n,n]   := v * w^T;
+
+extern norm {n :: u8} (v :: double[n]) :: double[n];
+
+testnorm {n :: u8} (v :: double[n]) (w :: double[n]) :: double[n]
+:= norm(vec i in : -> v[i] - w[i]);
+
+testnorm2 {n :: u8} (v :: double[n]) (w :: double[n]) :: double[n]
+:= norm(v - w) + x();
+
+static x() :: u8 := 22;

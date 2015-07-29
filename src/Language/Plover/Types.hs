@@ -4,16 +4,12 @@
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Language.Plover.Types where
 
 import qualified Data.Foldable as F (Foldable)
 import qualified Data.Traversable as T (Traversable)
---import Control.Monad.Free
---import Data.Functor.Fixedpoint
 import Control.Monad.Trans.Either hiding (left)
 import qualified Control.Monad.Trans.Either as E (left)
 import Control.Monad.State
@@ -26,6 +22,9 @@ import Data.Tag
 import Data.Functor.Fixedpoint
 import Data.Char
 import Data.Data
+import Data.List
+import Data.Maybe
+import Data.Function (on)
 import Text.PrettyPrint
 
 import qualified Language.Plover.Simplify as S
@@ -46,15 +45,20 @@ data FloatType = Float | Double
                | FDefault
                deriving (Eq, Ord, Show, Typeable, Data)
 
-data StorageType = DenseMatrix
+data StorageType = DenseMatrix -- ^ See note [Dense matrix rules]
                  | DiagonalMatrix
                  | UpperTriangular
                  | UpperUnitTriangular
                  | LowerTriangular
                  | LowerUnitTriangular
                  | SymmetricMatrix
-                 | BlockMatrix [[Type]]
+--                 | BlockMatrix [[Type]]
                  deriving (Eq, Ord, Show)
+
+-- Note [Dense matrix rules]
+-- These are equivalences:
+-- 1. VecType DenseMatrix [] ty === ty
+-- 2. VecType DenseMatrix bnd1 (VecType DenseMatrix bnd2 ty) === VecType (bnd1 ++ bnd2) ty
 
 defaultIntType :: IntType
 defaultIntType = IDefault
@@ -68,12 +72,13 @@ defaultFloatType = FDefault
 actualDefaultFloatType :: FloatType
 actualDefaultFloatType = Double
 
-data UnOp = Neg | Not
+data UnOp = Pos | Neg | Not
           | Transpose | Inverse
+          | Diag
           | Sum
           deriving (Show, Eq, Ord)
-data BinOp = Add | Sub | Mul | Div
-           | Pow | Dot | Concat
+data BinOp = Add | Sub | Mul | Div | Hadamard
+           | Pow | Concat
            | And | Or
            | EqOp | LTOp | LTEOp
            deriving (Show, Eq, Ord)
@@ -95,27 +100,20 @@ data Expr a
   -- Things at the top of the constructor list
   = Vec' Variable (Range a) a
   | For' Variable (Range a) a
-  | Return' a -- TODO where is this allowed to appear? (Not inside a Vec, for example, maybe?)
+  | Return' Type a -- The type is that of the aborted continuation
   | Assert' a
-  | RangeVal' (Range a)
+  | RangeVal' (Range a) -- TODO rename RangeLit'
 
   -- Control flow
   | If' a a a
 
   -- Elementary expressions
-  | VoidExpr'
   | IntLit' IntType Integer
   | FloatLit' FloatType Double
   | StrLit' String
   | BoolLit' Bool
   | VecLit' Type [a] -- the type is the base type of the vector (for 0-element case)
-
-  -- Things that change the context
---  | Extension' a
---  | Declare' (Type) Variable
---  | FunctionDef' Variable (FunctionType) a
---  | Extern' Variable (Type)
---  | StructDecl' Variable StructType
+  | TupleLit' [a]
 
   | Let' Variable a a
   | Uninitialized' Type -- Only for using Let to create a new variable to be used as a return value from a function
@@ -123,79 +121,120 @@ data Expr a
 
   -- Function application   TODO change for implicit arguments
   | App' a [Arg a]
-  | ConcreteApp' a [a]
+  | ConcreteApp' a [a] Type -- function, arguments, solved return type
 
   -- Operators
   -- Symbolic patterns given below
-  | Hole' (Maybe (Type, UVar)) -- type and value hole
+  | Hole' (Maybe UVar) -- value hole
   | Get' (Location a)
   | Addr' (Location a)
   | Set' (Location a) a
   | AssertType' a Type
---  | FlatIndex' a a [a]
---  | Init Variable a
   | Unary' UnOp a
   | Binary' BinOp a a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 data Location a = Ref Type Variable
-                | Index a [a]
-                | Field a String -- auto-dereferences 'a' if it is a pointer^n to a struct
+                | Index a [a] -- ^ See note [indexing rules]
+                | Field a String -- ^ See note [Field dereferencing rules]
                 | Deref a
                 deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
+
+-- Note [indexing rules]
+--
+-- These are equivalences:
+--
+-- 1. A[i_1,...,i_n] is the (i_1,...,i_n) entry of A, if n has n indices
+-- 2. A[i_1,...,i_k][i_{k+1},...,i_n] === A[i_1,...,i_n]
+-- 3. A[I_1,...,I_m] === A[I_{1,1}, I_{1,2}, I_{1,3}, ...] if I_i are
+--    tuples, with a scalar being a 1-tuple
+-- 4. A[J_1,...,J_m][I_1,...,I_m] === A[J_1[I_1],...,J_m[I_m]], where
+--    I_i are n_i-tuples (with a scalar being a 1-tuple), and J_k are
+--    vectors with n_i indices of tuples.
+
+-- Note [Field dereferencing rules]
+--
+-- This is an equivalences:
+-- 1. If x is a pointer, then x.a === (*x).a
+
+data Type' a
+  = VecType StorageType [a] (Type' a)
+  | TupleType [Type' a]
+  | FnType FunctionType
+--  | NumType NumCtxt -- some kind of number.  temporary; must become concrete numeric type
+  | IntType IntType
+  | FloatType FloatType
+  | StringType -- null-terminated C string
+  | BoolType
+  | PtrType (Type' a)
+  | TypedefType Variable
+  -- Concrete ST has name, values for type parameters
+  | StructType Variable StructType -- [a]
+  | TypeHole (Maybe UVar)
+  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type CExpr = FixTagged SourcePos Expr
 pattern PExpr pos x = FTag pos x
 
--- Basic subset of C
--- Output of reduction compiler is transformed into Line
--- by Plover.Print.flatten
-data Line
-  -- All instances of CExpr should be numeric arithmetic only
-  = Each Variable CExpr Line
-  | IfStmt CExpr Line Line
-  | Block [Line]
-  | Store CExpr CExpr
-  | LineDecl Type Variable
-  | LineExpr CExpr
-  | EmptyLine
-  | Function Variable (FunctionType) Line
-  | ForwardDecl Variable (FunctionType)
-  | LineReturn CExpr
-  | Include String
-  | TypeDefStruct Variable [(Variable, Type)]
-  deriving (Show, Eq, Ord)
+-- Note [De-tuplitizing function arguments]:
+--
+-- The idea of a rule f (x,y) === f x y has come up a couple of times,
+-- but the problem is that when converting from an App to a
+-- ConcreteApp that you have to know the type of each argument to the
+-- function to properly do the conversion, which we do not yet know
+-- because unification has yet to happen.  It is probably possible
+-- with a more complex system, but for now it will not happen.
+
+-- Note [Vectorizing element-wise operators]
+-- Rules:
+-- 1. A + b === A + [b, ..., b]
+
+-- TODO: if we want to create constraints on number types (for
+-- instance, if x + 1 occurs, then we can default to x being a number
+-- rather than an int; later on if it is clear that x must be a float
+-- there is no error)
+-- data NumCtxt = NumRef Variable -- The number has the same type as the given unification variable
+--              | NumArith NumCtxt NumCtxt -- The number has the type after doing an arithmetic operation on the two nums
+--              deriving (Show, Eq, Ord)
 
 -- Represents the type of an Expr
 -- Separates implicit parameters, explicit parameters, output type
 -- The boolean means whether the argument is required (False means implicit)
-data FunctionType = FnT [(Variable, Bool, ArgDir, Type)] Type
-  deriving (Show, Eq, Ord)
+data FunctionType = FnT [(Tag SourcePos, Variable, Bool, ArgDir, Type)] Type
+  deriving (Show)
 
+instance Eq FunctionType where
+  (==) = (==) `on` strippedFunctionType
+instance Ord FunctionType where
+  compare = compare `on` strippedFunctionType
+
+-- | Removes argument source position information for Eq and Ord instances
+strippedFunctionType :: FunctionType -> ([(Variable, Bool, ArgDir, Type)], Type)
+strippedFunctionType (FnT args ty) = (map (\(pos, v, b, dir, ty) -> (v, b, dir, ty)) args,
+                                      ty)
+
+-- Right now only works for vectors
 data ArgDir = ArgIn | ArgOut | ArgInOut
             deriving (Show, Eq, Ord)
 
-data ExternalDef = External | Generated
- deriving (Show, Eq, Ord)
-
 data StructType = ST
-  { --st_extern :: ExternalDef
-     st_fields :: [(Variable, Type)]
-  -- , st_params :: [Type]
+  { st_fields :: [(Variable, (Tag SourcePos, Type))]
   }
  deriving (Show, Eq, Ord)
 
 -- Function without implicits or a dependent type
 fnT :: [Type] -> Type -> FunctionType
-fnT params out = FnT [("", True, ArgIn, t) | t <- params] out
+fnT params out = FnT [(NoTag, "", True, ArgIn, t) | t <- params] out
 
 
 -- | If a function returns a complex type, it must be passed as an
 -- extra argument.  The maybe variable gives the new variable name.
 -- N.B. The new variable name is _deterministically_ chosen.  This
 -- means `getEffectiveFunType` must be what is called whenever one
--- wants to know the return variable name.
--- TODO: returning a tuple? (right now can just return a struct)
+-- wants to know the return variable name.  Not to be used with at a
+-- call site (i.e., ConcreteApp), since it will not be
+-- universalized.
+-- TODO: returning a tuple?  (right now can just return a struct)
 getEffectiveFunType :: FunctionType -> (FunctionType, Maybe (Variable, Type))
 getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                           then internReturn args' retty
@@ -213,54 +252,25 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
         -- the type itself, or should it be Ptrized?  The semantics of
         -- type itself seem correct so far.  Perhaps In/Out/InOut are
         -- in order to record these things better
-        internReturn :: [(Variable, Bool, ArgDir, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
-        internReturn args retty = (FnT (args ++ [(retName, True, ArgOut, retty')]) Void, Just (retName, retty'))
-          where retName = genName [v | (v, _, _, _) <- args] "result$" -- since $ cannot occur in a normal argument
+        internReturn :: [(Tag SourcePos, Variable, Bool, ArgDir, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
+        internReturn args retty = (FnT (args ++ [(NoTag, retName, True, ArgOut, retty')]) Void, Just (retName, retty'))
+          where retName = genName [v | (_, v, _, _, _) <- args] "result$" -- since $ cannot occur in a normal argument
                 genName :: [Variable] -> Variable -> Variable
                 genName names test = if test `elem` names
                                      then genName names (test ++ "$")
                                      else test
                 retty' = retty
 
-
--- withoutVoids :: FunctionType -> FunctionType
--- withoutVoids (FnT args retty) = FnT (removeVoid args) retty
---   where removeVoid :: [(Variable, Bool, ArgDir, Type)] -> [(Variable, Bool, ArgDir, Type)]
---         removeVoid = filter
-
-data Type' a
-  = VecType StorageType [a] (Type' a)
-  | Void
-  | FnType FunctionType
---  | Dimension a
-  | NumType -- some kind of number.  temporary; must become concrete numeric type
-  | IntType IntType
-  | FloatType FloatType
-  | StringType -- null-terminated C string
-  | BoolType
-  | PtrType (Type' a)
-  | TypedefType Variable
-  -- Concrete ST has name, values for type parameters
-  | StructType Variable StructType -- [a]
-  | TypeHole (Maybe UVar)
-  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
-
 type Type = Type' CExpr
 
-numType :: Type
-numType = NumType
-
-stringType :: Type
-stringType = StringType
-
 data Definition = FunctionDef (Maybe CExpr) FunctionType
-                | StructDef [(Variable, Type)]
+                | StructDef [(Variable, (Tag SourcePos, Type))]
                 | ValueDef (Maybe CExpr) Type
                 deriving Show
 data DefBinding = DefBinding { binding :: Variable
                              , bindingPos :: Tag SourcePos
-                             , extern :: Bool
-                             , static :: Bool
+                             , extern :: Bool -- ^ Whether this definition should not be included in the compilation unit
+                             , static :: Bool -- ^ Whether this definition should by private to the compilation unit
                              , definition :: Definition }
                 deriving Show
 
@@ -277,115 +287,22 @@ definitionType def = case definition def of
   StructDef fields -> StructType (binding def) $ ST fields
   ValueDef _ ty -> ty
 
--- Used for module definitions
--- (name, requirements (eg external parameters, struct defs), type, function body
---type FunctionDefinition = (Variable, FunctionType, CExpr)
-
-data CompilationUnit = CU
-  { unitName :: String
-  , sourceDefs :: [DefBinding]
-  , sourceIncs :: [String]
-  , headerDefs :: [Variable] -- refers to DefBindings
-  , headerIncs :: [String]
-  }
-
-type TypeEnv = [(Variable, Type)]
-
--- Typechecking/Compilation Monad --
--- (name counter, (variable types, typedef types))
-data Context = TE
-  { count :: Int
-  , var_types :: TypeEnv
-  , typedefs :: TypeEnv
-  , term_stack :: [CExpr]
-  }
-  deriving (Show, Eq, Ord)
-
-initialState :: Context
-initialState = TE 0 [] [] []
-
-type Error = String
-type M = EitherT Error (State Context)
-
-showEnv :: TypeEnv -> String
-showEnv = unlines . map show
-
--- Basic monad operations
-left :: Error -> M a
-left msg = do
-  stack <- gets term_stack
-  env <- getVarTypes
-  E.left $ msg ++ "\n\nexpr stack:\n" ++ unlines (map (++ "\n") $ map (show) $ take 1 stack)
-    ++ "\n" ++ (unlines (map show env))
-
-assert :: Bool -> Error -> M ()
-assert cond msg = if cond then return () else left msg
-
-freshName :: M Variable
-freshName = do
-  c <- gets count
-  modify $ \s -> s { count = count s + 1 }
-  return ("var" ++ show c)
-
-getVarTypes :: M TypeEnv
-getVarTypes = gets var_types
-
-setVarTypes :: TypeEnv -> M ()
-setVarTypes e = modify $ \s -> s { var_types = e }
-
-varType :: Variable -> M Type
-varType var = do
-  env <- getVarTypes
-  case lookup var env of
-    Nothing -> left $ "undefined var: \"" ++ var ++ "\"\nin environment:\n" ++ showEnv env
-    Just t -> return t
-
-typedefType :: Variable -> M Type
-typedefType var = do
-  env <- gets typedefs
-  case lookup var env of
-    Nothing -> left $ "undefined typedef: \"" ++ var ++ "\"\nin environment:\n" ++ showEnv env
-    Just t -> return t
-
--- Walks typedef chains before assigning a type
-extend :: Variable -> Type -> M ()
-extend var t =
-  case t of
-    TypedefType name -> do
-      t' <- typedefType name
-      extend var t'
-    _ -> do
-      env <- getVarTypes
-      case lookup var env of
-        Nothing ->
-          modify $ \s -> s { var_types = (var, t) : var_types s }
-        _ -> left $ "variable redefinition: " ++ show var ++ "\n" ++ showEnv env
-
-extendTypedef :: Variable -> Type -> M ()
-extendTypedef var t = modify $ \s -> s { typedefs = (var, t) : typedefs s }
-
-normalizeType :: Type -> M Type
-normalizeType (TypedefType name) = typedefType name >>= normalizeType
-normalizeType (VecType _ [] t) = return t
-normalizeType t = return t
-
---sep :: (Show a, Show b) => a -> b -> String
---sep s1 s2 = show s1 ++ ", " ++ show s2
 
 pattern Vec tag a b c = PExpr tag (Vec' a b c)
 pattern For tag a b c = PExpr tag (For' a b c)
 pattern If tag a b c = PExpr tag (If' a b c)
 pattern RangeVal tag r = PExpr tag (RangeVal' r)
-pattern VoidExpr tag = PExpr tag VoidExpr'
+pattern VoidExpr tag = PExpr tag (TupleLit' [])
 pattern IntLit tag t a = PExpr tag (IntLit' t a)
 pattern FloatLit tag t a = PExpr tag (FloatLit' t a)
 pattern StrLit tag s = PExpr tag (StrLit' s)
 pattern BoolLit tag s = PExpr tag (BoolLit' s)
 pattern VecLit tag ty s = PExpr tag (VecLit' ty s)
-pattern Return tag x = PExpr tag (Return' x)
+pattern TupleLit tag s = PExpr tag (TupleLit' s)
+pattern Return tag ty x = PExpr tag (Return' ty x)
 pattern Assert tag x = PExpr tag (Assert' x)
 pattern App tag f args = PExpr tag (App' f args)
-pattern ConcreteApp tag f args = PExpr tag (ConcreteApp' f args)
+pattern ConcreteApp tag f args rty = PExpr tag (ConcreteApp' f args rty)
 pattern Call tag a = PExpr tag (App' a [])
 pattern Unary tag op x = PExpr tag (Unary' op x)
 pattern Binary tag op x y = PExpr tag (Binary' op x y)
@@ -399,17 +316,6 @@ pattern Set tag l x = PExpr tag (Set' l x)
 pattern Seq tag a b = PExpr tag (Seq' a b)
 pattern Let tag v a b = PExpr tag (Let' v a b)
 pattern Uninitialized tag ty = PExpr tag (Uninitialized' ty)
---pattern FlatIndex a b c = Fix (FlatIndex' a b c)
---pattern Ref a = Fix (Ref' a)
---pattern Sigma x = Fix (Unary' Sum x)
---pattern For x = Fix (Unary' For x)
---pattern Ptr x = Fix (Ptr' x)
---pattern FunctionDef a b c = Fix (FunctionDef' a b c)
---pattern Extern v t = Fix (Extern' v t)
---pattern Extension x = Fix (Extension' x)
---pattern Declare t x = Fix (Declare' t x)
--- pattern INumLit a = Fix (INumLit' a)
---pattern StructDecl tag a b = PExpr tag (StructDecl' a b)
 
 -- Warning: These operators use NoTag, so they cannot be used in a pattern position correctly.
 pattern a :<= b = Set NoTag a b
@@ -422,8 +328,11 @@ pattern a :> b = Seq NoTag a b
 pattern a :$ b = App NoTag a [b]
 --pattern a := b = Fix (Init a b)
 
-pattern HoleJ pos ty a = Hole pos (Just (ty, a))
+pattern HoleJ pos a = Hole pos (Just a)
 pattern TypeHoleJ a = TypeHole (Just a)
+
+pattern Void = TupleType []
+
 
 -- Syntax
 --infix 4 :=
@@ -440,6 +349,7 @@ infix 8 :., :->
 -- Locations
 pattern a :! b = Index a b
 pattern a :. b = Field a b
+-- | warning: uses NoTag
 pattern a :-> b = Deref (Get NoTag (Field a b))
 
 instance IsString (Location CExpr) where
@@ -463,23 +373,30 @@ instance Fractional CExpr where
 
 
 class TermMappable a where
+  -- | Like a monadic fmap, but transforming each part of the
+  -- constructor using the given functions.
   mapTerm :: (Applicative m, Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
           -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
           -> a -> m a
+  -- | Returns a transformation function based on `a`.  (It is one of the given transformations.)
   termMapper :: (Applicative m, Monad m) => (Type -> m Type) -> (CExpr -> m CExpr)
              -> (Location CExpr -> m (Location CExpr)) -> (Range CExpr -> m (Range CExpr))
              -> a -> m a
 
 instance TermMappable Type where
   mapTerm tty texp tloc trng ty = case ty of
-    VecType st idxs ety -> VecType st <$> mapM texp idxs <*> tty ety
+    VecType st bnds ety -> VecType st <$> mapM texp bnds <*> tty ety
+    TupleType tys -> TupleType <$> mapM tty tys
+
+    -- TODO I don't think it is appropriate to mapTerm over a FnType (it would be like mapTerming over a StructType)
+    -- FnType (FnT args retty) -> do
+    --   args' <- forM args $ \(pos, v, b, dir, ty) -> do
+    --     ty' <- tty ty
+    --     return (pos, v, b, dir, ty')
+    --   retty' <- tty retty
+    --   return $ FnType $ FnT args' retty'
+
     PtrType pty -> PtrType <$> tty pty
-    FnType (FnT args retty) -> do
-      args' <- forM args $ \(v, b, dir, ty) -> do
-        ty' <- tty ty
-        return (v, b, dir, ty')
-      retty' <- tty retty
-      return $ FnType $ FnT args' retty'
     _ -> return ty
   termMapper tty texp tloc trng = tty
 
@@ -487,18 +404,19 @@ instance TermMappable CExpr where
   mapTerm tty texp tloc trng exp = case exp of
     Vec pos v range expr -> Vec pos v <$> trng range <*> texp expr
     For pos v range expr -> For pos v <$> trng range <*> texp expr
-    Return pos v -> Return pos <$> texp v
+    Return pos ty v -> Return pos <$> tty ty <*> texp v
     Assert pos v -> Assert pos <$> texp v
     RangeVal pos range -> RangeVal pos <$> trng range
     If pos a b c -> If pos <$> texp a <*> texp b <*> texp c
     VecLit pos ty exprs -> VecLit pos <$> tty ty <*> mapM texp exprs
+    TupleLit pos exprs -> TupleLit pos <$> mapM texp exprs
     Let pos v val expr -> Let pos v <$> texp val <*> texp expr
     Uninitialized pos ty -> Uninitialized pos <$> tty ty
     Seq pos p1 p2 -> Seq pos <$> texp p1 <*> texp p2
     App pos fn args -> App pos <$> texp fn <*> mapM targ args
       where targ (Arg a) = Arg <$> texp a
             targ (ImpArg a) = ImpArg <$> texp a
-    ConcreteApp pos fn args -> ConcreteApp pos <$> texp fn <*> mapM texp args
+    ConcreteApp pos fn args rty -> ConcreteApp pos <$> texp fn <*> mapM texp args <*> tty rty
     Get pos loc -> Get pos <$> tloc loc
     Addr pos loc -> Addr pos <$> tloc loc
     Set pos loc val -> Set pos <$> tloc loc <*> texp val
@@ -556,12 +474,13 @@ floatBits FDefault = floatBits actualDefaultFloatType
 floatBits Float = 32
 floatBits Double = 64
 
--- | Promote to an int type for use in arithmetic
+-- | Promote to an int type for use in arithmetic (following C convention)
 promoteInt :: IntType -> IntType
 promoteInt t
   | intBits t < intBits IDefault  = IDefault
   | otherwise = t
 
+-- | Integer arithmetic promotion rules (following C convention)
 arithInt :: IntType -> IntType -> IntType
 arithInt t1 t2 = arithInt' t1' t2'
   where t1' = promoteInt t1
@@ -570,50 +489,51 @@ arithInt t1 t2 = arithInt' t1' t2'
         arithInt' IDefault y = y
         arithInt' x IDefault = x
         arithInt' x y
+          -- Take the one with more bits
           | intBits x > intBits y = x
           | intBits x < intBits y = y
+          -- Otherwise take the unsigned one, if there is one (yes, that is how C works)
           | intUnsigned x  = x
-          | intUnsigned y  = y
-          | otherwise = x
+          | otherwise = y
 
--- | Promote a float type for use in arithmetic
+-- | For use in unification: determines the smallest integer type
+-- which can hold both integer types.  See note [intMerge table].
+intMerge :: IntType -> IntType -> IntType
+intMerge IDefault y = intMerge actualDefaultIntType y
+intMerge x IDefault = intMerge x actualDefaultIntType
+intMerge x y = fromMaybe U64 $ suitableInt $ merge (intRange x) (intRange y)
+
+  where intRange :: IntType -> (Int, Int) -- ^ min, max (roughly) (in bits)
+        intRange x | intUnsigned x = (0, intBits x)
+                   | otherwise = (1 - intBits x, intBits x - 1)
+
+        merge (min1, max1) (min2, max2) = (min min1 min2, max max1 max2)
+
+        fits' :: (Int, Int) -> (Int, Int) -> Bool
+        fits' (min1, max1) (min2, max2) = min1 <= min2 && max1 >= max2
+
+        fits ty rng = fits' (intRange ty) rng
+
+        suitableInt :: (Int, Int) -> Maybe IntType
+        suitableInt rng = find (`fits` rng) [U8, S8, U16, S16, U32, S32, U64, S64]
+
+-- Note [intMerge table]
+--    |  U8   S8  U16  S16  U32  S32  U64  S64
+-- ---+---------------------------------------
+--  U8|  U8  S16  U16  S16  U32  S32  U64  S64
+--  S8|       S8  S32  S16  S64  S32  U64  S64
+-- U16|           U16  S32  U32  S32  U64  S64
+-- S16|                S16  S64  S32  U64  S64
+-- U32|                     U32  S64  U64  S64
+-- S32|                          S32  U64  S64
+-- U64|                               U64  U64
+-- S64|                                    S64
+
+-- | Promote a float type for use in arithmetic (following C convention; notice it actually just outputs Double)
 promoteFloat :: FloatType -> FloatType
 promoteFloat t
   | floatBits t < floatBits FDefault = FDefault
   | otherwise = t
-
-intMerge :: IntType -> IntType -> IntType
-intMerge IDefault y = intMerge actualDefaultIntType y
-intMerge x IDefault = intMerge x actualDefaultIntType
-intMerge x y
-  | x == y   = x
-  | intBits x < intBits y  = intMerge y x
-  | intBits x == intBits y  = case x of -- then y has opposite sign
-                               U8 -> S16
-                               S8 -> S16
-                               U16 -> S32
-                               S16 -> S32
-                               _ -> S64
-  | intUnsigned x == intUnsigned y  = x -- x has more bits
-  | intUnsigned x  = case x of
-                      U8 -> S16
-                      S8 -> S16
-                      U16 -> S32
-                      S16 -> S32
-                      _ -> S64
-  | otherwise = x 
-
--- | Gets the int type (of the two) which can hold both ints (maybe).
-intPromotePreserveBits :: IntType -> IntType -> Maybe IntType
-intPromotePreserveBits IDefault y = Just y
-intPromotePreserveBits x IDefault = Just x
-intPromotePreserveBits x y
-  | x == y  = Just x
-  | intBits x > intBits y  = intPromotePreserveBits y x
-  | intUnsigned x == intUnsigned y  = Just y -- y has more bits and signedness is the same
-  | intBits x == intBits y  = Nothing -- signedness different
-  | intUnsigned x  = Just y  -- then x surely fits
-  | otherwise  = Nothing
 
 arithFloat :: FloatType -> FloatType -> FloatType
 arithFloat x y = floatMerge (promoteFloat x) (promoteFloat y)
@@ -628,56 +548,61 @@ floatMerge x y = Double
 -- | Determines whether a location of the first int type can comfortably
 -- hold a location of the second.
 intCanHold :: IntType -> IntType -> Bool
-intCanHold _ IDefault = True
-intCanHold d s
-  | intBits d < intBits s = False
-  | intUnsigned d = intUnsigned s
-  | otherwise = not (intUnsigned s) || intBits d > intBits s
+intCanHold IDefault s = intCanHold actualDefaultIntType s
+intCanHold d s =  d == intMerge d s
 
 -- | Determines whether a location of the first float type can
 -- comfortably hold a location of the second.
 floatCanHold :: FloatType -> FloatType -> Bool
-floatCanHold _ FDefault = True
-floatCanHold Float Double = False
-floatCanHold _ _ = True
+floatCanHold FDefault s = floatCanHold actualDefaultFloatType s
+floatCanHold d s =  d == floatMerge d s
 
--- | Assumes already unified, so only really need to look at integer/float types.
+-- | Assumes already unified.  Checks whether a store from the second
+-- type to the first type succeeds.  Not to be confused with whether
+-- they have equivalent memory representations (which is instead
+-- needed for passing an argument to a function).
 typeCanHold :: Type -> Type -> Bool
 typeCanHold ty1 ty2 = typeCanHold' (normalizeTypes ty1) (normalizeTypes ty2)
 
 typeCanHold' :: Type -> Type -> Bool
-typeCanHold' (VecType st1 idxs1 bty1) (VecType st2 idxs2 bty2)
-  | st1 == st2 && length idxs1 == length idxs2  = typeCanHold' bty1 bty2
-typeCanHold' Void Void = True
-typeCanHold' (FnType _) (FnType _) = False -- TODO
-typeCanHold' NumType NumType = True
-typeCanHold' NumType (IntType {}) = True
-typeCanHold' NumType (FloatType {}) = True
-typeCanHold' (IntType t1) NumType = False
-typeCanHold' (IntType t1) (IntType t2) = True -- intCanHold t1 t2
+typeCanHold' (VecType _ [] bty1) ty2 = typeCanHold bty1 ty2
+typeCanHold' ty1 (VecType _ [] bty2) = typeCanHold ty1 bty2
+typeCanHold' (VecType st1 (bnd1:bnds1) bty1) (VecType st2 (bnd2:bnds2) bty2) =
+  reduceArithmetic bnd1 == reduceArithmetic bnd2
+  && typeCanHold' (VecType st1 bnds1 bty1) (VecType st2 bnds2 bty2)
+typeCanHold' (TupleType tys1) (TupleType tys2) =
+  length tys1 == length tys2 && and (map (uncurry typeCanHold') (zip tys1 tys2))
+typeCanHold' (FnType _) (FnType _) = False -- TODO (?)
+typeCanHold' (IntType t1) (IntType t2) = True -- intCanHold t1 t2   -- TODO always allowing follows C convention (but should we?)
 typeCanHold' (IntType t1) (FloatType {}) = False
-typeCanHold' (FloatType t1) NumType = False
 typeCanHold' (FloatType t1) (IntType {}) = True
 typeCanHold' (FloatType t1) (FloatType t2) = floatCanHold t1 t2
 typeCanHold' StringType StringType = True
 typeCanHold' BoolType BoolType = True
-typeCanHold' (PtrType t1) (PtrType t2) = typeCanHold' t1 t2
-typeCanHold' (TypedefType v1) (TypedefType v2)
-  | v1 == v2  = True
-typeCanHold' (TypedefType v1) (StructType v2 _)
-  | v1 == v2  = True
-typeCanHold' (StructType v1 _) (TypedefType v2)
-  | v1 == v2  = True
-typeCanHold' (StructType v1 _) (StructType v2 _)
-  | v1 == v2  = True
+typeCanHold' (PtrType t1) (PtrType t2) = typeCanHold' t1 t2 -- TODO should check t1 == t2
+typeCanHold' (TypedefType v1) (TypedefType v2)  = v1 == v2
+typeCanHold' (TypedefType v1) (StructType v2 _) = v1 == v2
+typeCanHold' (StructType v1 _) (TypedefType v2) = v1 == v2
+typeCanHold' (StructType v1 _) (StructType v2 _) = v1 == v2
 typeCanHold' (TypeHole mv1) (TypeHole mv2) = mv1 == mv2
-typeCanHold' _ _ = False
+typeCanHold' ty1 ty2 = ty1 == ty2
 
 normalizeTypes :: TermMappable a => a -> a
 normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
   where tty ty = case ty of
           VecType _ [] ty -> return ty
-          VecType DenseMatrix idxs1 (VecType DenseMatrix idxs2 ty) -> return $ VecType DenseMatrix (idxs1 ++ idxs2) ty
+          VecType DenseMatrix bnds1 (VecType DenseMatrix bnds2 ty) -> return $ VecType DenseMatrix (bnds1 ++ bnds2) ty
+          _ -> return ty
+        texp = return
+        tloc = return
+        trng = return
+
+-- | Splits dense matrices into single-indexed entities
+denormalizeTypes :: TermMappable a => a -> a
+denormalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
+  where tty ty = case ty of
+          VecType _ [] ty -> return ty
+          VecType DenseMatrix bnds ty | length bnds >= 2 -> return $ foldr (\bnd bty -> VecType DenseMatrix [bnd] bty) ty bnds
           _ -> return ty
         texp = return
         tloc = return
@@ -714,7 +639,7 @@ reduceArithmetic expr =
         _ -> Nothing
     toExpr (IntLit _ _ i) = return $ S.Prim i
     toExpr g@(Get _ (Ref _ _)) = return $ S.Atom g
-    toExpr g@(HoleJ _ _ _) = return $ S.Atom g
+    toExpr g@(HoleJ _ _) = return $ S.Atom g
     toExpr _ = Nothing
 
 class PP a where
@@ -729,20 +654,21 @@ instance PP (a (Fix a)) => PP (Fix a) where
 
 instance PP Type where
   pretty v@(VecType {}) = case normalizeTypes v of
-                           VecType st idxs ty -> pst $ pretty ty <> brackets (sep $ punctuate comma (map pretty idxs))
+                           VecType st bnds ty -> pst $ pretty ty <> brackets (sep $ punctuate comma (map pretty bnds))
                              where pst = case st of
                                      DenseMatrix -> id
+                                     _ -> \x -> text (show st) <+> x
                            ty' -> pretty ty'
-  pretty Void = text "Void"
+  pretty (TupleType xs) = parens $ sep $ punctuate (text ",") $ map pretty xs
   pretty (FnType (FnT args retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
-    where prarg (v, req, dir, ty) = (rqimp req) $ pdir (sep $ punctuate (text "::") [text v, pretty ty])
+    where prarg (pos, v, req, dir, ty) = (rqimp req) $ pdir (sep $ punctuate (text "::") [text v, pretty ty])
             where pdir x = case dir of
                     ArgIn -> x
                     ArgOut -> sep [text "out", x]
                     ArgInOut -> sep [text "inout", x]
           rqimp True = parens
           rqimp False = braces
-  pretty NumType = text "Num"
+--  pretty (NumType _) = text "Num"
   pretty (IntType IDefault) = text "int"
   pretty (IntType t) = text $ map toLower $ show t
   pretty (FloatType FDefault) = text "double"
@@ -757,12 +683,12 @@ instance PP Type where
 --  pretty x = text $ show x
 
 instance (Show a, PP a) => PP (Expr a) where
-  pretty (VoidExpr') = text "Void"
+  pretty (TupleLit' xs) = parens $ sep $ punctuate (text ",") $ map pretty xs
   pretty (IntLit' _ x) = text $ show x
   pretty (FloatLit' _ x) = text $ show x
   pretty (StrLit' x) = text $ show x
   pretty (BoolLit' x) = text $ show x
-  pretty (Hole' (Just (ty, v))) = text v -- <+> text "::" <+> pretty ty -- it should start with $ so shouldn't conflict
+  pretty (Hole' (Just v)) = text v -- it should start with $ so shouldn't conflict
   pretty (Hole' Nothing) = parens $ text "$hole"
   pretty (Get' loc) = pretty loc
   pretty (Addr' loc) = parens $ hang (text "&") 2 (pretty loc)
@@ -771,6 +697,7 @@ instance (Show a, PP a) => PP (Expr a) where
   pretty x = text $ show x
 
 instance PP UnOp where
+  pretty Pos = text "+"
   pretty Neg = text "-"
   pretty Not = text "not"
   pretty Transpose = text "transpose"
@@ -781,6 +708,7 @@ instance PP BinOp where
   pretty Add = text "+"
   pretty Sub = text "-"
   pretty Mul = text "*"
+  pretty Hadamard = text ".*"
   pretty Div = text "/"
   pretty Pow = text "^"
   pretty Concat = text "#"
@@ -797,48 +725,51 @@ instance PP a => PP (Location a) where
   pretty (Deref a) = parens $ hang (text "*") 2 (pretty a)
 
 
+getRangeType :: Range CExpr -> IntType
+getRangeType (Range from to step) = intMerge S32 $ arithInt (arithInt t1 t2) t3
+  where IntType t1 = getType from
+        IntType t2 = getType to
+        IntType t3 = getType step
+
 getType :: CExpr -> Type
 getType (Vec pos _ range base) = VecType DenseMatrix [rangeLength pos range] (getType base)
 getType (For {}) = Void
--- getType (Return ) -- what type?
--- getType (Assert )
-getType (RangeVal pos range) = VecType DenseMatrix [rangeLength pos range] (IntType IDefault)
+getType (Return _ ty _) = ty -- the type of the aborted continuation
+getType (Assert {}) = Void
+getType (RangeVal pos range) = VecType DenseMatrix [rangeLength pos range] (IntType $ getRangeType range)
 getType (If pos a b c) = getType b
-getType (VoidExpr pos) = Void
 getType (IntLit pos t _) = IntType t
 getType (FloatLit pos t _) = FloatType t
 getType (StrLit {}) = StringType
 getType (BoolLit {}) = BoolType
 getType (VecLit pos ty xs) = VecType DenseMatrix [IntLit pos IDefault (fromIntegral $ length xs)] ty
+getType (TupleLit pos xs) = TupleType $ map getType xs
 getType (Let pos v x body) = getType body
 getType (Uninitialized pos ty) = ty
 getType (Seq pos a b) = getType b
-getType (ConcreteApp pos f args) = let FnType (FnT params retty) = getType f
-                                   in retty
 getType (App {}) = error "App should not be here"
-getType (Hole pos Nothing) = error "Hole should not be here"
-getType (Hole pos (Just (ty, _))) = ty
+getType (ConcreteApp pos f args rty) = rty
+getType (Hole pos _) = error "Hole should not be here"
 getType (Get pos loc) = getLocType loc
 getType (Addr pos loc) = PtrType (getLocType loc)
 getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
-getType (Unary pos Neg a) = getVectorizedType (getType a) (getType a)
+getType (Unary pos op a) | op `elem` [Pos, Neg] = getVectorizedType (getType a) (getType a)
 getType (Unary pos Sum a) = case getVectorizedType (getType a) (getType a) of
-  VecType _ (idx:idxs) aty' -> normalizeTypes $ VecType DenseMatrix idxs aty'
+  VecType _ (bnd:bnds) aty' -> normalizeTypes $ VecType DenseMatrix bnds aty'
   aty' -> aty'
 getType (Unary pos Inverse a) = do
   case normalizeTypes $ getType a of
-   -- TODO for instance, inverse of upper triangular is upper triangular
    VecType _ [a, _] aty' -> VecType DenseMatrix [a, a] (getArithType aty' $ FloatType defaultFloatType)
    _ -> error "Unary inverse on not a rectangular vector"
 getType (Unary pos Transpose a) = do
   case normalizeTypes $ getType a of
-   -- TODO for instance, transpose of symmetric matrix is symmetric
-   VecType _ (i1:i2:idxs) aty' -> VecType DenseMatrix (i2:i1:idxs) aty'
-   VecType _ [idx] aty' -> VecType DenseMatrix [1,idx] aty'
+   VecType _ (i1:i2:bnds) aty' -> VecType DenseMatrix (i2:i1:bnds) aty'
+   VecType _ [bnd] aty' -> VecType DenseMatrix [1,bnd] aty'
    _ -> error "Unary transpose not on vector."
+getType (Unary pos Not a) = BoolType
 getType (Binary pos op a b)
-  | op `elem` [Add, Sub, Div] = getVectorizedType aty bty
+  | op `elem` [Add, Sub, Div, Hadamard] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
     (VecType _ [a, _] aty', VecType _ [_, c] bty') -> VecType DenseMatrix [a, c] (getArithType aty' bty')
     (VecType _ [a] aty', VecType _ [_, c] bty') -> VecType DenseMatrix [a, c] (getArithType aty' bty') -- left vector is a x 1
@@ -847,9 +778,15 @@ getType (Binary pos op a b)
     (VecType {}, VecType {}) -> error "getType: Bad vector sizes for multiplication"
     _ -> getArithType aty bty
   | op == Concat = case (aty, bty) of
-    (VecType _ (aidx:aidxs) aty', VecType _ (bidx:_) bty') -> VecType DenseMatrix [Binary pos Add aidx bidx]
-                                                              (getArithType aty' bty')
-  | otherwise = error "getType for binary not implemented"
+    (VecType _ (abnd:abnds) aty', VecType _ (bbnd:_) bty') -> VecType DenseMatrix
+                                                              (reduceArithmetic (Binary pos Add abnd bbnd) : abnds)
+                                                              (getMinimalType aty' bty')
+  | op `elem` [And, Or, EqOp, LTOp, LTEOp]  = BoolType
+  | op == Pow = case (aty, bty) of
+    (IntType ai, IntType {}) -> IntType $ promoteInt ai
+    (FloatType af, FloatType bf) -> FloatType $ arithFloat af bf
+    (_, FloatType bf) -> FloatType $ promoteFloat bf
+    (FloatType af, _) -> FloatType $ promoteFloat af
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
 
@@ -857,13 +794,21 @@ getLocType :: Location CExpr -> Type
 getLocType (Ref ty v) = ty
 getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ getType a)
   where getTypeIdx [] aty = aty
-        getTypeIdx (idx:idxs) (VecType _ (ibnd:ibnds) bty) =
-          case normalizeTypes (getType idx) of
-           IntType _               ->                getTypeIdx idxs (VecType DenseMatrix ibnds bty)
-           VecType st idxs' idxtybase -> VecType st idxs' (getTypeIdx idxs (VecType DenseMatrix ibnds bty))
-getLocType (Field a field) = case stripPtr (getType a) of -- TODO need to replace dependent fields
+        getTypeIdx (idx:idxs) aty@(VecType {}) = getTypeIdxty (getType idx) idxs aty
+
+        getTypeIdxty idxty idxs (VecType st ibnds bty) =
+          case normalizeTypes idxty of
+            VecType st' idxs' idxtybase -> VecType st' idxs' (getTypeIdxty idxtybase idxs
+                                                              (VecType st ibnds bty))
+            ty -> getTypeIdx idxs
+                  (VecType DenseMatrix (drop (iSize ty) ibnds) bty)
+
+        iSize (IntType {}) = 1
+        iSize (TupleType tys) = sum $ map iSize tys
+
+getLocType (Field a field) = case stripPtr (getType a) of -- TODO need to replace dependent fields which show up b/c of Storing
   StructType v (ST fields) -> case lookup field fields of
-    Just fieldTy -> fieldTy
+    Just (_, fieldTy) -> fieldTy
   where stripPtr (PtrType aty) = stripPtr aty
         stripPtr aty = aty
 getLocType (Deref a) = let (PtrType a') = getType a
@@ -879,12 +824,10 @@ getVectorizedType :: Type -> Type -> Type
 getVectorizedType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
    (VecType _ [] bty1, ty2) -> getVectorizedType bty1 ty2
    (ty1, VecType _ [] bty2) -> getVectorizedType ty1 bty2
-   (VecType _ (idx1:idxs1) bty1, VecType _ (idx2:idxs2) bty2)  -> -- TODO sum of symmetric and symmetric is symmetric
-     case getVectorizedType (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2) of
-      VecType _ idxs' bty' -> VecType DenseMatrix (idx1:idxs') bty'
-      bty' -> VecType DenseMatrix [idx1] bty'
-   (VecType _ idxs1 bty1, ty2)  -> VecType DenseMatrix idxs1 (getVectorizedType bty1 ty2)
-   (ty1, VecType _ idxs2 bty2) -> VecType DenseMatrix idxs2 (getVectorizedType ty1 bty2)
+   (VecType _ (bnd1:bnds1) bty1, VecType _ (bnd2:bnds2) bty2)  ->
+     VecType DenseMatrix [bnd1] (getVectorizedType (VecType DenseMatrix bnds1 bty1) (VecType DenseMatrix bnds2 bty2))
+   (VecType _ bnds1 bty1, ty2)  -> VecType DenseMatrix bnds1 (getVectorizedType bty1 ty2)
+   (ty1, VecType _ bnds2 bty2) -> VecType DenseMatrix bnds2 (getVectorizedType ty1 bty2)
    (ty1, ty2) -> getArithType ty1 ty2
 
 getArithType :: Type -> Type -> Type
@@ -894,3 +837,45 @@ getArithType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
   (IntType {}, FloatType t2) -> FloatType $ promoteFloat t2
   (FloatType t1, FloatType t2) -> FloatType $ arithFloat t1 t2
   (ty1, _) -> ty1
+
+-- | Assumes types are already unified.  Gets the smallest type which
+-- can hold both types.  Really should only be used on arithmetic
+-- types.
+getMinimalType :: Type -> Type -> Type
+getMinimalType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
+  (IntType t1, IntType t2) -> IntType $ intMerge t1 t2
+  (FloatType t1, IntType {}) -> FloatType t1
+  (IntType {}, FloatType t2) -> FloatType t2
+  (FloatType t1, FloatType t2) -> FloatType $ floatMerge t1 t2
+  (ty1, _) -> ty1
+
+---
+--- Old stuff
+---
+
+-- Basic subset of C
+-- Output of reduction compiler is transformed into Line
+-- by Plover.Print.flatten
+data Line
+  -- All instances of CExpr should be numeric arithmetic only
+  = Each Variable CExpr Line
+  | IfStmt CExpr Line Line
+  | Block [Line]
+  | Store CExpr CExpr
+  | LineDecl Type Variable
+  | LineExpr CExpr
+  | EmptyLine
+  | Function Variable (FunctionType) Line
+  | ForwardDecl Variable (FunctionType)
+  | LineReturn CExpr
+  | Include String
+  | TypeDefStruct Variable [(Variable, Type)]
+  deriving (Show, Eq, Ord)
+
+data CompilationUnit = CU
+  { unitName :: String
+  , sourceDefs :: [DefBinding]
+  , sourceIncs :: [String]
+  , headerDefs :: [Variable] -- refers to DefBindings
+  , headerIncs :: [String]
+  }
