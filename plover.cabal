@@ -38,16 +38,45 @@ extra-source-files:  README.md
 
 cabal-version:       >=1.10
 
+executable plover
+  main-is:           Main.hs
+  hs-source-dirs:    src/
+  build-depends:     base >=4.7 && <4.9
+                   , plover
+                   , containers
+                   , either
+                   , free
+                   , mtl >=2.1 && <2.3
+                   , parsec >=3.1 && <3.2
+                   , pretty >= 1.1
+                   , process
+                   , template-haskell
+                   , transformers
+                   , unification-fd
+                   , pretty-show
+
+                   , mainland-pretty
+                   , language-c-quote == 0.11
+                   , srcloc
+                   , haskell-src-meta
+                   , syb
+
 library
   exposed-modules:
-                     Language.Plover.Main,
                      Language.Plover.Types,
                      Language.Plover.Quote,
                      Language.Plover.QuoteTest,
+                     Language.Plover.Parser,
                      Language.Plover.ParserTypes,
+                     Language.Plover.Convert,
                      Language.Plover.SemCheck,
-
+                     Language.Plover.CodeGen,
+                     Language.Plover.Algebra,
+                     Language.Plover.UsedNames,
+                     Language.Plover.Simplify,
+                     Language.Plover.ErrorUtil,
                      Language.Plover.Unify,
+                     Language.Plover.CLI,
                      Data.Tag
 
   build-depends:     base >=4.7 && <4.9
