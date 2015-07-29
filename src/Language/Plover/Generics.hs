@@ -1,6 +1,6 @@
 module Language.Plover.Generics where
 
-import Data.Functor.Fixedpoint
+import Data.Fix
 import Data.Monoid
 import qualified Data.Foldable as F (Foldable, fold)
 import Language.Plover.Types

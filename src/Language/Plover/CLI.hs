@@ -12,6 +12,8 @@ data CompilerOpts
   = CompilerOpts
     { inputFiles :: [String]
     , unitName :: Maybe String
+    , hFilePrefix :: Maybe String
+    , cFilePrefix :: Maybe String
     , target :: TargetFlag
     , debugMode :: Bool
     , helpMode :: Bool
@@ -31,6 +33,8 @@ defaultOptions :: CompilerOpts
 defaultOptions = CompilerOpts
                  { inputFiles = []
                  , unitName = Nothing
+                 , hFilePrefix = Nothing
+                 , cFilePrefix = Nothing
                  , target = TargetDefault
                  , debugMode = False
                  , helpMode = False
@@ -75,19 +79,27 @@ showOptClasses = "\n Optimization classes which can be passed to --opt:\n"
 options :: [OptDescr (CompilerOpts -> CompilerOpts)]
 options =
   [ Option ['o'] ["out"] (ReqArg unitName' "NAME")  "Output unit NAME"
-  , Option ['t'] ["target"] (ReqArg target' "TARGET") ("Set target type:\n" ++
-                                                       "\t     parse : Parses the input file\n" ++
-                                                       "\t   convert : Converts the input file to core\n" ++
-                                                       "\t typecheck : Typechecks the file\n" ++
-                                                       "\t   codegen : Outputs the generated C" )
+  , Option [] ["c_output"] (ReqArg cFilePrefix' "DIR")
+      "Directory to place generated .c files."
+  , Option [] ["h_output"] (ReqArg hFilePrefix' "DIR")
+      "Directory to place generated .h files."
+  , Option ['t'] ["target"] (ReqArg target' "TARGET")
+      ("Set target type:\n" ++
+       "\t     parse : Parses the input file\n" ++
+       "\t   convert : Converts the input file to core\n" ++
+       "\t typecheck : Typechecks the file\n" ++
+       "\t   codegen : Outputs the generated C" )
   , Option ['d'] ["debug"] (NoArg debug') "Enables debug mode"
   , Option ['h'] ["help"] (NoArg help') "Prints this usage information"
-  , Option ['O'] ["opt"] (ReqArg optimize' "OPTIMIZATION") ("Enables optimizations:\n"
-                                                            ++ showOptimizations
-                                                            ++ "\nPrefixing an optimization with '-' disables it."
-                                                            ++ "\nall/none enables/disables ALL optimizations.")
+  , Option ['O'] ["opt"] (ReqArg optimize' "OPTIMIZATION")
+      ("Enables optimizations:\n"
+       ++ showOptimizations
+       ++ "\nPrefixing an optimization with '-' disables it."
+       ++ "\nall/none enables/disables ALL optimizations.")
   ]
   where unitName' s opts = opts { unitName = Just s }
+        cFilePrefix' s opts = opts { cFilePrefix = Just s }
+        hFilePrefix' s opts = opts { hFilePrefix = Just s }
         target' t opts = opts { target = targetOpt t }
         debug' opts = opts { debugMode = True }
         help' opts = opts { helpMode = True }
@@ -124,12 +136,48 @@ optOpt s opts = case s of
 compilerOpts :: [String] -> IO CompilerOpts
 compilerOpts argv = case getOpt argorder options argv of
                      (o,_,[]) -> let opts = foldl (flip id) defaultOptions o
-                                 in case helpMode opts of
-                                     True -> do putStr $ usageInfo header options
-                                                putStr $ showOptClasses
-                                                exitSuccess
-                                     False -> return opts
-                     (_,_,errs) -> do putStr (concat errs ++ usageInfo header options)
+                                 in do
+                                   mapM_ (doHandler opts) optionHandlers
+                                   return opts
+                     (_,_,errs) -> do putStr (concat errs ++ usageInfo usageHeader options)
                                       exitWith $ ExitFailure 1
-  where header = "Usage: plover [OPTIONS...] sources"
+  where
         argorder = ReturnInOrder (\s opts -> opts { inputFiles = inputFiles opts ++ [s] })
+
+
+-- Option handling stuff
+type OptionChecker = (CompilerOpts -> Bool, IO ())
+
+usageHeader :: String
+usageHeader = "Usage: plover [OPTIONS...] sources"
+
+doHandler :: CompilerOpts -> OptionChecker -> IO ()
+doHandler opts (p, m) = if p opts then m else return ()
+
+implies :: Bool -> Bool -> Bool
+implies a b = not a || b
+
+equiv :: Bool -> Bool -> Bool
+equiv a b = implies a b && implies b a
+
+badO :: CompilerOpts -> Bool
+badO opts = not $ and
+  [ (isJust (cFilePrefix opts) `equiv` isJust (hFilePrefix opts))
+  , (isJust (cFilePrefix opts) `implies` isJust (unitName opts))]
+
+optionHandlers :: [OptionChecker]
+optionHandlers =
+  [ (helpMode, printHelpMode)
+  , (badO, printError "c_output and h_output options must accompany each other and require the --out option.")
+  ]
+
+printError :: String -> IO ()
+printError str = do
+  putStrLn $ "Error: " ++ str
+  exitWith $ ExitFailure 1
+
+printHelpMode :: IO ()
+printHelpMode = do
+    putStr $ usageInfo usageHeader options
+    putStr $ showOptClasses
+    exitSuccess

@@ -12,9 +12,6 @@ import Language.Plover.SemCheck
 import Language.Plover.ErrorUtil
 import Language.Plover.Unify
 import Language.Plover.CodeGen (compileTopLevel, runCM)
-import qualified Text.Show.Pretty as Pr  -- Pr.ppShow <$> (makeDefs <$> parseFile ...) >>= putStrLn
-import qualified Text.PrettyPrint as PP
-import qualified Text.PrettyPrint.Mainland as Mainland
 
 import Language.Haskell.TH as TH
 import Language.Haskell.TH.Quote
@@ -22,7 +19,6 @@ import Language.Haskell.TH.Quote
 --import Data.Data
 import Text.Printf
 import Control.Monad
-import Control.Monad.Free
 import Control.Applicative hiding (many, (<|>))
 import Data.Maybe
 import qualified Data.Map as M
@@ -100,21 +96,3 @@ replacePExpr pat = everywhere (extT id replacePExpr') pat
   where replacePExpr' :: Pat -> Pat
         replacePExpr' (ConP p [_, x]) | p == 'WithTag   = ConP 'WithTag [WildP, x]
         replacePExpr' x = x
-
--- runStuff fileName = do source <- readFile fileName
---                        case doParseToplevel (Right fileName) source of
---                         Left err -> putStrLn err
---                         Right expr -> 
---                          case makeDefs expr of
---                           Left err -> putStrLn (reportConvertErr (lines source) err)
---                           Right defs ->
---                             case doSemCheck $ defs of
---                              Left errs -> forM_ errs $ \err -> do
---                                putStrLn (reportSemErr (lines source) err)
---                              Right v -> do --putStrLn $ Pr.ppShow v
---                                            let cdefs = runCM (compileTopLevel v)
---                                            putStrLn "\n\nCompilation unit:\n"
---                                            putStrLn $ show $ Mainland.ppr cdefs
---   --                                                   return defs''putStrLn $ Pr.ppShow v
-
-

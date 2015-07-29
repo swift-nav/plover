@@ -25,7 +25,7 @@ import Data.Data
 import Data.Ratio (numerator, denominator)
 import Text.PrettyPrint
 import Data.Tag
-import Data.Functor.Fixedpoint
+import Data.Fix
 
 import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFloatType, PP(..))
 

@@ -10,16 +10,13 @@ module Language.Plover.Types where
 
 import qualified Data.Foldable as F (Foldable)
 import qualified Data.Traversable as T (Traversable)
-import Control.Monad.Trans.Either hiding (left)
-import qualified Control.Monad.Trans.Either as E (left)
-import Control.Monad.State
 import Control.Monad.Identity
 import Control.Applicative ((<$>), (<*>), pure, Applicative)
 import Data.String
 import Data.Ratio
 import Text.ParserCombinators.Parsec.Pos (SourcePos)
 import Data.Tag
-import Data.Functor.Fixedpoint
+import Data.Fix
 import Data.Char
 import Data.Data
 import Data.List

@@ -14,7 +14,7 @@ module Data.Tag
 import qualified Data.Foldable as F (Foldable, foldr)
 import qualified Data.Traversable as T (Traversable, traverse)
 import Data.Function
-import Data.Functor.Fixedpoint
+import Data.Fix
 import Data.List
 import Data.Data
 import Control.Monad.State
