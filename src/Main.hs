@@ -1,4 +1,4 @@
-module Language.Plover.Main where
+module Main where
 
 import System.IO
 import System.Environment
@@ -15,7 +15,7 @@ import qualified Language.Plover.CodeGen as CodeGen
 import qualified Language.Plover.Types as T
 import Text.ParserCombinators.Parsec (parse)
 import qualified Text.Show.Pretty as Pr
-import qualified Language.C.Syntax as C
+--import qualified Language.C.Syntax as C
 --import Language.Plover.Compile (writeProgram)
 --import Language.Plover.Expressions (testPVT)
 
