@@ -449,10 +449,12 @@ indexStorage SymmetricMatrix [(w, i), (_, j)] subLoc =
 -- | A location which is a constant, pure value.  Accepts storing of
 -- simple values by ignoring.
 constLoc :: Type -> C.Exp -> CmLoc
-constLoc ty exp = constLoc' (denormalizeTypes ty)
-  where constLoc' vty@(VecType _ _ bty) = loc
+constLoc ty exp = constLoc' ty
+  where
+        constLoc' (VecType _ [] bty) = constLoc' bty
+        constLoc' vty@(VecType st (bnd : bnds) bty) = loc
           where loc = CmLoc
-                      { apIndex = \idx -> return $ constLoc bty exp
+                      { apIndex = \idx -> return $ constLoc (VecType st bnds bty) exp
                       , store = error "no store in vec constLoc"
                       , asRValue = error "no asRValue in vec constLoc"
                       , asArgument = defaultAsArgument loc
@@ -467,12 +469,15 @@ constLoc ty exp = constLoc' (denormalizeTypes ty)
 -- | If the expression is true, then it's the first location.
 -- Otherwise, it's the second.
 condLoc :: C.Exp -> CmLoc -> CmLoc -> CmLoc
-condLoc cond cons alt = condLoc' (denormalizeTypes $ locType cons) cons alt
-  where condLoc' vty@(VecType _ _ bty) cons alt = loc
+condLoc cond cons alt = condLoc' (locType cons) cons alt
+  where
+        condLoc' (VecType _ [] bty) cons alt = condLoc' bty cons alt
+        condLoc' vty@(VecType st (bnd : bnds) bty) cons alt = loc
           where loc = CmLoc
-                      { apIndex = \idx -> do cons' <- apIndex cons idx
-                                             alt' <- apIndex alt idx
-                                             return $ condLoc' bty cons' alt'
+                      { apIndex = \idx -> do
+                          cons' <- apIndex cons idx
+                          alt' <- apIndex alt idx
+                          return $ condLoc' (VecType st bnds bty) cons' alt'
                       , store = error "no store in vec condLoc"
                       , asRValue = error "no asRValue in vec condLoc"
                       , asArgument = defaultAsArgument loc
@@ -604,20 +609,43 @@ storeLoc dst src = case denormalizeTypes (locType dst) of
     dst'' <- apIndex dst i >>= flip apIndex i
     src'' <- apIndex src i >>= flip apIndex i
     storeLoc dst'' src''
+  VecType LowerTriangular [bnd, _] bty ->
+    makeFor bnd $ \i -> do
+      makeFor' (compileType (getType bnd)) [cexp|0|] [cexp|$i+1|] $ \j -> do
+        dst'' <- apIndex dst i >>= flip apIndex j
+        src'' <- apIndex src i >>= flip apIndex j
+        storeLoc dst'' src''
+  VecType UpperTriangular [bnd, _] bty -> do
+    let tp = (compileType (getType bnd))
+    upperEx <- asExp $ compileStat bnd
+    makeFor' tp [cexp|0|] upperEx $ \i -> do
+      makeFor' tp [cexp|$i|] upperEx $ \j -> do
+        dst'' <- apIndex dst i >>= flip apIndex j
+        src'' <- apIndex src i >>= flip apIndex j
+        storeLoc dst'' src''
   VecType _ (bnd:bnds) bty -> makeFor bnd $ \i -> do
     dst' <- apIndex dst i
     src' <- apIndex src i
     storeLoc dst' src'
   _ -> withDest (asRValue src) dst -- or (asExp $ asRValue src) >>= store dst
 
+makeFor' :: C.Type -> C.Exp -> C.Exp -> (C.Exp -> CM ()) -> CM ()
+makeFor' itty lowerEx upperEx mbody = do
+  (body, i) <- withCode $ newScope $ do
+                 i <- freshName "idx"
+                 mbody [cexp| $id:i |]
+                 return i
+  writeCode [citems| for ($ty:itty $id:i = $lowerEx; $id:i < $upperEx; $id:i++) { $items:body } |]
+
+makeForRange :: CExpr -> CExpr -> (C.Exp -> CM ()) -> CM ()
+makeForRange lower upper mbody = do
+  lowerEx <- asExp $ compileStat lower
+  upperEx <- asExp $ compileStat upper
+  makeFor' itty lowerEx upperEx mbody
+    where itty = compileType $ getType upper
+
 makeFor :: CExpr -> (C.Exp -> CM ()) -> CM ()
-makeFor idx mbody = do boundEx <- asExp $ compileStat idx
-                       (body, i) <- withCode $ newScope $ do
-                                      i <- freshName "idx"
-                                      mbody [cexp| $id:i |]
-                                      return i
-                       writeCode [citems| for ($ty:itty $id:i = 0; $id:i < $boundEx; $id:i++) { $items:body } |]
-    where itty = compileType $ getType idx
+makeFor bnd mbody = makeForRange 0 bnd mbody
 
 -- | an expression with no side effects does not need to be computed
 -- if no result is needed.
@@ -989,7 +1017,7 @@ compileStat v@(Unary _ Transpose a) = comp
               { apIndex = \idx1 -> do aloc <- asLoc $ compileStat a
                                       return $ loc' aloc idx1
               , asArgument = defaultAsArgumentNoOut loc
-              , locType = VecType DenseMatrix (i1:i2:idxs) aty'
+              , locType = VecType DenseMatrix (i2:i1:idxs) aty'
               , asRValue = error "Cannot get transpose as rvalue"
               , store = error "Cannot store (yet) into transpose"
               }
@@ -998,10 +1026,11 @@ compileStat v@(Unary _ Transpose a) = comp
                                                 VecType _ [_] _ -> apIndex aloc idx2
                                                 _ -> apIndex aloc idx2 >>= flip apIndex idx1
                          , asArgument = defaultAsArgumentNoOut loc
-                         , locType = VecType DenseMatrix (i2:idxs) aty'
+                         , locType = VecType DenseMatrix (i1:idxs) aty'
                          , asRValue = error "Cannot get transpose as rvalue"
                          , store = error "Cannot store (yet) into transpose"
                          }
+        -- TODO 1d vector issue
         VecType _ (i1:i2:idxs) aty' = normalizeTypes $ getType v -- N.B. this will have i1=1 if v is a 1-d vector.
 
 -- -- binary

@@ -1,2 +1,14 @@
-foo1 {m} (A :: Diagonal double[m,m]) (B :: UpperTriangular double[m,m]) :: double[m, m]
+foo0 {m} (A :: Diagonal double[m,m]) (B :: UpperTriangular double[m,m]) :: double[m, m]
   := A * B;
+
+foo1 {m} (A :: Diagonal double[m,m]) (B :: double[m,m]) :: ()
+  := (A <- B;
+      B <- A;);
+
+foo2 {m} (A :: LowerTriangular (double)[m,m]) (B :: double[m,m]) :: ()
+  := (A <- B;
+      B <- A;);
+
+foo3 {m} (A :: UpperTriangular (double)[m,m]) (B :: double[m,m]) :: ()
+  := (A <- B;
+      B <- A;);

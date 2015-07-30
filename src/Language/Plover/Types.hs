@@ -648,7 +648,8 @@ denormalizeTypes :: TermMappable a => a -> a
 denormalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
   where tty ty = case ty of
           VecType _ [] ty -> return ty
-          VecType DenseMatrix bnds ty | length bnds >= 2 -> return $ foldr (\bnd bty -> VecType DenseMatrix [bnd] bty) ty bnds
+          VecType DenseMatrix bnds ty | length bnds >= 2 ->
+            return $ foldr (\bnd bty -> VecType DenseMatrix [bnd] bty) ty bnds
           _ -> return ty
         texp = return
         tloc = return

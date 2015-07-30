@@ -4,4 +4,4 @@ foo1 {m} (A :: Diagonal double[m,m]) (B :: double[m,m]) :: ()
 
 foo2 {m} (A :: LowerTriangular double[m,m]) (B :: double[m,m]) :: ()
   := (A <- B;
-      B <- B;);
+      B <- A;);
