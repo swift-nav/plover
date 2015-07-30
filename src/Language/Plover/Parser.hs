@@ -31,7 +31,7 @@ languageDef =
                                       "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
-             "struct", "field",
+             "struct", "type",
              "vec", "for", "sum", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
              "array", "and", "or", "not",

@@ -84,13 +84,24 @@ runSemChecker m = let (v, s) = runState m (newSemCheckData [])
                       [] -> Right v
                       errs -> Left errs
 
+-- | Phases:
+-- 1. merge top level bindings
+-- 2. alpha rename
+-- 3. concretize applications
+-- 4. fill holes
+-- 5. expand typedefs
+-- 6. unify
+-- 7. verify storage types in assignments, arguments, and returns
 doSemCheck :: [DefBinding] -> Either [SemError] [DefBinding]
 doSemCheck defs = runSemChecker dochecks
   where dochecks = do modify $ \state -> state { gensymState = allToplevelNames defs }
-                      condenseBindings defs
+                      condenseBindings defs -- introduces global bindings
+                      checkFuncBodies
+                      globalAlphaRename
+                      globalConcretizeApps
                       globalFillHoles
-                      defs' <- (M.elems . globalBindings <$> get) >>= mapM fillHoles
-                      modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defs'] }
+                      globalExpandTypedefs
+
                       defs' <- M.elems . globalBindings <$> get
 
                       he <- hasErrors
@@ -238,200 +249,208 @@ reconcileDefinitions tag oldDef newDef = do
   addError $ SemError tag "Redefinition of global variable with inconsistent types."
   return oldDef
 
--- | This fills the holes of each top-level type.  Later, we fill the
--- holes inside the expressions themselves.  This is so that type
--- holes are not propagated into the expressions.
+checkFuncBodies :: SemChecker ()
+checkFuncBodies = do defbs <- M.elems . globalBindings <$> get
+                     forM_ defbs $ \defb -> case definition defb of
+                       FunctionDef mexp ft -> when (not (extern defb) && isNothing mexp) $
+                                              addError $
+                                              SemError (bindingPos defb) "Function missing body."
+                       _ -> return ()
+
+
+globalAlphaRename :: SemChecker ()
+globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
+                       defbs' <- mapM doAlphaRename defbs
+                       modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
+  where doAlphaRename defb = do resetLocalBindings
+                                let pos = bindingPos defb
+                                def' <- case definition defb of
+                                  FunctionDef mexp ft -> do ft' <- alphaRenameFunType pos ft
+                                                            mexp' <- mapM (alphaRenameTerms pos) mexp
+                                                            return $ FunctionDef mexp' ft'
+                                  ValueDef mexp ty -> do ty' <- alphaRenameTerms pos ty
+                                                         mexp' <- mapM (alphaRenameTerms pos) mexp
+                                                         return $ ValueDef mexp' ty'
+                                  StructDef members -> return $ StructDef members
+                                return $ defb { definition = def' }
+
+-- TODO add something like this back in once structs are settled
+                         -- StructDef members -> do
+                         --   members' <- forM members $ \(v,(vpos,ty)) -> do
+                         --     ty' <- fillTypeHoles pos ty
+                         --     mtag <- addNewLocalBinding pos v v
+                         --     case mtag of
+                         --      Just otag -> do
+                         --        addError $ SemError (MergeTags [otag, pos]) $
+                         --          "Redefinition of member " ++ show v ++ " in struct."
+                         --      Nothing -> return ()
+                         --     return (v, (vpos, ty'))
+                         --   return $ StructDef members'
+
+-- | Check for undefined variables, and α-rename.
+alphaRenameFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
+alphaRenameFunType pos (FnT args rty) = do
+  args' <- forM args $ \(vpos, v, req, dir, vty) -> do
+    v' <- gensym v
+    vty' <- alphaRenameTerms vpos vty
+    mlastpos <- addNewLocalBinding vpos v v'
+    case mlastpos of
+      Just otag -> do
+        addError $ SemError (MergeTags [otag, vpos]) $
+          "Redefinition of parameter " ++ show v ++ " in function type."
+      Nothing -> return ()
+    return (vpos, v', req, dir, vty')
+  rty' <- alphaRenameTerms pos rty
+  return $ FnT args' rty'
+
+-- | Add implicit arguments to function applications.
+globalConcretizeApps :: SemChecker ()
+globalConcretizeApps = do defbs <- M.elems . globalBindings <$> get
+                          defbs' <- mapM doConcretize defbs
+                          modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
+  where doConcretize defb = do let pos = bindingPos defb
+                               def' <- case definition defb of
+                                 FunctionDef mexp ft -> do ft' <- concretizeFunType ft
+                                                           mexp' <- mapM concretizeApps mexp
+                                                           return $ FunctionDef mexp' ft'
+                                 ValueDef mexp ty -> do ty' <- concretizeApps ty
+                                                        mexp' <- mapM concretizeApps mexp
+                                                        return $ ValueDef mexp' ty'
+                                 StructDef members -> return $ StructDef members
+                               return $ defb { definition = def' }
+
+concretizeFunType :: FunctionType -> SemChecker FunctionType
+concretizeFunType (FnT args rty) = do
+  args' <- forM args $ \(vpos, v, req, dir, vty) -> do
+    vty' <- concretizeApps vty
+    return (vpos, v, req, dir, vty')
+  rty' <- concretizeApps rty
+  return $ FnT args' rty'
+
+
+-- | This fills the holes in each top-level definition.
 globalFillHoles :: SemChecker ()
 globalFillHoles = do defbs <- M.elems . globalBindings <$> get
-                     defbs' <- forM defbs $ \defb -> do
-                       let pos = bindingPos defb
-                       resetLocalBindings
-                       def' <- case (definition defb) of
-                         FunctionDef mexp ft -> do ft' <- completeFunType pos ft
-                                                   return $ FunctionDef mexp ft'
-                         ValueDef mexp ty -> do ty' <- fillTypeHoles pos ty
-                                                return $ ValueDef mexp ty'
-                         StructDef members -> do
-                           members' <- forM members $ \(v,(vpos,ty)) -> do
-                             ty' <- fillTypeHoles pos ty
-                             mtag <- addNewLocalBinding pos v v
-                             case mtag of
-                              Just otag -> do
-                                addError $ SemError (MergeTags [otag, pos]) $
-                                  "Redefinition of member " ++ show v ++ " in struct."
-                              Nothing -> return ()
-                             return (v, (vpos, ty'))
-                           return $ StructDef members'
-                       return $ defb { definition = def' }
+                     defbs' <- mapM doFill defbs
                      modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
+  where doFill defb = do let pos = bindingPos defb
+                         def' <- case definition defb of
+                           FunctionDef mexp ft -> do ft' <- fillFunType ft
+                                                     mexp' <- mapM fillTermHoles mexp
+                                                     return $ FunctionDef mexp' ft'
+                           ValueDef mexp ty -> do ty' <- fillTermHoles ty
+                                                  mexp' <- mapM fillTermHoles mexp
+                                                  return $ ValueDef mexp' ty'
+                           StructDef members -> return $ StructDef members
+                         return $ defb { definition = def' }
 
-completeFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
-completeFunType pos ft = do let FnT args rty = ft
-                            args' <- forM args $ \(vpos, v, req, dir, vty) -> do
-                              vty' <- fillTypeHoles vpos vty
-                              mglob <- lookupGlobalBinding v
-                              when (isJust mglob) $ addError $
-                                SemError (MergeTags [bindingPos (fromJust mglob), pos]) $
-                                "Parameter " ++ show v ++ " cannot mask global definition."
-                              mlastpos <- addNewLocalBinding vpos v v
-                              case mlastpos of
-                               Just otag -> do
-                                 addError $ SemError (MergeTags [otag, vpos]) $
-                                   "Redefinition of parameter " ++ show v ++ " in function type."
-                               Nothing -> return ()
-                              return (vpos, v, req, dir, vty')
-                            rty' <- fillTypeHoles pos rty
-                            return $ FnT args' rty'
-                                       
--- | Initializes the scope so that it has all of a functions parameters
-withinFun :: Tag SourcePos -> FunctionType -> SemChecker a -> SemChecker a
-withinFun pos ft m = withNewScope $ do
-  let (FnT args rty, _) = getEffectiveFunType ft
-  forM_ args $ \(vpos, v, req, dir, vty) -> do
-    void $ addNewLocalBinding vpos v v
-  m
+fillFunType :: FunctionType -> SemChecker FunctionType
+fillFunType (FnT args rty) = do
+  args' <- forM args $ \(vpos, v, req, dir, vty) -> do
+    vty' <- fillTermHoles vty
+    return (vpos, v, req, dir, vty')
+  rty' <- fillTermHoles rty
+  return $ FnT args' rty'
 
--- | Fill holes in AST, add implicit arguments, check for undefined
--- variables, and α-rename.
-fillHoles :: DefBinding -> SemChecker DefBinding
-fillHoles defb = do resetLocalBindings
-                    newDef <- if extern defb
-                              then return (definition defb) -- already handled with globalFillHoles
-                              else fillDefHoles (definition defb)
-                    return $ defb { definition = newDef }
+fillTermHoles :: TermMappable a => a -> SemChecker a
+fillTermHoles = traverseTerm tty texp tloc trng
+  where tty (TypeHole Nothing) = TypeHoleJ <$> genUVar
+        tty ty@(FnType {}) = do addError $ SemError NoTag "COMPILER ERROR. Scoping issues when filling holes in FnType"
+                                return ty
+        tty ty = return ty
 
-  where fillDefHoles :: Definition -> SemChecker Definition  -- Non-extern types may have holes
-        fillDefHoles def = case def of
-          FunctionDef mexp ft ->
-            -- The function has already had its type completed
-            case mexp of
-             Nothing -> do addError $
-                             SemError (bindingPos defb) "Function missing body."
-                           return $ FunctionDef mexp ft
-             Just exp -> withinFun (bindingPos defb) ft $ do exp' <- fillValHoles exp
-                                                             return $ FunctionDef (Just exp') ft
-          ValueDef mexp ty -> do mexp' <- case mexp of
-                                           Just exp -> Just <$> fillValHoles exp
-                                           Nothing -> return Nothing -- It is OK since it can get a C-default value
-                                 return $ ValueDef mexp' ty -- and the type has been completed
-          StructDef {} -> return def -- already handled
+        texp (Hole pos Nothing) = HoleJ pos <$> genUVar
+        texp exp = return exp
 
-fillValHoles :: CExpr -> SemChecker CExpr
-fillValHoles exp = case exp of
-  Vec pos v range expr ->
-    withNewScope $ do
-      v' <- gensym v
-      range' <- fillRangeHoles range
-      _ <- addNewLocalBinding pos v v'
-      expr' <- fillValHoles expr
-      return $ Vec pos v' range' expr'
-  For pos v range expr ->
-    withNewScope $ do
-      v' <- gensym v
-      range' <- fillRangeHoles range
-      _ <- addNewLocalBinding pos v v'
-      expr' <- fillValHoles expr
-      return $ For pos v' range' expr'
-  Return pos ty v -> Return pos <$> fillTypeHoles pos ty <*> fillValHoles v
-  Assert pos a -> Assert pos <$> fillValHoles a
-  RangeVal pos range -> RangeVal pos <$> fillRangeHoles range
-  If pos a b c -> do [a', b', c'] <- mapM fillValHoles [a, b, c]
-                     return $ If pos a' b' c'
-  IntLit _ _ _ -> return exp
-  FloatLit _ _ _ -> return exp
-  StrLit _ _ -> return exp
-  BoolLit _ _ -> return exp
-  VecLit pos ty exprs -> VecLit pos <$> fillTypeHoles pos ty <*> mapM fillValHoles exprs
-  TupleLit pos exprs -> TupleLit pos <$> mapM fillValHoles exprs
-  Let pos v val expr -> do
-    val' <- fillValHoles val
-    withNewScope $ do
-      v' <- gensym v
-      _ <- addNewLocalBinding pos v v'
-      expr' <- fillValHoles expr
-      return $ Let pos v' val' expr'
-  Uninitialized pos ty -> Uninitialized pos <$> fillTypeHoles pos ty
-  Seq pos e1 e2 -> Seq pos <$> fillValHoles e1 <*> fillValHoles e2
-  App pos fn@(Get _ (Ref _ f)) args -> do
-    mf <- lookupGlobalType f
-    case mf of
-     Just (FnType ft) -> (ConcreteApp pos fn <$> matchArgs pos args ft <*> return (TypeHole Nothing)) >>= fillValHoles
-     Just _ -> do addError $ SemError pos "Cannot call non-function."
-                  return exp
-     Nothing -> do addError $ SemError pos "No such global function."
-                   return exp
-  App pos _ _ -> do addError $ SemError pos "Cannot call expression."
-                    return exp
-  ConcreteApp pos fn@(Get _ (Ref _ f)) args rty -> do
-    mf <- lookupGlobalType f
-    case mf of
-     Just (FnType ft@(FnT fargs ret)) -> do semAssert (length args == length fargs) $
-                                              SemError pos "Incorrect number of arguments in function application."
-                                            ConcreteApp pos <$> fillValHoles fn <*> mapM fillValHoles args <*> fillTypeHoles pos rty
-     Just _ -> do addError $ SemError pos "Cannot call non-function."
-                  return exp
-     Nothing -> do addError $ SemError pos "No such global function."
-                   return exp
-  ConcreteApp pos _ _ _ -> do addError $ SemError pos "Cannot call expression."
-                              return exp
-  Hole pos Nothing -> HoleJ pos <$> genUVar
-  Hole _ _ -> return exp
-  Get pos loc -> Get pos <$> fillLocHoles pos loc
-  Addr pos loc -> Addr pos <$> fillLocHoles pos loc
-  Set pos loc val -> Set pos <$> fillLocHoles pos loc <*> fillValHoles val
-  AssertType pos v ty -> do ty' <- fillTypeHoles pos ty
-                            v' <- fillValHoles v
-                            return $ AssertType pos v' ty'
-  Unary pos op v -> Unary pos op <$> fillValHoles v
-  Binary pos op v1 v2 -> Binary pos op <$> fillValHoles v1 <*> fillValHoles v2
+        tloc (Ref ty v) = return $ Ref (TypeHole Nothing) v -- don't want to fill type of Refs yet
+        tloc loc = return loc
 
-fillTypeHoles :: Tag SourcePos -> Type -> SemChecker Type
-fillTypeHoles pos ty = case ty of
-  VecType st idxs ety -> do ety' <- fillTypeHoles pos ety
-                            idxs' <- mapM fillValHoles idxs
-                            return $ VecType st idxs' ety'
-  TupleType tys -> TupleType <$> mapM (fillTypeHoles pos) tys
-  FnType (FnT args ret) -> do addError $ SemError pos "COMPILER ERROR. Scoping issues when filling type holes of function type."
-                              return ty
-  IntType mt -> return ty
-  FloatType mt -> return ty
-  StringType -> return ty
-  BoolType -> return ty
-  PtrType ty -> do ty' <- fillTypeHoles pos ty
-                   return $ PtrType ty'
-  TypedefType v -> do mty <- lookupGlobalType v
-                      case mty of
-                       Just (StructType {}) -> return () -- TODO reconsider types being in the same namespace as values.
-                       Just _ -> addError $ SemError pos "Non-struct reference used as type."
-                       Nothing -> addError $ SemUnboundType pos v
-                      return ty
-  StructType v st -> do mty <- lookupGlobalType v
-                        case mty of
-                         Just ty -> semAssert ((StructType v st) == ty) $
-                                    SemError pos "COMPILER ERROR. Struct type differs from looked up type."
-                         Nothing -> addError $ SemError pos "COMPILER ERROR. Struct type exists for non-existant type."
-                        return ty
-  TypeHole Nothing -> do name <- genUVar
-                         return $ TypeHole (Just name)
-  TypeHole _ -> return ty
+        trng rng = return rng
 
-fillLocHoles :: Tag SourcePos -> Location CExpr -> SemChecker (Location CExpr)
-fillLocHoles pos loc = case loc of
-  Ref ty v -> do mv' <- lookupSym v
-                 case mv' of
-                  Just (_, v') -> return $ Ref ty v'
-                  Nothing -> do addError $ SemUnbound pos v
-                                return loc
-  Index a idxs -> do a' <- fillValHoles a
-                     idxs' <- mapM fillValHoles idxs
-                     return $ Index a' idxs'
-  Field a member -> do a' <- fillValHoles a
-                       return $ Field a' member
-  Deref a -> Deref <$> fillValHoles a
+alphaRenameTerms :: ScopedTraverser a => Tag SourcePos -> a -> SemChecker a
+alphaRenameTerms = scopedTraverseTerm alphatr
+  where alphatr = ScopedTraverserRec
+                  { stTy = \pos -> return
+                  , stEx = \pos -> return
+                  , stLoc = \pos x -> case x of
+                               Ref ty v -> do mv' <- lookupSym v
+                                              case mv' of
+                                                Just (_, v') -> return $ Ref ty v'
+                                                Nothing -> do addError $ SemUnbound pos v
+                                                              return x
+                               _ -> return x
+                  , stRng = \pos -> return
+                  , stScope = \v pos withv -> withNewScope $
+                                              do v' <- gensym v
+                                                 _ <- addNewLocalBinding pos v v'
+                                                 withv v'
+                  }
 
-fillRangeHoles :: Range CExpr -> SemChecker (Range CExpr)
-fillRangeHoles (Range from to step) = do [from', to', step'] <- mapM fillValHoles [from, to, step]
-                                         return $ Range from' to' step'
+concretizeApps :: TermMappable a => a -> SemChecker a
+concretizeApps = traverseTerm tty texp tloc trng
+  where tty = return
+        texp exp@(App pos fn@(Get _ (Ref _ f)) args) = do
+          mf <- lookupGlobalType f
+          case mf of
+            Just (FnType ft) -> ConcreteApp pos fn <$> matchArgs pos args ft <*> return (TypeHole Nothing)
+            Just _ -> do addError $ SemError pos "Cannot call non-function."
+                         return exp
+            Nothing -> do addError $ SemError pos "No such global function."
+                          return exp
+        texp exp@(App pos _ _) = do addError $ SemError pos "Cannot call expression."
+                                    return exp
+        texp exp = return exp
+
+        tloc = return
+        trng = return
+
+globalExpandTypedefs :: SemChecker ()
+globalExpandTypedefs = do
+  defbs <- M.elems . globalBindings <$> get
+  defbs' <- mapM doExpand defbs
+  modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
+  where doExpand defb = do
+          let pos = bindingPos defb
+          def' <- case definition defb of
+            FunctionDef mexp ft -> do ft' <- expandFunType pos ft
+                                      mexp' <- mapM (expandTypedefs pos) mexp
+                                      return $ FunctionDef mexp' ft'
+            ValueDef mexp ty -> do ty' <- expandTypedefs pos ty
+                                   mexp' <- mapM (expandTypedefs pos) mexp
+                                   return $ ValueDef mexp' ty'
+            StructDef members -> return $ StructDef members
+          return $ defb { definition = def' }
+
+expandFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
+expandFunType pos (FnT args rty) = do
+  args' <- forM args $ \(vpos, v, req, dir, vty) -> do
+    vty' <- expandTypedefs vpos vty
+    return (vpos, v, req, dir, vty')
+  rty' <- expandTypedefs pos rty
+  return $ FnT args' rty'
+
+
+expandTypedefs :: ScopedTraverser a => Tag SourcePos -> a -> SemChecker a
+expandTypedefs = scopedTraverseTerm tr
+  where tr = ScopedTraverserRec
+             { stTy = \pos x -> case x of
+                 TypedefType v -> do
+                   mvdefb <- lookupGlobalBinding v
+                   case mvdefb of
+                     Just vdefb -> case definition vdefb of
+                       StructDef {} -> return x -- since mutually recursive structs are allowed
+                       TypeDef ty -> expandTypedefs pos ty
+                       _ -> do addError $
+                                 SemError pos $ "Identifier '" ++ v ++ "' does not refer to struct or typedef."
+                               return x
+                     Nothing -> do addError $ SemUnboundType pos v
+                                   return x
+                 _ -> return x
+             , stEx = const return
+             , stLoc = const return
+             , stRng = const return
+             , stScope = \v pos withv -> withv v
+             }
 
 -- | Match the arguments with the formal parameters for making a
 -- ConcreteApp.  Note that this expects the effective type of the

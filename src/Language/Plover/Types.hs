@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -172,6 +173,7 @@ data Type' a
 
 type CExpr = FixTagged SourcePos Expr
 pattern PExpr pos x = FTag pos x
+type Type = Type' CExpr
 
 -- Note [De-tuplitizing function arguments]:
 --
@@ -258,10 +260,9 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                      else test
                 retty' = retty
 
-type Type = Type' CExpr
-
 data Definition = FunctionDef (Maybe CExpr) FunctionType
                 | StructDef [(Variable, (Tag SourcePos, Type))]
+                | TypeDef Type
                 | ValueDef (Maybe CExpr) Type
                 deriving Show
 data DefBinding = DefBinding { binding :: Variable
@@ -446,6 +447,54 @@ traverseTerm fty fexp floc frng x = mapTerm tty texp tloc trng x >>= termMapper 
         tloc = traverseTerm fty fexp floc frng
         trng = traverseTerm fty fexp floc frng
 
+data ScopedTraverserRec m = ScopedTraverserRec
+                            { stTy :: Tag SourcePos -> Type -> m Type
+                            , stEx :: Tag SourcePos -> CExpr -> m CExpr
+                            , stLoc :: Tag SourcePos -> Location CExpr -> m (Location CExpr)
+                            , stRng :: Tag SourcePos -> Range CExpr -> m (Range CExpr)
+                            , stScope :: forall b . Variable -> Tag SourcePos -> (Variable -> m b) -> m b
+                            }
+
+-- | Traverses the term in evaluation order inside the monad.
+class ScopedTraverser a where
+  scopedTraverseTerm :: Monad m => ScopedTraverserRec m -> Tag SourcePos -> a -> m a
+
+-- | Performs a level of scoped traversing on subterms, in the order defined by mapTerm.
+simpleScopedTraverse :: (Monad m, ScopedTraverser a, TermMappable a) => ScopedTraverserRec m -> Tag SourcePos -> a -> m a
+simpleScopedTraverse tr pos t = termMapper mty mex mloc mrng =<< submap t
+  where submap = mapTerm (subTrav()) (subTrav()) (subTrav()) (subTrav())
+        subTrav() = scopedTraverseTerm tr pos
+
+        mty = stTy tr pos
+        mex = stEx tr pos
+        mloc = stLoc tr pos
+        mrng = stRng tr pos
+
+instance ScopedTraverser CExpr where
+  scopedTraverseTerm tr _ x = case x of
+    Vec pos v range expr -> stLetLike tr Vec pos v range expr
+    For pos v range expr -> stLetLike tr For pos v range expr
+    Let pos v val expr -> stLetLike tr Let pos v val expr
+    _ -> simpleScopedTraverse tr (getTag x) x
+
+stLetLike :: (Monad m, ScopedTraverser a) => ScopedTraverserRec m
+           -> (Tag SourcePos -> Variable -> a -> CExpr -> CExpr)
+           -> Tag SourcePos -> Variable -> a -> CExpr
+           -> m CExpr
+stLetLike tr cons pos v val expr = stEx tr pos =<< do
+  val' <- scopedTraverseTerm tr pos val
+  stScope tr v pos $ \v' -> do
+    expr' <- scopedTraverseTerm tr pos expr
+    return $ cons pos v' val' expr'
+
+instance ScopedTraverser Type where
+  scopedTraverseTerm = simpleScopedTraverse
+
+instance ScopedTraverser (Location CExpr) where
+  scopedTraverseTerm = simpleScopedTraverse
+
+instance ScopedTraverser (Range CExpr) where
+  scopedTraverseTerm = simpleScopedTraverse
 
 intUnsigned :: IntType -> Bool
 intUnsigned IDefault = intUnsigned actualDefaultIntType
