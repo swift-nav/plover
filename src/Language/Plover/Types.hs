@@ -638,7 +638,7 @@ typeCanHold' ty1 ty2 = ty1 == ty2
 
 -- | Collapses dense matrices and expands typedefs along the spine using baseExpandTypedef
 normalizeTypes :: TermMappable a => a -> a
-normalizeTypes x = runIdentity $ termMapper ety return return return =<< traverseTerm tty texp tloc trng x
+normalizeTypes x = runIdentity $ traverseTerm tty texp tloc trng =<< termMapper ety return return return x
   where tty ty = case ty of
           VecType _ [] ty -> return ty
           VecType DenseMatrix bnds1 (VecType DenseMatrix bnds2 ty) -> return $ VecType DenseMatrix (bnds1 ++ bnds2) ty

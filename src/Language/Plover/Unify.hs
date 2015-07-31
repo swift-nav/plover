@@ -205,7 +205,10 @@ baseExpandTypedefM (TypedefType _ name) = do
     _ -> do addUError $ UError NoTag $ "COMPILER ERROR: The type " ++ show name ++ " should be defined."
             TypeHoleJ <$> gensym "typedef"
 baseExpandTypedefM (VecType st idxs bty) = VecType st idxs <$> baseExpandTypedefM bty
-baseExpandTypedefM x@(TypeHoleJ {}) = expandTerm x >>= baseExpandTypedefM
+baseExpandTypedefM x@(TypeHoleJ {}) = do x' <- expandTerm x
+                                         if x' == x
+                                           then return x
+                                           else baseExpandTypedefM x
 baseExpandTypedefM x = return x
 
 -- | Expands typedefs and then normalizes
