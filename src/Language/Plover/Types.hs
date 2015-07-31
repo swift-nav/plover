@@ -665,11 +665,10 @@ denormalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
 -- vector basetypes, though the vector may terminate in a typedef.
 baseExpandTypedef :: Type -> Type
 baseExpandTypedef ty@(TypedefType (TypeHole {}) _) = ty
-baseExpandTypedef (TypedefType ty@(VecType {}) _) = baseExpandTypedef ty
-baseExpandTypedef ty@(TypedefType _ _) = ty
-baseExpandTypedef (VecType st idxs bty) = case bty of
-  VecType {} -> VecType st idxs (baseExpandTypedef bty)
-  _ -> VecType st idxs bty
+baseExpandTypedef (TypedefType ty _) = ty
+--baseExpandTypedef (TypedefType ty@(VecType {}) _) = baseExpandTypedef ty
+--baseExpandTypedef ty@(TypedefType _ _) = ty
+baseExpandTypedef (VecType st idxs bty) = VecType st idxs (baseExpandTypedef bty)
 baseExpandTypedef ty = ty
 
 reduceArithmetic :: CExpr -> CExpr
@@ -870,12 +869,13 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
         iSize (IntType {}) = 1
         iSize (TupleType tys) = sum $ map iSize tys
 
-getLocType (Field a field) = case stripPtr (getType a) of -- TODO need to replace dependent fields which show up b/c of Storing
+getLocType (Field a field) = case stripPtr (normalizeTypes $ getType a) of -- TODO need to replace dependent fields which show up b/c of Storing
   StructType v (ST fields) -> case lookup field fields of
     Just (_, _ ,fieldTy) -> fieldTy
-  where stripPtr (PtrType aty) = stripPtr aty
+  ty -> error $ show ty
+  where stripPtr (PtrType aty) = stripPtr $ normalizeTypes aty
         stripPtr aty = aty
-getLocType (Deref a) = let (PtrType a') = getType a
+getLocType (Deref a) = let (PtrType a') = normalizeTypes $ getType a
                        in a'
 
 -- | Gets the type of an auto-vectorized expression.  Assumes types
