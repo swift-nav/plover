@@ -34,6 +34,7 @@ data CodeGenState = CodeGenState
                     { bindings :: M.Map String String
                     , usedNames :: [String]
                     , genCode :: [C.BlockItem]
+                    , inhibitGenCode :: Bool -- | used to "abort the continuation", (e.g. return)
                     , genRetLoc :: Maybe CmLoc
                     }
 
@@ -46,17 +47,30 @@ doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
                             return (Mainland.pretty 80 $ Mainland.ppr header, Mainland.pretty 80 $ Mainland.ppr code)
 
 runCM :: CM a -> a
-runCM m = evalState m (CodeGenState M.empty [] [] Nothing)
+runCM m = evalState m (CodeGenState M.empty [] [] False Nothing)
 
 writeCode :: [C.BlockItem] -> CM ()
-writeCode code = modify $ \state -> state { genCode = genCode state ++ code }
+writeCode code = do inhibit <- inhibitGenCode <$> get
+                    if inhibit
+                      then return ()
+                      else modify $ \state -> state { genCode = genCode state ++ code }
 
+-- | Inhibits any more code output for this continuation.  `writeCode`
+-- delimits the continuation.
+abortContinuation :: CM ()
+abortContinuation = modify $ \state -> state { inhibitGenCode = True }
+
+-- | TODO make a version which indicates whether the continuation was
+-- aborted along with some merge function so that, for instance, an if
+-- statement can decide whether the continuation was aborted along
+-- both branches.
 withCode :: CM a -> CM ([C.BlockItem], a)
 withCode m = do code <- genCode <$> get
-                modify $ \state -> state { genCode = [] }
+                lastInihibit <- inhibitGenCode <$> get
+                modify $ \state -> state { genCode = [], inhibitGenCode = False }
                 x <- m
                 code' <- genCode <$> get
-                modify $ \state -> state { genCode = code }
+                modify $ \state -> state { genCode = code, inhibitGenCode = lastInihibit }
                 return (code', x)
 
 mkIf :: C.Exp -> [C.BlockItem] -> [C.BlockItem] -> CM ()
@@ -738,13 +752,16 @@ compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
 compileStat (Return pos cty exp) = comp
   where comp = Compiled
                { noValue = case getType exp of
-                   Void -> writeCode [citems|return;|]
+                   Void -> do writeCode [citems|return;|]
+                              abortContinuation
                    _ -> do retLoc <- genRetLoc <$> get
                            case retLoc of
                              Just dest -> do withDest (compileStat exp) dest
                                              writeCode [citems|return;|]
+                                             abortContinuation
                              Nothing -> do ret <- asExp $ compileStat exp
                                            writeCode [citems|return $ret;|]
+                                           abortContinuation
                , asExp = do noValue comp
                             return $ compileUninit cty
                , withDest = \dest -> noValue comp
