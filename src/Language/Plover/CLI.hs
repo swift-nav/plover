@@ -14,6 +14,7 @@ data CompilerOpts
     , unitName :: Maybe String
     , hFilePrefix :: Maybe String
     , cFilePrefix :: Maybe String
+    , libPrefix :: Maybe String
     , target :: TargetFlag
     , debugMode :: Bool
     , helpMode :: Bool
@@ -35,6 +36,7 @@ defaultOptions = CompilerOpts
                  , unitName = Nothing
                  , hFilePrefix = Nothing
                  , cFilePrefix = Nothing
+                 , libPrefix = Nothing
                  , target = TargetDefault
                  , debugMode = False
                  , helpMode = False
@@ -79,10 +81,12 @@ showOptClasses = "\n Optimization classes which can be passed to --opt:\n"
 options :: [OptDescr (CompilerOpts -> CompilerOpts)]
 options =
   [ Option ['o'] ["out"] (ReqArg unitName' "NAME")  "Output unit NAME"
-  , Option [] ["c_output"] (ReqArg cFilePrefix' "DIR")
+  , Option [] ["cdir"] (ReqArg cFilePrefix' "DIR")
       "Directory to place generated .c files."
-  , Option [] ["h_output"] (ReqArg hFilePrefix' "DIR")
+  , Option [] ["hdir"] (ReqArg hFilePrefix' "DIR")
       "Directory to place generated .h files."
+  , Option [] ["libprefix"] (ReqArg libPrefix' "STRING")
+      "Library prefix to prefix includes with"
   , Option ['t'] ["target"] (ReqArg target' "TARGET")
       ("Set target type:\n" ++
        "\t     parse : Parses the input file\n" ++
@@ -100,6 +104,7 @@ options =
   where unitName' s opts = opts { unitName = Just s }
         cFilePrefix' s opts = opts { cFilePrefix = Just s }
         hFilePrefix' s opts = opts { hFilePrefix = Just s }
+        libPrefix' s opts = opts { libPrefix = Just s }
         target' t opts = opts { target = targetOpt t }
         debug' opts = opts { debugMode = True }
         help' opts = opts { helpMode = True }

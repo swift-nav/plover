@@ -73,8 +73,9 @@ main = do
            Just name -> do
              let cfile = joinPath [fromMaybe "" (cFilePrefix opts), name ++ ".c"]
              let hfile = joinPath [fromMaybe "" (hFilePrefix opts), name ++ ".h"]
+             let includeName = joinPath [fromMaybe "" (libPrefix opts), name]
              writeFile hfile (wrapHeader opts header)
-             writeFile cfile (addIncludes opts name source)
+             writeFile cfile (addIncludes opts includeName source)
     _ -> putStrLn "Unimplemented target"
   return ()
 

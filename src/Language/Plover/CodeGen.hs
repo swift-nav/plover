@@ -166,10 +166,12 @@ compileFunction name ft exp = do
                                        retty'' -> refLoc retty'' v'
                            modify $ \state -> state { genRetLoc = Just dest }
                            withDest (compileStat exp) dest
-    Nothing ->  case retty of
-                  Void -> noValue $ compileStat exp
-                  _ -> do expex <- asExp $ compileStat exp
-                          writeCode [citems| return $expex; |]
+    Nothing -> do
+      modify $ \state -> state { genRetLoc = Nothing }
+      case retty of
+        Void -> noValue $ compileStat exp
+        _ -> do expex <- asExp $ compileStat exp
+                writeCode [citems| return $expex; |]
   return $ case args'' of
     [] -> [ [cedecl| $ty:(compileType retty) $id:(name)(void) { $items:blks } |] ]
     _ ->  [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')) { $items:blks } |] ]
