@@ -530,22 +530,45 @@ condLoc cond cons alt = condLoc' (locType cons) cons alt
 
 -- | Creates a location which lets indices be applied on a given
 -- location a fixed number of times before handing the location to a
--- function. TODO choose a better name
-deferLoc :: Type -> CmLoc -> Int -> (CmLoc -> CM CmLoc)
+-- function.
+partialLoc :: Type -> CmLoc -> Int -> (CmLoc -> CM CmLoc)
             -> CM CmLoc
-deferLoc ty loc 0 f = f loc
-deferLoc ty loc n f = return dloc
-  where dloc = CmLoc
+partialLoc ty loc 0 f = f loc
+partialLoc ty loc n f = return ploc
+  where ploc = CmLoc
                { apIndex = \idx -> do loc' <- apIndex loc idx
-                                      dloc' <- deferLoc ty' loc' (n - 1) f
-                                      return dloc'
-               , store = error $ "Cannot simple store into deferLoc"
-               , asRValue = error "Cannot get deferLoc asRValue" -- comp
-               , asArgument = defaultAsArgument dloc
+                                      ploc' <- partialLoc ty' loc' (n - 1) f
+                                      return ploc'
+               , store = error $ "Cannot simple store into partialLoc"
+               , asRValue = error "Cannot get partialLoc asRValue"
+               , asArgument = defaultAsArgument ploc
                , locType = ty
                }
         VecType _ (bnd:bnds) bty = normalizeTypes ty
-        ty' = VecType DenseMatrix bnds bty
+        ty' = normalizeTypes $ VecType DenseMatrix bnds bty
+
+-- | Creates a location which accepts indices a certain number of
+-- times before passing them (bnd, idx pairs) to a function.  The
+-- types of intermediate applications are dense matrices.
+deferLoc :: Type -> Int -> (Type -> [(C.Exp, C.Exp)] -> CM CmLoc) -> CM CmLoc
+deferLoc ty n f = deferLoc' [] ty n
+  where deferLoc' acc ty 0 = f ty (reverse acc)
+        deferLoc' acc ty n = return dloc
+          where dloc = CmLoc
+                       { apIndex = \idx -> do bndex <- asExp $ compileStat bnd
+                                              deferLoc' ((bndex, idx):acc) ty' (n - 1)
+                       , store = error $ "Cannot simple store into deferLoc"
+                       , asRValue = error $ "Cannot get deferLoc asRValue"
+                       , asArgument = defaultAsArgument dloc
+                       , locType = ty
+                       }
+                VecType _ (bnd:bnds) bty = normalizeTypes ty
+                ty' = normalizeTypes $ VecType DenseMatrix bnds bty
+
+-- | Applies a list of indices to a location.
+apIndices :: CmLoc -> [C.Exp] -> CM CmLoc
+apIndices loc [] = return loc
+apIndices loc (idx:idxs) = apIndex loc idx >>= flip apIndices idxs
 
 -- | Lifts a location of x to a location of type (VecType
 -- [a_1,\dots,a_n] x) by ignoring indexes.
@@ -1020,44 +1043,21 @@ compileStat v@(Unary _ Inverse a) = comp
                }
         VecType _ [n,_] bty = normalizeTypes $ getType a
 
-compileStat v@(Unary _ Transpose a) = comp
-  where comp = Compiled
-               { withDest = \dest -> do aloc <- asLoc $ compileStat a
-                                        case normalizeTypes $ getType a of
-                                          VecType _ [_] _ -> do -- then dest is 1 x n and a is a 1-d vector
-                                            dest' <- apIndex dest [cexp| 0 |]
-                                            makeFor i2 $ \i -> do aloc' <- apIndex aloc i
-                                                                  dest'' <- apIndex dest' i
-                                                                  storeLoc dest'' aloc'
-                                          _ -> makeFor i2 $ \i -> -- then both are (at least) two-dimensional
-                                               do aloc' <- apIndex aloc i -- we reverse indices since better to do row-normal (?)
-                                                  makeFor i1 $ \j ->
-                                                      do aloc'' <- apIndex aloc' j
-                                                         dest'' <- apIndex dest i >>= flip apIndex j
-                                                         storeLoc dest'' aloc''
-               , asExp = defaultAsExp (getType v) comp
-               , noValue = defaultNoValue (getType v) comp
-               , asLoc = return loc
-               }
-        loc = CmLoc -- Defer application of the indices so we may swap them.
-              { apIndex = \idx1 -> do aloc <- asLoc $ compileStat a
-                                      return $ loc' aloc idx1
-              , asArgument = defaultAsArgumentNoOut loc
-              , locType = VecType DenseMatrix (i2:i1:idxs) aty'
-              , asRValue = error "Cannot get transpose as rvalue"
-              , store = error "Cannot store (yet) into transpose"
-              }
-        loc' aloc idx1 = CmLoc
-                         { apIndex = \idx2 -> case normalizeTypes $ getType a of
-                                                VecType _ [_] _ -> apIndex aloc idx2
-                                                _ -> apIndex aloc idx2 >>= flip apIndex idx1
-                         , asArgument = defaultAsArgumentNoOut loc
-                         , locType = VecType DenseMatrix (i1:idxs) aty'
-                         , asRValue = error "Cannot get transpose as rvalue"
-                         , store = error "Cannot store (yet) into transpose"
-                         }
-        -- TODO 1d vector issue
-        VecType _ (i1:i2:idxs) aty' = normalizeTypes $ getType v -- N.B. this will have i1=1 if v is a 1-d vector.
+compileStat v@(Unary _ Transpose a) = defaultAsRValue $ case aty of
+  VecType _ [_] _ -> makeRowVector aty a
+  _ -> makeMatrixTranspose aty a
+
+  where aty = normalizeTypes $ getType a
+
+        makeRowVector (VecType _ [bnd] bty) a = do
+          aloc <- asLoc $ compileStat a
+          deferLoc (VecType DenseMatrix [1, bnd] bty) 2 $ \_ [_, (_, idx)] -> do
+            apIndex aloc idx
+
+        makeMatrixTranspose (VecType _ (bnd1:bnd2:bnds) bty) a = do
+          aloc <- asLoc $ compileStat a
+          deferLoc (VecType DenseMatrix (bnd2:bnd1:bnds) bty) 2 $ \_ [(_, idx2), (_, idx1)] -> do
+            apIndices aloc [idx1, idx2]
 
 -- -- binary
 
@@ -1284,7 +1284,7 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
         mkLoc :: Type -> [Either (Int, CmLoc) C.Exp] -> CmLoc -> CM CmLoc
         mkLoc _ [] aloc = return aloc
         mkLoc ty ((Right exp):idxs) aloc = apIndex aloc exp >>= mkLoc ty idxs
-        mkLoc ty ((Left (n, iloc)):idxs) aloc = deferLoc ty iloc n $ \iloc' -> do -- TODO tuples
+        mkLoc ty ((Left (n, iloc)):idxs) aloc = partialLoc ty iloc n $ \iloc' -> do -- TODO tuples
           ilocex <- asExp $ asRValue iloc'
           apIndex aloc ilocex >>= mkLoc (strip n ty) idxs
 
