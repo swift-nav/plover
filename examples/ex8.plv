@@ -1,0 +1,12 @@
+struct Bar (
+  x :: double[10] storing Diagonal double[10,10];
+);
+
+type Foo := double[5];
+
+--type LL := (double, *LL);
+
+--type MyInt := u8;
+
+foo (x :: Foo) :: double
+  := x[1];

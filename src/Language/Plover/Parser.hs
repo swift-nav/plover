@@ -289,7 +289,7 @@ mstatements = do pos <- getPosition
                   _ -> return $ wrapPos pos $ SeqExpr xs
 
 toplevelStatement :: Parser Expr
-toplevelStatement = extern <|> static <|> struct <|> expr
+toplevelStatement = extern <|> static <|> struct <|> typedef <|> expr
   where extern = withPos $ do reserved "extern"
                               x <- toplevelStatement
                               return $ Extern x
@@ -300,6 +300,11 @@ toplevelStatement = extern <|> static <|> struct <|> expr
                               name <- identifier
                               xs <- parens $ sepEndBy1 expr (symbol ";")
                               return $ Struct name xs
+        typedef = withPos $ do reserved "type"
+                               name <- identifier
+                               reservedOp ":="
+                               ty <- expr
+                               return $ Typedef name ty
 
 
 -- Parse entire toplevel

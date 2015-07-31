@@ -97,10 +97,10 @@ doSemCheck defs = runSemChecker dochecks
   where dochecks = do modify $ \state -> state { gensymState = allToplevelNames defs }
                       condenseBindings defs -- introduces global bindings
                       checkFuncBodies
+                      globalCheckTypedefs
                       globalAlphaRename
                       globalConcretizeApps
                       globalFillHoles
-                      globalExpandTypedefs
 
                       defs' <- M.elems . globalBindings <$> get
 
@@ -204,6 +204,7 @@ defHasValue (DefBinding { definition = def }) = case def of
   FunctionDef me _ -> isJust me
   StructDef _ -> False
   ValueDef me _ -> isJust me
+  TypeDef _ -> False
 
 -- | This is a new binding, not already in the SemChecker state.  Put
 -- it there, and do some consistency checks.
@@ -245,6 +246,9 @@ reconcileDefinitions tag (ValueDef oldMce oldType) (ValueDef newMce newType) = d
 reconcileDefinitions tag (StructDef oldMembers) (StructDef newMembers) = do
   semAssert (oldMembers == newMembers) $ SemError tag "Inconsistent structure definitions."
   return $ StructDef oldMembers
+reconcileDefinitions tag (TypeDef oldTy) (TypeDef newTy) = do
+  semAssert (oldTy == newTy) $ SemError tag "Inconsistent type definitions."
+  return $ TypeDef oldTy
 reconcileDefinitions tag oldDef newDef = do
   addError $ SemError tag "Redefinition of global variable with inconsistent types."
   return oldDef
@@ -272,6 +276,7 @@ globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
                                                          mexp' <- mapM (alphaRenameTerms pos) mexp
                                                          return $ ValueDef mexp' ty'
                                   StructDef members -> return $ StructDef members
+                                  TypeDef ty -> return $ TypeDef ty
                                 return $ defb { definition = def' }
 
 -- TODO add something like this back in once structs are settled
@@ -317,6 +322,7 @@ globalConcretizeApps = do defbs <- M.elems . globalBindings <$> get
                                                         mexp' <- mapM concretizeApps mexp
                                                         return $ ValueDef mexp' ty'
                                  StructDef members -> return $ StructDef members
+                                 TypeDef ty -> TypeDef <$> concretizeApps ty
                                return $ defb { definition = def' }
 
 concretizeFunType :: FunctionType -> SemChecker FunctionType
@@ -342,6 +348,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                                                   mexp' <- mapM fillTermHoles mexp
                                                   return $ ValueDef mexp' ty'
                            StructDef members -> return $ StructDef members
+                           TypeDef ty -> TypeDef <$> fillTermHoles ty
                          return $ defb { definition = def' }
 
 fillFunType :: FunctionType -> SemChecker FunctionType
@@ -357,6 +364,8 @@ fillTermHoles = traverseTerm tty texp tloc trng
   where tty (TypeHole Nothing) = TypeHoleJ <$> genUVar
         tty ty@(FnType {}) = do addError $ SemError NoTag "COMPILER ERROR. Scoping issues when filling holes in FnType"
                                 return ty
+
+        tty (TypedefType ty v) = return $ TypedefType (TypeHole Nothing) v -- don't want to fill type of typedef yet
         tty ty = return ty
 
         texp (Hole pos Nothing) = HoleJ pos <$> genUVar
@@ -404,42 +413,36 @@ concretizeApps = traverseTerm tty texp tloc trng
         tloc = return
         trng = return
 
-globalExpandTypedefs :: SemChecker ()
-globalExpandTypedefs = do
+globalCheckTypedefs :: SemChecker ()
+globalCheckTypedefs = do
   defbs <- M.elems . globalBindings <$> get
-  defbs' <- mapM doExpand defbs
-  modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
-  where doExpand defb = do
+  mapM_ doCheck defbs
+  where doCheck defb = do
           let pos = bindingPos defb
-          def' <- case definition defb of
-            FunctionDef mexp ft -> do ft' <- expandFunType pos ft
-                                      mexp' <- mapM (expandTypedefs pos) mexp
-                                      return $ FunctionDef mexp' ft'
-            ValueDef mexp ty -> do ty' <- expandTypedefs pos ty
-                                   mexp' <- mapM (expandTypedefs pos) mexp
-                                   return $ ValueDef mexp' ty'
-            StructDef members -> return $ StructDef members
-          return $ defb { definition = def' }
+          case definition defb of
+            FunctionDef mexp ft -> do funTypeCheckTypedefs pos ft
+                                      mapM_ (checkTypedefs pos) mexp
+            ValueDef mexp ty -> do checkTypedefs pos ty
+                                   mapM_ (checkTypedefs pos) mexp
+            StructDef members -> return () -- TODO actually check typedefs
+            TypeDef ty -> checkTypedefs pos ty
 
-expandFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
-expandFunType pos (FnT args rty) = do
-  args' <- forM args $ \(vpos, v, req, dir, vty) -> do
-    vty' <- expandTypedefs vpos vty
-    return (vpos, v, req, dir, vty')
-  rty' <- expandTypedefs pos rty
-  return $ FnT args' rty'
+funTypeCheckTypedefs :: Tag SourcePos -> FunctionType -> SemChecker ()
+funTypeCheckTypedefs pos (FnT args rty) = do
+  forM_ args $ \(vpos, v, req, dir, vty) -> do
+    checkTypedefs vpos vty
+  checkTypedefs pos rty
 
-
-expandTypedefs :: ScopedTraverser a => Tag SourcePos -> a -> SemChecker a
-expandTypedefs = scopedTraverseTerm tr
+checkTypedefs :: ScopedTraverser a => Tag SourcePos -> a -> SemChecker ()
+checkTypedefs pos x = scopedTraverseTerm tr pos x >> return ()
   where tr = ScopedTraverserRec
              { stTy = \pos x -> case x of
-                 TypedefType v -> do
+                 TypedefType _ v -> do
                    mvdefb <- lookupGlobalBinding v
                    case mvdefb of
                      Just vdefb -> case definition vdefb of
-                       StructDef {} -> return x -- since mutually recursive structs are allowed
-                       TypeDef ty -> expandTypedefs pos ty
+                       StructDef {} -> return x
+                       TypeDef {} -> return x
                        _ -> do addError $
                                  SemError pos $ "Identifier '" ++ v ++ "' does not refer to struct or typedef."
                                return x
@@ -513,6 +516,7 @@ verifyStorageDefBinding db = case definition db of
       Just exp -> do verifyStorage (bindingPos db) exp
                      when (not $ typeCanHold ty (getType exp)) $
                        addError $ SemStorageError (bindingPos db) ty (getType exp)
+  TypeDef ty -> return ()
 
 verifyStorage :: TermMappable a => Tag SourcePos -> a -> SemChecker ()
 verifyStorage rpos = void . traverseTerm tty texp tloc trng

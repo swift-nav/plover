@@ -125,10 +125,12 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                            decls <- fmap concat $ forM (filter (not . static) defbs') $ \defb ->
                                     newScope $ case definition defb of
                                                  FunctionDef mexp ft -> compileFunctionDecl defb (binding defb) ft
+                                                 TypeDef ty -> compileTypedef defb ty
                                                  _ -> return []
                            declstatic <- fmap concat $ forM (filter static defbs') $ \defb ->
                                          newScope $ case definition defb of
                                                       FunctionDef mexp ft -> compileFunctionDecl defb (binding defb) ft
+                                                      TypeDef ty -> compileTypedef defb ty
                                                       _ -> return []
                            ddef <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
@@ -181,6 +183,11 @@ compileFunction name ft exp = do
                       _ -> True
         args' = [(v, dir, ty) | (_, v, _, dir, ty) <- args, nonVoid ty]
 
+compileTypedef :: DefBinding -> Type -> CM [C.Definition]
+compileTypedef defb ty = return [ [cedecl| typedef $ty:(compileType ty') $id:(binding defb); |] ]
+  where ty' = case ty of
+                TypedefType ty2 _ -> ty2
+                _ -> ty
 
 compileParams :: [(Variable, ArgDir, Type)] -> CM [C.Param]
 compileParams = mapM compileParam
@@ -193,7 +200,7 @@ compileParam (v, dir, ty) = do v' <- lookupName "arg" v
                                 ArgInOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
 
 compileType :: Type -> C.Type
-compileType = compileType' . normalizeTypes
+compileType = compileType' -- . normalizeTypes
 
 -- | Produces the c type for a reference to a vector
 compileVecType :: Type -> C.Type
@@ -221,7 +228,7 @@ compileType' (FloatType Double) = [cty|double|]
 compileType' StringType = [cty|char*|]
 compileType' BoolType = [cty|typename bool|]
 compileType' (PtrType ty) = [cty|$ty:(compileType ty)*|]
-compileType' (TypedefType v) = [cty|typename $id:v|]
+compileType' (TypedefType ty v) = [cty|typename $id:v|]
 compileType' (StructType v _) = [cty|typename $id:v|]
 compileType' (TypeHole _) = error "No type holes allowed."
 

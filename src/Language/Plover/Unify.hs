@@ -168,6 +168,10 @@ fullExpandTerm term = do
   tenv <- uTypes <$> get
   eenv <- uExprs <$> get
   let tty (TypeHoleJ v) | Just (_, ty') <- M.lookup v tenv = expand ty'
+      tty (TypedefType _ v) = do mty <- getBinding v
+                                 let Just (_, ty) = mty
+                                 ty' <- expand ty
+                                 return $ TypedefType ty' v
       tty ty = return ty
 
       texp (Return pos ty v) = do ty' <- expand ty
@@ -180,7 +184,6 @@ fullExpandTerm term = do
       texp exp = return exp
 
       tloc (Ref _ v) = do mty <- getBinding v
-                          te <- uTypeEnv <$> get
                           let Just (_, ty) = mty
                           ty' <- expand ty
                           return $ Ref ty' v
@@ -193,22 +196,21 @@ fullExpandTerm term = do
 
   expand term
 
+-- | Expands just enough typedefs to see how many indices a vector has
+baseExpandTypedefM :: Type -> UM Type
+baseExpandTypedefM (TypedefType _ name) = do
+  mty' <- getBinding name
+  case mty' of -- Relies on the fact that the semchecker already checked this name refers to a type
+    Just (pos, ty) -> baseExpandTypedefM ty
+    _ -> do addUError $ UError NoTag $ "COMPILER ERROR: The type " ++ show name ++ " should be defined."
+            TypeHoleJ <$> gensym "typedef"
+baseExpandTypedefM (VecType st idxs bty) = VecType st idxs <$> baseExpandTypedefM bty
+baseExpandTypedefM x@(TypeHoleJ {}) = expandTerm x >>= baseExpandTypedefM
+baseExpandTypedefM x = return x
 
+-- | Expands typedefs and then normalizes
 normalizeTypesM :: TermMappable a => a -> UM a
-normalizeTypesM term = normalizeTypes <$> traverseTerm tty texp tloc trng term
-  where tty ty = case ty of
-          TypedefType name -> do mty' <- getBinding name
-                                 case mty' of
-                                  Just (pos, st@(StructType {})) -> return st
-                                  _ -> do addUError $ UError NoTag $
-                                            "COMPILER ERROR: The typedef " ++ show name
-                                            ++ " should be defined."
-                                          g <- gensym "typedef"
-                                          return $ TypeHoleJ g
-          _ -> return ty
-        texp = return
-        tloc = return
-        trng = return
+normalizeTypesM ty = normalizeTypes <$> termMapper baseExpandTypedefM return return return ty
 
 -- | "occurs check" for type holes
 typeOccursIn :: TermMappable a => Variable -> a -> Bool
@@ -282,6 +284,7 @@ typeCheckDefBinding def = case definition def of
         expty <- typeCheck exp
         void $ unifyN (bindingPos def) expty ty
       Nothing -> return ()
+  TypeDef ty -> void $ typeCheckType (bindingPos def) ty
 
 expandDefBinding :: DefBinding -> UM DefBinding
 expandDefBinding db = do def' <- expandDefBinding' db
@@ -314,11 +317,14 @@ expandDefBinding' def = case definition def of
         exp' <- fullExpandTerm exp
         return $ ValueDef (Just exp') ty'
       Nothing -> return $ ValueDef Nothing ty'
+  TypeDef ty -> do
+    ty' <- fullExpandTerm ty
+    return $ TypeDef ty'
 
 class Unifiable a where
   unify :: Tag SourcePos -> a -> a -> UM a
 
--- | Unifies after normalizing types (i.e., replacing TypedefType with StructType)
+-- | Unifies after normalizing types
 unifyN :: (Unifiable a, TermMappable a) => Tag SourcePos -> a -> a -> UM a
 unifyN pos x y = do x' <- normalizeTypesM x
                     y' <- normalizeTypesM y
@@ -358,6 +364,13 @@ instance Unifiable Type where
     return $ PtrType a'
 
   unify pos s@(StructType v1 _) (StructType v2 _) | v1 == v2  = return s
+
+  -- Expand about enough for unification (for handling mutual recursion)
+  unify pos s@(TypedefType _ v1) (TypedefType _ v2) | v1 == v2 = return s
+  unify pos s@(TypedefType _ v1) ty2 = do ty1 <- normalizeTypesM s
+                                          unify pos ty1 ty2
+  unify pos ty1 s@(TypedefType _ v2) = do ty2 <- normalizeTypesM s
+                                          unify pos ty1 ty2
 
   unify pos x y = do addUError $ UTyFailure pos x y
                      return x
@@ -568,7 +581,7 @@ typeCheckType pos t@(FloatType {}) = return t
 typeCheckType pos StringType = return StringType
 typeCheckType pos BoolType = return BoolType
 typeCheckType pos (PtrType ty) = PtrType <$> typeCheckType pos ty
-typeCheckType pos t@(TypedefType _) = normalizeTypesM t >>= typeCheckType pos
+typeCheckType pos t@(TypedefType _ _) = return t -- it is perfect as it is
 typeCheckType pos t@(StructType v (ST fields)) = return t
 typeCheckType pos t@(TypeHole {}) = expandTerm t
 
@@ -835,7 +848,7 @@ typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
   case stripPtr aty of
    StructType v (ST fields) -> case lookup field fields of
-     Just (fpos, fieldTy) -> return fieldTy -- TODO Need to replace dependent fields with struct members
+     Just (fpos, _, fieldTy) -> return fieldTy -- TODO Need to replace dependent fields with struct members
      Nothing -> do addUError $ UNoField pos field
                    TypeHoleJ <$> gensym "field"
    _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field

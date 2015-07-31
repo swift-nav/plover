@@ -32,6 +32,7 @@ instance NameContainer Definition where
     FunctionDef cexpr ft -> maybe [] allNames cexpr ++ allNames ft
     StructDef defs -> map fst defs
     ValueDef cexpr t -> maybe [] allNames cexpr ++ allNames t
+    TypeDef ty -> allNames ty
 
 instance NameContainer CExpr where
   allNames ex = case ex of
@@ -41,6 +42,9 @@ instance NameContainer CExpr where
     Assert _ x -> allNames x
     RangeVal _ rng -> allNames rng
     If _ a b c -> allNames [a, b, c]
+    IntLit {} -> []
+    FloatLit {} -> []
+    StrLit {} -> []
     VecLit _ ty xs -> allNames ty ++ allNames xs
     TupleLit _ xs -> allNames xs
     Let _ v d x -> [v] ++ allNames d ++ allNames x
@@ -50,14 +54,13 @@ instance NameContainer CExpr where
                         unarg (ImpArg x) = x
                     in allNames f ++ allNames (map unarg args)
     ConcreteApp _ f args rty -> allNames f ++ allNames args ++ allNames rty
-    HoleJ _ v -> [v]
+    Hole _ mv -> maybe [] return mv
     Get _ loc -> allNames loc
     Addr _ loc -> allNames loc
     Set _ loc v -> allNames loc ++ allNames v
     AssertType _ v t -> allNames v ++ allNames t
     Unary _ op x -> allNames x
     Binary _ op x y -> allNames x ++ allNames y
-    _ -> []
 
 instance NameContainer (Range CExpr) where
   allNames rng = allNames [rangeFrom rng, rangeTo rng, rangeStep rng]
@@ -74,11 +77,14 @@ instance NameContainer Type where
     VecType st idxs t -> allNames st ++ allNames idxs ++ allNames t
     TupleType tys -> allNames tys
     FnType ft -> allNames ft
+    IntType {} -> []
+    FloatType {} -> []
+    StringType -> []
+    BoolType -> []
     PtrType t -> allNames t
-    TypedefType v -> [v]
+    TypedefType ty v -> allNames ty ++ [v]
     StructType v _ -> [v]
-    TypeHole (Just v) -> [v]
-    _ -> []
+    TypeHole mv -> maybe [] return mv
 
 instance NameContainer FunctionType where
   allNames ft = let ((FnT args rt), _) = getEffectiveFunType ft

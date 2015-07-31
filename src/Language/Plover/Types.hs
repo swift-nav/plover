@@ -165,9 +165,8 @@ data Type' a
   | StringType -- null-terminated C string
   | BoolType
   | PtrType (Type' a)
-  | TypedefType Variable
-  -- Concrete ST has name, values for type parameters
-  | StructType Variable StructType -- [a]
+  | TypedefType (Type' a) Variable -- Like Ref
+  | StructType Variable StructType
   | TypeHole (Maybe UVar)
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
@@ -216,8 +215,10 @@ strippedFunctionType (FnT args ty) = (map (\(pos, v, b, dir, ty) -> (v, b, dir, 
 data ArgDir = ArgIn | ArgOut | ArgInOut
             deriving (Show, Eq, Ord)
 
+-- | A struct contains external (C) and internal (Plover) types.  This
+-- is controlled using the 'storing' keyword.
 data StructType = ST
-  { st_fields :: [(Variable, (Tag SourcePos, Type))]
+  { st_fields :: [(Variable, (Tag SourcePos, Type, Type))]
   }
  deriving (Show, Eq, Ord)
 
@@ -261,7 +262,7 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                 retty' = retty
 
 data Definition = FunctionDef (Maybe CExpr) FunctionType
-                | StructDef [(Variable, (Tag SourcePos, Type))]
+                | StructDef [(Variable, (Tag SourcePos, Type, Type))]
                 | TypeDef Type
                 | ValueDef (Maybe CExpr) Type
                 deriving Show
@@ -284,7 +285,7 @@ definitionType def = case definition def of
   FunctionDef _ ft -> FnType ft
   StructDef fields -> StructType (binding def) $ ST fields
   ValueDef _ ty -> ty
-
+  TypeDef ty -> ty
 
 pattern Vec tag a b c = PExpr tag (Vec' a b c)
 pattern For tag a b c = PExpr tag (For' a b c)
@@ -385,17 +386,15 @@ instance TermMappable Type where
   mapTerm tty texp tloc trng ty = case ty of
     VecType st bnds ety -> VecType st <$> mapM texp bnds <*> tty ety
     TupleType tys -> TupleType <$> mapM tty tys
-
-    -- TODO I don't think it is appropriate to mapTerm over a FnType (it would be like mapTerming over a StructType)
-    -- FnType (FnT args retty) -> do
-    --   args' <- forM args $ \(pos, v, b, dir, ty) -> do
-    --     ty' <- tty ty
-    --     return (pos, v, b, dir, ty')
-    --   retty' <- tty retty
-    --   return $ FnType $ FnT args' retty'
-
+    FnType {} -> return ty -- Functions types are different (TODO?)
+    IntType {} -> return ty
+    FloatType {} -> return ty
+    StringType -> return ty
+    BoolType -> return ty
     PtrType pty -> PtrType <$> tty pty
-    _ -> return ty
+    TypedefType ty v -> TypedefType <$> tty ty <*> pure v
+    StructType {} -> return ty -- Struct types are different (TODO?)
+    TypeHole {} -> return ty
   termMapper tty texp tloc trng = tty
 
 instance TermMappable CExpr where
@@ -406,6 +405,10 @@ instance TermMappable CExpr where
     Assert pos v -> Assert pos <$> texp v
     RangeVal pos range -> RangeVal pos <$> trng range
     If pos a b c -> If pos <$> texp a <*> texp b <*> texp c
+    IntLit {} -> return exp
+    FloatLit {} -> return exp
+    StrLit {} -> return exp
+    BoolLit {} -> return exp
     VecLit pos ty exprs -> VecLit pos <$> tty ty <*> mapM texp exprs
     TupleLit pos exprs -> TupleLit pos <$> mapM texp exprs
     Let pos v val expr -> Let pos v <$> texp val <*> texp expr
@@ -415,13 +418,13 @@ instance TermMappable CExpr where
       where targ (Arg a) = Arg <$> texp a
             targ (ImpArg a) = ImpArg <$> texp a
     ConcreteApp pos fn args rty -> ConcreteApp pos <$> texp fn <*> mapM texp args <*> tty rty
+    Hole {} -> return exp
     Get pos loc -> Get pos <$> tloc loc
     Addr pos loc -> Addr pos <$> tloc loc
     Set pos loc val -> Set pos <$> tloc loc <*> texp val
     AssertType pos v ty -> AssertType pos <$> texp v <*> tty ty
     Unary pos op v -> Unary pos op <$> texp v
     Binary pos op v1 v2 -> Binary pos op <$> texp v1 <*> texp v2
-    _ -> return exp
   termMapper tty texp tloc trng = texp
 
 instance TermMappable (Location CExpr) where
@@ -626,15 +629,16 @@ typeCanHold' (FloatType t1) (FloatType t2) = floatCanHold t1 t2
 typeCanHold' StringType StringType = True
 typeCanHold' BoolType BoolType = True
 typeCanHold' (PtrType t1) (PtrType t2) = typeCanHold' t1 t2 -- TODO should check t1 == t2
-typeCanHold' (TypedefType v1) (TypedefType v2)  = v1 == v2
-typeCanHold' (TypedefType v1) (StructType v2 _) = v1 == v2
-typeCanHold' (StructType v1 _) (TypedefType v2) = v1 == v2
+typeCanHold' (TypedefType ty1 v1) (TypedefType ty2 v2)  = v1 == v2 || typeCanHold' ty1 ty2
+typeCanHold' (TypedefType ty1 _) ty2 = typeCanHold' ty1 ty2
+typeCanHold' ty1 (TypedefType ty2 _) = typeCanHold' ty1 ty2
 typeCanHold' (StructType v1 _) (StructType v2 _) = v1 == v2
 typeCanHold' (TypeHole mv1) (TypeHole mv2) = mv1 == mv2
 typeCanHold' ty1 ty2 = ty1 == ty2
 
+-- | Collapses dense matrices and expands typedefs along the spine using baseExpandTypedef
 normalizeTypes :: TermMappable a => a -> a
-normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
+normalizeTypes x = runIdentity $ termMapper ety return return return =<< traverseTerm tty texp tloc trng x
   where tty ty = case ty of
           VecType _ [] ty -> return ty
           VecType DenseMatrix bnds1 (VecType DenseMatrix bnds2 ty) -> return $ VecType DenseMatrix (bnds1 ++ bnds2) ty
@@ -642,6 +646,8 @@ normalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
         texp = return
         tloc = return
         trng = return
+
+        ety x = return $ baseExpandTypedef x
 
 -- | Splits dense matrices into single-indexed entities
 denormalizeTypes :: TermMappable a => a -> a
@@ -654,6 +660,17 @@ denormalizeTypes = runIdentity . (traverseTerm tty texp tloc trng)
         texp = return
         tloc = return
         trng = return
+
+-- | Recursively expands typedefs along the spine.  The spine includes
+-- vector basetypes, though the vector may terminate in a typedef.
+baseExpandTypedef :: Type -> Type
+baseExpandTypedef ty@(TypedefType (TypeHole {}) _) = ty
+baseExpandTypedef (TypedefType ty@(VecType {}) _) = baseExpandTypedef ty
+baseExpandTypedef ty@(TypedefType _ _) = ty
+baseExpandTypedef (VecType st idxs bty) = case bty of
+  VecType {} -> VecType st idxs (baseExpandTypedef bty)
+  _ -> VecType st idxs bty
+baseExpandTypedef ty = ty
 
 reduceArithmetic :: CExpr -> CExpr
 reduceArithmetic expr =
@@ -723,7 +740,7 @@ instance PP Type where
   pretty StringType = text "string"
   pretty BoolType = text "bool"
   pretty (PtrType t) = parens $ hang (text "*") 2 (pretty t)
-  pretty (TypedefType v) = text v
+  pretty (TypedefType ty v) = text v
   pretty (StructType v _) = text v
   pretty (TypeHole (Just v)) = text v -- should have $ so shouldn't conflict
   pretty (TypeHole Nothing) = text "$hole"
@@ -855,7 +872,7 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
 
 getLocType (Field a field) = case stripPtr (getType a) of -- TODO need to replace dependent fields which show up b/c of Storing
   StructType v (ST fields) -> case lookup field fields of
-    Just (_, fieldTy) -> fieldTy
+    Just (_, _ ,fieldTy) -> fieldTy
   where stripPtr (PtrType aty) = stripPtr aty
         stripPtr aty = aty
 getLocType (Deref a) = let (PtrType a') = getType a

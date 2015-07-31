@@ -146,7 +146,7 @@ makeType exp@(PExpr _ e') = case e' of
     "double" -> return $ T.FloatType T.Double
     "string" -> return $ T.StringType
     "bool" -> return $ T.BoolType
-    _ -> return $ T.TypedefType v
+    _ -> return $ T.TypedefType (T.TypeHole Nothing) v
   UnExpr Deref a -> T.PtrType <$> makeType a
   Tuple xs -> T.TupleType <$> mapM makeType xs
   Hole -> return $ T.TypeHole Nothing
@@ -178,14 +178,23 @@ makeDefs exp@(PExpr pos pe) = case pe of
   BinExpr Type a b -> return <$> makeTopType exp Nothing
   DefExpr a b -> return <$> (makeTopType a . Just =<< makeExpr b)
   Struct v members -> return <$> makeStructDecl pos v members
+  Typedef v ty -> return <$> (T.mkBinding pos v . T.TypeDef <$> makeType ty)
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
 
 makeStructDecl :: Tag SourcePos -> Variable -> [Expr] -> Either ConvertError T.DefBinding
 makeStructDecl pos v members = T.mkBinding pos v . T.StructDef <$> mapM makeStructMember members
-  where makeStructMember (PExpr _ (BinExpr Type (PExpr pos (Ref v)) b)) = do t <- makeType b
-                                                                             return (v, (pos, t))
+  where makeStructMember (PExpr _ (BinExpr Type (PExpr pos (Ref v)) b))
+          = do (t, t') <- makeMemberType b
+               return (v, (pos, t, t'))
         -- TODO parse asserts inside struct
-        makeStructMember exp = Left $ ConvertError (makePos exp) ["Expecting member in struct."]
+        makeStructMember exp
+          = Left $ ConvertError (makePos exp) ["Expecting member in struct."]
+
+        makeMemberType (PExpr _ (BinExpr Storing a b)) = do t <- makeType a
+                                                            t' <- makeType b
+                                                            return (t, t')
+        makeMemberType a = do t <- makeType a
+                              return (t, t)
 
 makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError T.DefBinding
 makeTopType exp@(PExpr _ pe) val = case pe of

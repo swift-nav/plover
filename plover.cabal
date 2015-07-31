@@ -58,9 +58,11 @@ executable plover
                    , srcloc
                    , haskell-src-meta
                    , syb
+  default-language:  Haskell2010
 
 library
   exposed-modules:
+                     Language.Plover.Main,
                      Language.Plover.Types,
                      Language.Plover.Quote,
                      Language.Plover.QuoteTest,
@@ -83,8 +85,10 @@ library
                    , parsec >=3.1 && <3.2
                    , pretty >= 1.1
                    , process
+                   , filepath
                    , template-haskell
                    , data-fix
+                   , pretty-show
 
                    , mainland-pretty
                    , language-c-quote == 0.11
