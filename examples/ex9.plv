@@ -1,0 +1,5 @@
+imp (a :: bool) (b :: bool) :: bool
+  := not a or b;
+
+equiv (a :: bool) (b :: bool) :: bool
+  := equiv a b or equiv b a;

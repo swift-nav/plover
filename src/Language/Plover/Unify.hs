@@ -686,6 +686,10 @@ typeCheck (AssertType pos v ty) = do
 typeCheck (Unary pos op a) | op `elem` [Pos, Neg] = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   numTypeVectorize pos aty aty
+typeCheck (Unary pos Not a) = do
+  aty <- typeCheck a
+  expectBool pos aty
+  return BoolType
 typeCheck (Unary pos Sum a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   aty' <- numTypeVectorize pos aty aty -- HACK
@@ -753,6 +757,12 @@ typeCheck (Binary pos op a b)
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       _ <- arithType pos aty bty
+      return BoolType
+  | op `elem` [And, Or] = do
+      aty <- typeCheck a
+      bty <- typeCheck b
+      expectBool pos aty
+      expectBool pos bty
       return BoolType
   | otherwise = error $ "binary " ++ show op ++ " not implemented"
 

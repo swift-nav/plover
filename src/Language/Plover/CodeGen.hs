@@ -1025,6 +1025,9 @@ compileStat v@(Unary _ op a)
                        }
         compileVectorized vty loc = compPureExpr vty $ opExp <$> (asExp $ asRValue loc)
 
+compileStat (Unary _ Not a) = compPureExpr BoolType (cnot <$> (asExp $ compileStat a))
+  where cnot x = [cexp| !$x |]
+
 compileStat v@(Unary _ Inverse a) = comp
   where comp = Compiled
                { withDest = \dest -> do aloc <- asLoc $ compileStat a
@@ -1218,7 +1221,9 @@ compileStat v@(Binary pos op v1 v2) | op `elem` comparisonOps = comp
                       EqOp ->  [cexp| $a == $b |]
                       LTOp ->  [cexp| $a <  $b |]
                       LTEOp -> [cexp| $a <= $b |]
-        comparisonOps = [EqOp, LTOp, LTEOp]
+                      And -> [cexp| $a && $b |]
+                      Or -> [cexp| $a || $b |]
+        comparisonOps = [EqOp, LTOp, LTEOp, And, Or]
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
 compileLoc :: Location CExpr -> CM CmLoc
