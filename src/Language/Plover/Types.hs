@@ -671,6 +671,11 @@ baseExpandTypedef (TypedefType ty _) = ty
 baseExpandTypedef (VecType st idxs bty) = VecType st idxs (baseExpandTypedef bty)
 baseExpandTypedef ty = ty
 
+-- | Gets the bounds for indices in a vector
+getIndices :: Type -> [CExpr]
+getIndices (VecType _ bnds bty) = bnds ++ getIndices bty
+getIndices _ = []
+
 reduceArithmetic :: CExpr -> CExpr
 reduceArithmetic expr =
   case (toExpr expr) of
@@ -879,7 +884,7 @@ getLocType (Deref a) = let (PtrType a') = normalizeTypes $ getType a
                        in a'
 
 -- | Gets the type of an auto-vectorized expression.  Assumes types
--- have been unified.
+-- have been unified.  Result (if vector) is always DenseMatrix storage type.
 -- Rules:
 --  1) if A and B are vectors, (A + B)[i] = A[i] + B[i]
 --  2) if (wlog) A is a vector and B is not, (A + B)[i] = A[i] + B

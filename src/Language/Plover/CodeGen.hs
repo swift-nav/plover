@@ -640,9 +640,9 @@ defaultAsArgumentNoOut loc = do floc <- freshLoc "arg" (locType loc)
                                 return (stbef ++ bef, exp, [])
 
 spillLoc :: CmLoc -> CM CmLoc
-spillLoc loc = do (bef, exp, _) <- asArgument loc
-                  writeCode bef
-                  return $ expLoc (locType loc) (return exp)
+spillLoc loc = do sloc <- freshLoc "tmp" (locType loc)
+                  storeLoc sloc loc
+                  return sloc
 
 storeExp :: CmLoc -> C.Exp -> CM ()
 storeExp dst exp = case normalizeTypes (locType dst) of
@@ -717,23 +717,31 @@ compImpureExpr ty mexpr = comp
                }
 
 -- | (Possibly misleading name) Uses a Cm CmLoc to make a Compiled fit
--- for asRValue.
+-- for asRValue.  The argument _must_ implement its own asRValue if it
+-- is to be used asExp and it is a simple value (otherwise
+-- defaultAsExp is used).
 defaultAsRValue :: CM CmLoc -> Compiled
 defaultAsRValue mloc = comp
   where comp = Compiled
-               { noValue = mloc >>= noValue . asRValue
+               { noValue = mloc >> return ()
                , withDest = \dest -> mloc >>= storeLoc dest
-               , asExp = mloc >>= asExp . asRValue
+               , asExp = do loc <- mloc
+                            case normalizeTypes $ locType loc of
+                              VecType {} -> defaultAsExp (locType loc) comp
+                              _ -> asExp $ asRValue loc
                , asLoc = mloc
                }
 
--- testCompileExpr :: CExpr -> String
--- testCompileExpr exp = let (blks, v) = evalState (withCode $ withValue $ compileStat exp) (CodeGenState M.empty [] [])
---                           item = if null blks
---                                  then [citem| { return $v; } |]
---                                  else [citem| { $items:blks return $v; } |]
---                       in show $ ppr item
-
+-- | Takes a monadic action which produces a compiled piece of code
+-- and creates a plain compiled piece of code (which defers the action
+-- to the methods).
+wrapCompiled :: CM Compiled -> Compiled
+wrapCompiled mcomp = Compiled
+                    { withDest = \dest -> mcomp >>= flip withDest dest
+                    , asExp = mcomp >>= asExp
+                    , noValue = mcomp >>= noValue
+                    , asLoc = mcomp >>= asLoc
+                    }
 
 compileStat :: CExpr -> Compiled
 
@@ -992,41 +1000,30 @@ compileStat (AssertType pos a ty) = compileStat a
 -- -- unary
 
 compileStat v@(Unary _ op a)
-  | op `elem` [Neg] = compileVectorized' aty (asLoc $ compileStat a)
+  | op `elem` [Pos, Neg] = wrapCompiled $
+                           compileVectorized vty <$> (asLoc $ compileStat a)
   where aty = normalizeTypes $ getType a
+        vty = getVectorizedType aty aty -- TODO hack (but correct result)
 
         opExp :: C.Exp -> C.Exp
         opExp a = case op of
-                   Neg -> [cexp| -$a |]
-
-        compileVectorized' aty ma = comp
-            where comp = Compiled
-                         { withDest = \dest -> mloc' >>= flip withDest dest
-                         , asExp = mloc' >>= asExp
-                         , noValue = mloc' >>= noValue
-                         , asLoc = mloc' >>= asLoc
-                         }
-                  mloc' = compileVectorized aty <$> ma
+          Pos -> [cexp| +$a |]
+          Neg -> [cexp| -$a |]
 
         compileVectorized :: Type -> CmLoc -> Compiled
-        compileVectorized (VecType _ [] aty) aloc = compileVectorized aty aloc
-        compileVectorized ta@(VecType _ (abnd:abnds) aty) aloc = comp
-          where comp = Compiled
-                       { withDest = \dest -> storeLoc dest loc
-                       , asExp = defaultAsExp (locType loc) comp
-                       , noValue = defaultNoValue (locType loc) comp
-                       , asLoc = return loc }
-                loc = CmLoc
-                      { apIndex = \idx -> do aloc' <- apIndex aloc idx
-                                             asLoc $ compileVectorized
-                                                       (VecType DenseMatrix abnds aty)
-                                                       aloc'
-                      , asArgument = defaultAsArgumentNoOut loc
-                      , locType = getVectorizedType ta ta
-                      , asRValue = error "Cannot get vectorized unary operation as rvalue"
-                      , store = error "Cannot store into vectorized unary operation"
-                      }
-        compileVectorized ta aloc = compPureExpr (getVectorizedType ta ta) $ opExp <$> (asExp $ asRValue aloc)
+        compileVectorized (VecType _ [] bty) loc = compileVectorized bty loc
+        compileVectorized vty@(VecType _ (bnd:bnds) bty) loc = defaultAsRValue $ return loc2
+          where loc2 = CmLoc
+                       { apIndex = \idx -> do loc' <- apIndex loc idx
+                                              asLoc $ compileVectorized
+                                                (VecType DenseMatrix bnds bty)
+                                                loc'
+                       , asArgument = defaultAsArgumentNoOut loc2
+                       , locType = normalizeTypes vty
+                       , asRValue = error "Cannot get vectorized unary operation as rvalue"
+                       , store = error "Cannot store into vectorized unary operation"
+                       }
+        compileVectorized vty loc = compPureExpr vty $ opExp <$> (asExp $ asRValue loc)
 
 compileStat v@(Unary _ Inverse a) = comp
   where comp = Compiled
@@ -1062,9 +1059,22 @@ compileStat v@(Unary _ Transpose a) = defaultAsRValue $ case aty of
 -- -- binary
 
 compileStat v@(Binary _ op a b)
-  | op `elem` [Add, Sub, Hadamard, Div] = compileVectorized' aty bty (asLoc (compileStat a)) (asLoc (compileStat b))
+  | op `elem` [Add, Sub, Hadamard, Div] = wrapCompiled $
+                                          compileVectorized vty <$> lifted aty a <*> lifted bty b
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
+
+        vty = getVectorizedType aty bty
+        vbnds = getIndices vty
+
+        lifted :: Type -> CExpr -> CM CmLoc
+        lifted xty x | null bnds = asLoc $ compileStat x
+                     | otherwise = do loc <- asLoc $ compileStat x
+                                      loc' <- spillLoc loc
+                                      return $ liftLoc xty loc' bnds
+          where xbnds = getIndices xty
+                bnds = take (length vbnds - length xbnds) vbnds
+
 
         opExp a b = case op of
                      Add -> [cexp| $a + $b |]
@@ -1072,71 +1082,21 @@ compileStat v@(Binary _ op a b)
                      Hadamard -> [cexp| $a * $b |]
                      Div -> [cexp| $a / $b |]
 
-        compileVectorized' aty bty ma mb = comp
-            where comp = Compiled
-                         { withDest = \dest -> mloc' >>= flip withDest dest
-                         , asExp = mloc' >>= asExp
-                         , noValue = mloc' >>= noValue
-                         , asLoc = mloc' >>= asLoc
-                         }
-                  mloc' = compileVectorized aty bty <$> ma <*> mb
-
-        compileVectorized (VecType _ [] aty) bty aloc bloc = compileVectorized aty bty aloc bloc
-        compileVectorized aty (VecType _ [] bty) aloc bloc = compileVectorized aty bty aloc bloc
-        compileVectorized ta@(VecType _ (abnd:abnds) aty) tb@(VecType _ (_:bbnds) bty) aloc bloc = comp
-          where comp = Compiled
-                       { withDest = \dest -> storeLoc dest loc
-                       , asExp = defaultAsExp (locType loc) comp
-                       , noValue = defaultNoValue (locType loc) comp
-                       , asLoc = return loc }
-                loc = CmLoc
+        compileVectorized (VecType _ [] vty) aloc bloc = compileVectorized vty aloc bloc
+        compileVectorized vty@(VecType _ (bnd:bnds) ty) aloc bloc = defaultAsRValue $ return loc
+          where loc = CmLoc
                       { apIndex = \idx -> do aloc' <- apIndex aloc idx
                                              bloc' <- apIndex bloc idx
                                              asLoc $ compileVectorized
-                                                    (VecType DenseMatrix abnds aty) (VecType DenseMatrix bbnds bty)
-                                                    aloc' bloc'
+                                                     (VecType DenseMatrix bnds ty)
+                                                     aloc' bloc'
                       , asArgument = defaultAsArgumentNoOut loc
-                      , locType = getVectorizedType ta tb
+                      , locType = vty
                       , asRValue = error "Cannot get vectorized binary operation as rvalue"
                       , store = error "Cannot store into vectorized binary operation"
                       }
-        compileVectorized ta@(VecType _ (abnd:abnds) aty) tb aloc bloc = comp -- then tb is lower dimensional
-          where comp = Compiled
-                       { withDest = \dest -> storeLoc dest loc
-                       , asExp = defaultAsExp (locType loc) comp
-                       , noValue = defaultNoValue (locType loc) comp
-                       , asLoc = return loc
-                       }
-                loc = CmLoc
-                      { apIndex = \idx -> do aloc' <- apIndex aloc idx
-                                             asLoc $ compileVectorized
-                                                       (VecType DenseMatrix abnds aty) tb
-                                                       aloc' bloc
-                      , asArgument = defaultAsArgumentNoOut loc
-                      , locType = getVectorizedType ta tb
-                      , asRValue = error "Cannot get vectorized binary operation as rvalue"
-                      , store = error "Cannot store into vectorized binary operation"
-
-                      }
-        compileVectorized ta tb@(VecType _ (bbnd:bbnds) bty) aloc bloc = comp -- then ta is lower dimensional
-          where comp = Compiled
-                       { withDest = \dest -> storeLoc dest loc
-                       , asExp = defaultAsExp (locType loc) comp
-                       , noValue = defaultNoValue (locType loc) comp
-                       , asLoc = return loc
-                       }
-                loc = CmLoc
-                      { apIndex = \idx -> do bloc' <- apIndex bloc idx
-                                             asLoc $ compileVectorized
-                                                       ta (VecType DenseMatrix bbnds bty)
-                                                       aloc bloc'
-                      , asArgument = defaultAsArgumentNoOut loc
-                      , locType = getVectorizedType ta tb
-                      , asRValue = error "Cannot get vectorized binary operation as rvalue"
-                      , store = error "Cannot store into vectorized binary operation"
-                      }
-        compileVectorized ta tb aloc bloc = compPureExpr (getVectorizedType ta tb)
-                                            $ opExp <$> (asExp $ asRValue aloc) <*> (asExp $ asRValue bloc)
+        compileVectorized vty aloc bloc
+          = compPureExpr vty $ opExp <$> (asExp $ asRValue aloc) <*> (asExp $ asRValue bloc)
 
 compileStat v@(Binary _ Mul a b) = case (aty, bty) of
   (VecType _ [ia, ib] aty', VecType _ [_, ic] bty') ->

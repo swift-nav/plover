@@ -2,6 +2,11 @@ struct Bar (
   x :: double[10] storing Diagonal double[10,10];
 );
 
+extern (
+ A :: double;
+ B :: double;
+ );
+
 type Foo := double[5];
 
 --type LL := (double, *LL);

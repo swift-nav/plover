@@ -14,7 +14,7 @@ static rot_small (x :: double) :: double[3,3]
 static norm {n} (v :: double[n]) :: double
   := sqrt (v * v);
 static normalize {n} (v :: double[n]) :: double[n]
-  := v / norm v; -- Should be a test of loop invariant code motion
+  := v / norm v;
 
 pvt {n_used :: u8}
     (sat_pos :: double[n_used,3])
