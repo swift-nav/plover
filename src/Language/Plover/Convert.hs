@@ -27,8 +27,6 @@ makeExpr exp@(PExpr pos e') = case e' of
   Vec ((v,r):bs) e -> T.Vec pos v <$> makeRange r <*> makeExpr (PExpr pos (Vec bs e))
   For [] e -> makeExpr e
   For ((v,r):bs) e -> T.For pos v <$> makeRange r <*> makeExpr (PExpr pos (For bs e))
-  Sum [] e -> makeExpr e
-  Sum ((v,r):bs) e -> (T.Unary pos T.Sum .) . T.Vec pos v <$> makeRange r <*> makeExpr (PExpr pos (Sum bs e))
   Ref v -> return $ T.Get pos $ T.Ref (T.TypeHole Nothing) v
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]
   Hole -> return $ T.Hole pos Nothing
@@ -48,7 +46,6 @@ makeExpr exp@(PExpr pos e') = case e' of
           tr Deref = error "Not translatable here"
           tr Transpose = T.Transpose
           tr Inverse = T.Inverse
-          tr Not = T.Not
   BinExpr Pow a (PExpr _ T) -> -- A^T is transpose of A
     T.Unary pos T.Transpose <$> makeExpr a
   BinExpr Pow a (PExpr _ (UnExpr Neg (PExpr _ (IntLit _ 1)))) -> -- A^(-1) is A inverse
@@ -77,6 +74,22 @@ makeExpr exp@(PExpr pos e') = case e' of
   Tuple xs -> T.TupleLit pos <$> mapM makeExpr xs
   Range {} -> T.RangeVal pos <$> makeRange exp
 
+  App (PExpr _ (Ref v)) args | v `elem` ["not", "sum", "diag", "shape"] -> builtinFunc v args
+    where builtinFunc "not" args = do [a] <- exArgs args 1
+                                      return $ T.Unary pos T.Not a
+          builtinFunc "sum" args = do [a] <- exArgs args 1
+                                      return $ T.Unary pos T.Sum a
+          builtinFunc "diag" args = do [a] <- exArgs args 1
+                                       return $ T.Unary pos T.Diag a
+          builtinFunc "shape" args = do [a] <- exArgs args 1
+                                        return $ T.Unary pos T.Shape a
+          exArgs args n = do args' <- forM args $ \arg ->
+                               case arg of
+                                 ImpArg _ -> Left $ ConvertError (makePos exp) ["Unexpected implicit argument."]
+                                 Arg a -> makeExpr a
+                             if length args' == n
+                               then return args'
+                               else Left $ ConvertError (makePos exp) ["Expecting " ++ show n ++ " argument(s) for builtin function."]
   App f args -> T.App pos <$> makeExpr f <*> (forM args' $ \arg -> case arg of
                                                 Arg a -> T.Arg <$> makeExpr a
                                                 ImpArg a -> T.ImpArg <$> makeExpr a)

@@ -32,9 +32,9 @@ languageDef =
            , Token.reservedNames = [
              "module", "function", "declare", "define", "extern", "static", "inline",
              "struct", "type",
-             "vec", "for", "sum", "in", "if", "then", "else",
+             "vec", "for", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
-             "array", "and", "or", "not",
+             "array", "and", "or",
              "storing",
              "return", "assert"
              ]
@@ -182,7 +182,6 @@ operators = buildExpressionParser ops application
             , Infix (fmap flip $ bin LTOp (reservedOp ">")) AssocNone
             , Infix (fmap flip $ bin LTEOp (reservedOp ">=")) AssocNone
             ]
-          , [ Prefix (un Not (reserved "not")) ]
           , [ Infix (bin And (reserved "and")) AssocLeft ]
           , [ Infix (bin Or (reserved "or")) AssocLeft ]
           , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
@@ -254,7 +253,7 @@ antiquote = do reservedOp "~"
                       return $ before ++ during ++ after
 
 form :: Parser Expr
-form = iter Vec "vec" <|> iter Sum "sum" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp
+form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp
   where iter cons s = withPos $ do
           reserved s
           vs <- sepBy ((,) <$> identifier <* reserved "in" <*> range) (symbol ",")

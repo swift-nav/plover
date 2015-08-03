@@ -74,6 +74,7 @@ data UnOp = Pos | Neg | Not
           | Transpose | Inverse
           | Diag
           | Sum
+          | Shape
           deriving (Show, Eq, Ord)
 data BinOp = Add | Sub | Mul | Div | Hadamard
            | Pow | Concat
@@ -673,8 +674,9 @@ baseExpandTypedef ty = ty
 
 -- | Gets the bounds for indices in a vector
 getIndices :: Type -> [CExpr]
-getIndices (VecType _ bnds bty) = bnds ++ getIndices bty
-getIndices _ = []
+getIndices ty = getIndices' $ normalizeTypes ty
+  where getIndices' (VecType _ bnds bty) = bnds ++ getIndices' bty
+        getIndices' _ = []
 
 reduceArithmetic :: CExpr -> CExpr
 reduceArithmetic expr =
@@ -771,6 +773,8 @@ instance PP UnOp where
   pretty Transpose = text "transpose"
   pretty Inverse = text "inverse"
   pretty Sum = text "sum"
+  pretty Diag = text "diag"
+  pretty Shape = text "shape"
 
 instance PP BinOp where
   pretty Add = text "+"
@@ -826,15 +830,20 @@ getType (Unary pos op a) | op `elem` [Pos, Neg] = getVectorizedType (getType a) 
 getType (Unary pos Sum a) = case getVectorizedType (getType a) (getType a) of
   VecType _ (bnd:bnds) aty' -> normalizeTypes $ VecType DenseMatrix bnds aty'
   aty' -> aty'
-getType (Unary pos Inverse a) = do
+getType (Unary pos Inverse a) =
   case normalizeTypes $ getType a of
    VecType _ [a, _] aty' -> VecType DenseMatrix [a, a] (getArithType aty' $ FloatType defaultFloatType)
    _ -> error "Unary inverse on not a rectangular vector"
-getType (Unary pos Transpose a) = do
+getType (Unary pos Transpose a) =
   case normalizeTypes $ getType a of
    VecType _ (i1:i2:bnds) aty' -> VecType DenseMatrix (i2:i1:bnds) aty'
    VecType _ [bnd] aty' -> VecType DenseMatrix [1,bnd] aty'
    _ -> error "Unary transpose not on vector."
+getType (Unary pos Diag a) =
+  case normalizeTypes $ getType a of
+    VecType _ (i1:_) aty' -> VecType DenseMatrix [i1] aty'
+    _ -> error "Unary diag not on vector."
+getType (Unary pos Shape a) = VecType DenseMatrix [fromIntegral $ length $ getIndices $ getType a] (IntType defaultIntType)
 getType (Unary pos Not a) = BoolType
 getType (Binary pos op a b)
   | op `elem` [Add, Sub, Div, Hadamard] = getVectorizedType aty bty

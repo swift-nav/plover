@@ -47,7 +47,6 @@ data UnOp = Neg
           | Addr
           | Transpose
           | Inverse
-          | Not
           deriving (Show, Eq, Typeable, Data)
 
 data BinOp = Add
@@ -68,7 +67,6 @@ data BinOp = Add
            deriving (Show, Eq, Typeable, Data)
 
 data Expr' a = Vec [(Variable,a)] a
-          | Sum [(Variable,a)] a
           | For [(Variable,a)] a
             
             -- Elementary Expressions
@@ -184,8 +182,6 @@ instance PP a => PP (Expr' a) where
           p (Just x) = pretty x
 
   pretty (Vec vs e) = parens $ hang (text "Vec") 1 $ sep [nest 3 $ sep (map iter vs) <+> text "->", pretty e]
-    where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
-  pretty (Sum vs e) = parens $ hang (text "Sum") 1 $ sep [nest 5 $ sep (map iter vs) <+> text "->", pretty e]
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
   pretty (For vs e) = parens $ hang (text "For") 1 $ sep [nest 3 $ sep (map iter vs) <+> text "->", pretty e]
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e

@@ -527,6 +527,14 @@ expectInt pos ty = do
    _ -> do addUError $ UError pos "Expecting integer."
            return defaultIntType
 
+expectFloat :: Tag SourcePos -> Type -> UM FloatType
+expectFloat pos ty = do
+  ty' <- unify pos ty (FloatType defaultFloatType)
+  case ty' of
+    FloatType t -> return t
+    _ -> do addUError $ UError pos "Expecting float."
+            return defaultFloatType
+
 expectBool :: Tag SourcePos -> Type -> UM ()
 expectBool pos ty = do
   ty' <- unify pos ty BoolType
@@ -692,7 +700,7 @@ typeCheck (Unary pos Not a) = do
   return BoolType
 typeCheck (Unary pos Sum a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
-  aty' <- numTypeVectorize pos aty aty -- HACK
+  aty' <- numTypeVectorize pos aty aty -- HACK (but ok)
   case aty' of
    VecType _ (idx:idxs) aty'' -> return $ normalizeTypes $ VecType DenseMatrix idxs aty''
    _ -> return aty'
@@ -703,16 +711,32 @@ typeCheck (Unary pos Inverse a) = do
                                  aty'' <- unify pos aty' (FloatType defaultFloatType)
                                  return $ VecType DenseMatrix [i', i'] aty''
    _ -> do addUError $ UError pos "Inverse must be of a square matrix."
-           hole <- gensym "inverse"
-           return $ TypeHoleJ hole
+           TypeHoleJ <$> gensym "inverse"
 typeCheck (Unary pos Transpose a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   case aty of
    VecType _ (i1:i2:idxs) aty' -> return $ VecType DenseMatrix (i2:i1:idxs) aty'
    VecType _ [idx] aty' -> return $ VecType DenseMatrix [1,idx] aty'
    _ -> do addUError $ UError pos "Transpose must be of a vector."
-           hole <- gensym "transpose"
-           return $ TypeHoleJ hole
+           TypeHoleJ <$> gensym "transpose"
+typeCheck (Unary pos Diag a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  case aty of
+    VecType _ (i1:idxs) aty' -> do mapM_ (unifyArithmetic pos i1) idxs
+                                   return $ VecType DenseMatrix [i1] aty'
+    _ -> do addUError $ UError pos "Diag must be of a vector."
+            TypeHoleJ <$> gensym "diag"
+typeCheck (Unary pos Shape a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  sh <- doShape aty
+  return $ VecType DenseMatrix [fromIntegral sh] (IntType defaultIntType)
+  where doShape :: Type -> UM Int
+        doShape (VecType _ [] aty') = doShape aty'
+        doShape (VecType _ idxs aty') = (length idxs +) <$> doShape aty'
+        doShape (TypedefType tdty _) = doShape tdty
+        doShape v@(TypeHoleJ _) = do unify pos v (FloatType defaultFloatType)
+                                     return 0
+        doShape _ = return 0
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
   | op `elem` [Add, Sub, Hadamard, Div]  = do
@@ -859,15 +883,17 @@ typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLo
            _ -> return ()
 typeCheckLoc pos (Field a field) = do
   aty <- typeCheck a
-  case stripPtr aty of
+  aty' <- stripPtr aty
+  case aty' of
    StructType v (ST fields) -> case lookup field fields of
      Just (fpos, _, fieldTy) -> return fieldTy -- TODO Need to replace dependent fields with struct members
      Nothing -> do addUError $ UNoField pos field
                    TypeHoleJ <$> gensym "field"
-   _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field
+   _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field ++ " (not " ++ show (pretty aty') ++ ")"
            TypeHoleJ <$> gensym "field"
   where stripPtr (PtrType aty) = stripPtr aty
-        stripPtr aty = aty
+        stripPtr ty@(TypedefType {}) = stripPtr =<< baseExpandTypedefM ty
+        stripPtr aty = return aty
 typeCheckLoc pos (Deref a) = do
   aty <- typeCheck a
   g <- gensym "deref"

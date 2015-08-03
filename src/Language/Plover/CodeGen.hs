@@ -1059,6 +1059,45 @@ compileStat v@(Unary _ Transpose a) = defaultAsRValue $ case aty of
           deferLoc (VecType DenseMatrix (bnd2:bnd1:bnds) bty) 2 $ \_ [(_, idx2), (_, idx1)] -> do
             apIndices aloc [idx1, idx2]
 
+compileStat v@(Unary pos Sum a) = comp
+  where comp = Compiled
+               { withDest = \dest -> do storeLoc dest $ constLoc vty (compileUninit aty')
+                                        aloc <- asLoc $ compileStat a
+                                        makeFor idx $ \i -> do -- get ith vector to be summed
+                                          aloc' <- apIndex aloc i
+                                          compileSum (getIndices vty) dest aloc'
+               , noValue = return ()
+               , asExp = defaultAsExp vty comp
+               , asLoc = defaultAsLoc vty comp
+               }
+
+        aty = normalizeTypes $ getType a
+        VecType _ (idx:idxs) aty' = normalizeTypes $ getVectorizedType aty aty
+        vty = VecType DenseMatrix idxs aty' -- the result type of the sum
+
+        compileSum [] dest aloc = do aexp <- asExp $ asRValue aloc
+                                     dexp <- asExp $ asRValue dest
+                                     store dest $ [cexp| $dexp + $aexp |]
+        compileSum (bnd:bnds) dest aloc
+          = makeFor bnd $ \i -> do
+              dest' <- apIndex dest i
+              aloc' <- apIndex aloc i
+              compileSum bnds dest' aloc'
+
+compileStat v@(Unary pos Diag a) = defaultAsRValue $ return loc
+  where loc = CmLoc
+              { apIndex = \idx -> do aloc <- asLoc $ compileStat a
+                                     apIndices aloc (replicate numidxs idx)
+              , asArgument = defaultAsArgumentNoOut loc
+              , locType = getType v
+              , asRValue = error "Cannot get vectorized unary operation as rvalue"
+              , store = error "Cannot store into vectorized unary operation"
+              }
+        numidxs = length $ getIndices $ getType a
+
+compileStat v@(Unary pos Shape a) = compileStat $ VecLit pos (IntType defaultIntType) idxs
+  where idxs = getIndices $ getType a
+
 -- -- binary
 
 compileStat v@(Binary _ op a b)
