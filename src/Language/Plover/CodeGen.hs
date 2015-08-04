@@ -246,6 +246,12 @@ compileType' (TypedefType ty v) = [cty|typename $id:v|]
 compileType' (StructType v _) = [cty|typename $id:v|]
 compileType' (TypeHole _) = error "No type holes allowed."
 
+-- | Mimicks `getRangeType` by merging with S32 first.
+compileBoundType :: Type -> C.Type
+compileBoundType ty = case normalizeTypes ty of
+  IntType ity -> compileType $ IntType $ intMerge S32 ity
+  _ -> error "compileBoundType called on non-integer type"
+
 -- When initializing a variable, need things like the length of the
 -- array rather than just a pointer
 compileInitType :: Type -> CM C.Type
@@ -373,10 +379,18 @@ data VecOffset = NoOffset | Offset C.Exp
 shiftOffset :: VecOffset -> C.Exp -> Maybe C.Exp -> VecOffset
 shiftOffset NoOffset _ Nothing = NoOffset
 shiftOffset NoOffset _ (Just i) = Offset i
-shiftOffset (Offset k) w Nothing = if w == [cexp| 1 |]
-                                   then Offset k
-                                   else Offset [cexp| $w * $k |]
-shiftOffset (Offset k) w (Just i) = Offset [cexp| $w * $k + $i |]
+shiftOffset (Offset k) w Nothing = Offset $ mulWidth w k
+shiftOffset (Offset k) w (Just i) = Offset $ addOffset (mulWidth w k) i
+
+mulWidth w k = if w == [cexp| 1 |]
+               then k
+               else if w == [cexp| -1 |]
+                    then [cexp| -$k |]
+                    else [cexp| $w * $k |]
+addOffset k i = if i == [cexp| 0 |]
+                then k
+                else [cexp| $k + $i |]
+
 -- | Converts the offset to a C expression.
 getOffset :: VecOffset -> C.Exp
 getOffset NoOffset = [cexp| 0 |]
@@ -657,12 +671,12 @@ storeLoc dst src = case denormalizeTypes (locType dst) of
     storeLoc dst'' src''
   VecType LowerTriangular [bnd, _] bty ->
     makeFor bnd $ \i -> do
-      makeFor' (compileType (getType bnd)) [cexp|0|] [cexp|$i+1|] $ \j -> do
+      makeFor' (compileBoundType $ getType bnd) [cexp|0|] [cexp|$i+1|] $ \j -> do
         dst'' <- apIndex dst i >>= flip apIndex j
         src'' <- apIndex src i >>= flip apIndex j
         storeLoc dst'' src''
   VecType UpperTriangular [bnd, _] bty -> do
-    let tp = (compileType (getType bnd))
+    let tp = compileBoundType $ getType bnd
     upperEx <- asExp $ compileStat bnd
     makeFor' tp [cexp|0|] upperEx $ \i -> do
       makeFor' tp [cexp|$i|] upperEx $ \j -> do
@@ -688,7 +702,7 @@ makeForRange lower upper mbody = do
   lowerEx <- asExp $ compileStat lower
   upperEx <- asExp $ compileStat upper
   makeFor' itty lowerEx upperEx mbody
-    where itty = compileType $ getType upper
+    where itty = compileBoundType $ getType upper
 
 makeFor :: CExpr -> (C.Exp -> CM ()) -> CM ()
 makeFor bnd mbody = makeForRange 0 bnd mbody
@@ -748,21 +762,24 @@ compileStat :: CExpr -> Compiled
 compileStat e@(Vec pos v range@(Range cstart cend cstep) exp) = comp
   where comp = Compiled -- TODO consider compiling range object as loc and indexing it
                { noValue = return ()
-               , withDest = \dest -> do start <- asExp $ compileStat cstart
-                                        len <- asExp $ compileStat $ rangeLength pos range
-                                        step <- asExp $ compileStat cstep
-                                        (body,(i,j)) <- withCode $ newScope $ do
-                                                      i <- newName "i" v
-                                                      j <- freshName "idx"
-                                                      dest' <- apIndex dest [cexp| $id:j |]
-                                                      withDest (compileStat exp) dest'
-                                                      return (i,j)
-                                        writeCode [citems| for($ty:itty $id:i = $start, $id:j=0; $id:j < $len; $id:i += $step, $id:j++) { $items:body } |]
+               , withDest = \dest -> storeLoc dest =<< asLoc comp
                , asExp = defaultAsExp ty comp
-               , asLoc = defaultAsLoc ty comp
+               , asLoc = do start <- asExp $ compileStat $ reduceArithmetic cstart
+                            step <- asExp $ compileStat $ reduceArithmetic cstep
+                            return $ loc start step
                }
+        loc start step = CmLoc {
+                apIndex = \idx -> do i <- newName "i" v
+                                     writeCode [citems| $ty:itty $id:i = $(idxexp idx); |]
+                                     asLoc $ compileStat exp
+              , store = error "Cannot store into Vec"
+              , asRValue = error "cannot asRValue Vec"
+              , asArgument = defaultAsArgumentNoOut $ loc start step
+              , locType = ty
+              }
+          where idxexp idx = getOffset $ shiftOffset (Offset idx) step (Just start)
         ty = normalizeTypes $ getType e
-        itty = compileType $ getType $ rangeLength pos range
+        itty = compileType $ IntType $ getRangeType range
 
 compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
   where comp = Compiled
@@ -779,7 +796,7 @@ compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
                , withDest = error "Cannot use For as dest"
                , asLoc = error "Cannot use For as location"
                }
-        itty = compileType $ getType $ rangeLength pos range
+        itty = compileType $ IntType $ getRangeType range
 compileStat (Return pos cty exp) = comp
   where comp = Compiled
                { noValue = case getType exp of
