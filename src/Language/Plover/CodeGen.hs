@@ -1319,7 +1319,7 @@ compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
                                    ty@(VecType {}) -> return $ mkVecLoc ty sex'
                                    ty -> return $ expLoc ty (return sex')
   where access ex (StructType {}) field  = [cexp| $ex.$id:field |]
-        access ex (PtrType aty) field = [cexp| $(access' ex aty)->field |]
+        access ex (PtrType aty) field = [cexp| $(access' ex aty)->$id:field |]
         access' ex (PtrType aty) = [cexp| *$(access' ex aty) |]
         access' ex aty = ex
 

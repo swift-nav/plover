@@ -262,6 +262,7 @@ checkFuncBodies = do defbs <- M.elems . globalBindings <$> get
                        _ -> return ()
 
 
+-- | N.B. Resets local bindings between passes
 globalAlphaRename :: SemChecker ()
 globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
                        defbs' <- mapM doAlphaRename defbs
@@ -275,7 +276,7 @@ globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
                                   ValueDef mexp ty -> do ty' <- alphaRenameTerms pos ty
                                                          mexp' <- mapM (alphaRenameTerms pos) mexp
                                                          return $ ValueDef mexp' ty'
-                                  StructDef members -> return $ StructDef members
+                                  StructDef members -> StructDef <$> alphaRenameStructMembers members
                                   TypeDef ty -> return $ TypeDef ty
                                 return $ defb { definition = def' }
 
@@ -308,6 +309,23 @@ alphaRenameFunType pos (FnT args rty) = do
   rty' <- alphaRenameTerms pos rty
   return $ FnT args' rty'
 
+-- | Alpha-renaming is a misnomer: we are merely checking that members
+-- are defined at most once and are defined when used.
+alphaRenameStructMembers :: [StructMember] -> SemChecker [StructMember]
+alphaRenameStructMembers members = do
+  forM_ members $ \(v, (pos, exty, inty)) -> do
+    alphaRenameTerms pos exty -- check that external types do not refer to anything inside struct
+  forM members $ \(v, (pos, exty, inty)) -> do
+    exty' <- alphaRenameTerms pos exty
+    inty' <- alphaRenameTerms pos inty
+    mlastpos <- addNewLocalBinding pos v v -- Use same binding because we do not rename struct members
+    case mlastpos of
+      Just otag -> do
+        addError $ SemError (MergeTags [otag, pos]) $
+          "Redefinition of member " ++ show v ++ " in struct."
+      Nothing -> return ()
+    return (v, (pos, exty', inty'))
+
 -- | Add implicit arguments to function applications.
 globalConcretizeApps :: SemChecker ()
 globalConcretizeApps = do defbs <- M.elems . globalBindings <$> get
@@ -321,7 +339,7 @@ globalConcretizeApps = do defbs <- M.elems . globalBindings <$> get
                                  ValueDef mexp ty -> do ty' <- concretizeApps ty
                                                         mexp' <- mapM concretizeApps mexp
                                                         return $ ValueDef mexp' ty'
-                                 StructDef members -> return $ StructDef members
+                                 StructDef members -> StructDef <$> concretizeStructMembers members
                                  TypeDef ty -> TypeDef <$> concretizeApps ty
                                return $ defb { definition = def' }
 
@@ -333,6 +351,11 @@ concretizeFunType (FnT args rty) = do
   rty' <- concretizeApps rty
   return $ FnT args' rty'
 
+concretizeStructMembers :: [StructMember] -> SemChecker [StructMember]
+concretizeStructMembers members = forM members $ \(v, (pos, exty, inty)) -> do
+  exty' <- concretizeApps exty
+  inty' <- concretizeApps inty
+  return (v, (pos, exty', inty'))
 
 -- | This fills the holes in each top-level definition.
 globalFillHoles :: SemChecker ()
@@ -347,7 +370,7 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                            ValueDef mexp ty -> do ty' <- fillTermHoles ty
                                                   mexp' <- mapM fillTermHoles mexp
                                                   return $ ValueDef mexp' ty'
-                           StructDef members -> return $ StructDef members
+                           StructDef members -> StructDef <$> fillStructMembers members
                            TypeDef ty -> TypeDef <$> fillTermHoles ty
                          return $ defb { definition = def' }
 
@@ -358,6 +381,12 @@ fillFunType (FnT args rty) = do
     return (vpos, v, req, dir, vty')
   rty' <- fillTermHoles rty
   return $ FnT args' rty'
+
+fillStructMembers :: [StructMember] -> SemChecker [StructMember]
+fillStructMembers members = forM members $ \(v, (pos, exty, inty)) -> do
+  exty' <- fillTermHoles exty
+  inty' <- fillTermHoles inty
+  return (v, (pos, exty', inty'))
 
 fillTermHoles :: TermMappable a => a -> SemChecker a
 fillTermHoles = traverseTerm tty texp tloc trng
@@ -424,7 +453,7 @@ globalCheckTypedefs = do
                                       mapM_ (checkTypedefs pos) mexp
             ValueDef mexp ty -> do checkTypedefs pos ty
                                    mapM_ (checkTypedefs pos) mexp
-            StructDef members -> return () -- TODO actually check typedefs
+            StructDef members -> structMemberCheckTypedefs members
             TypeDef ty -> checkTypedefs pos ty
 
 funTypeCheckTypedefs :: Tag SourcePos -> FunctionType -> SemChecker ()
@@ -432,6 +461,11 @@ funTypeCheckTypedefs pos (FnT args rty) = do
   forM_ args $ \(vpos, v, req, dir, vty) -> do
     checkTypedefs vpos vty
   checkTypedefs pos rty
+
+structMemberCheckTypedefs :: [StructMember] -> SemChecker ()
+structMemberCheckTypedefs members = forM_ members $ \(v, (pos, exty, inty)) -> do
+  checkTypedefs pos exty
+  checkTypedefs pos inty
 
 checkTypedefs :: ScopedTraverser a => Tag SourcePos -> a -> SemChecker ()
 checkTypedefs pos x = scopedTraverseTerm tr pos x >> return ()
@@ -508,7 +542,10 @@ verifyStorageDefBinding db = case definition db of
       Just exp -> do verifyStorage (bindingPos db) exp
                      when (not $ typeCanHold retty (getType exp)) $
                        addError $ SemStorageError (bindingPos db) retty (getType exp)
-  StructDef fields -> return () -- TODO actually verify
+  StructDef members -> do
+    forM_ members $ \(v, (pos, exty, inty)) -> do
+      verifyStorage pos exty
+      verifyStorage pos inty
   ValueDef mexp ty -> do
     verifyStorage (bindingPos db) ty
     case mexp of

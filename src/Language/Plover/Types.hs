@@ -22,6 +22,7 @@ import Data.Char
 import Data.Data
 import Data.List
 import Data.Maybe
+import qualified Data.Map as M
 import Data.Function (on)
 import Text.PrettyPrint
 
@@ -262,8 +263,10 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
                                      else test
                 retty' = retty
 
+type StructMember = (Variable, (Tag SourcePos, Type, Type))
+
 data Definition = FunctionDef (Maybe CExpr) FunctionType
-                | StructDef [(Variable, (Tag SourcePos, Type, Type))]
+                | StructDef [StructMember]
                 | TypeDef Type
                 | ValueDef (Maybe CExpr) Type
                 deriving Show
@@ -885,7 +888,7 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
 
 getLocType (Field a field) = case stripPtr (normalizeTypes $ getType a) of -- TODO need to replace dependent fields which show up b/c of Storing
   StructType v (ST fields) -> case lookup field fields of
-    Just (_, _ ,fieldTy) -> fieldTy
+    Just (_, _ ,fieldTy) -> structField fields a fieldTy
   ty -> error $ show ty
   where stripPtr (PtrType aty) = stripPtr $ normalizeTypes aty
         stripPtr aty = aty
@@ -926,6 +929,22 @@ getMinimalType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
   (IntType {}, FloatType t2) -> FloatType t2
   (FloatType t1, FloatType t2) -> FloatType $ floatMerge t1 t2
   (ty1, _) -> ty1
+
+
+structField :: [StructMember] -> CExpr -> Type -> Type
+structField members base memberTy = replaceMemberRefs memberTy
+  where vMap = M.fromList [(v, inty) | (v, (pos, exty, inty)) <- members]
+
+        replaceMemberRefs :: TermMappable a => a -> a
+        replaceMemberRefs = runIdentity . traverseTerm tty texp tloc trng
+          where tty = return
+                texp = return
+                tloc loc = case loc of
+                  Ref ty v -> case M.lookup v vMap of
+                    Just vty -> return $ Field base v
+                    Nothing -> return loc
+                trng = return
+
 
 ---
 --- Old stuff

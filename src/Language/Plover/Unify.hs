@@ -279,7 +279,11 @@ typeCheckDefBinding def = case definition def of
                    expty <- typeCheck exp
                    void $ unifyN (bindingPos def) expty retty'
       _ -> return ()
-  StructDef fields -> return () -- TODO actually typecheck
+  StructDef members -> do
+    forM_ members $ \(v, (vpos, exty, inty)) -> do
+      typeCheckType vpos exty
+      inty' <- typeCheckType vpos inty
+      addBinding vpos v inty'
   ValueDef mexp ty -> do
     ty' <- typeCheckType (bindingPos def) ty
     case mexp of
@@ -312,7 +316,12 @@ expandDefBinding' def = case definition def of
                 return (pos, v, b, dir, ty')
               retty' <- fullExpandTerm retty
               return $ FunctionDef Nothing (FnT args' retty')
-  StructDef fields -> return $ StructDef fields -- TODO actually expand!
+  StructDef members -> StructDef <$> do
+    forM members $ \(v, (vpos, exty, inty)) -> do
+      exty' <- fullExpandTerm exty
+      inty' <- fullExpandTerm inty
+      addBinding vpos v inty'
+      return (v, (vpos, exty', inty'))
   ValueDef mexp ty -> do
     ty' <- fullExpandTerm ty
     case mexp of
@@ -886,7 +895,7 @@ typeCheckLoc pos (Field a field) = do
   aty' <- stripPtr aty
   case aty' of
    StructType v (ST fields) -> case lookup field fields of
-     Just (fpos, _, fieldTy) -> return fieldTy -- TODO Need to replace dependent fields with struct members
+     Just (fpos, _, fieldTy) -> return $ structField fields a fieldTy
      Nothing -> do addUError $ UNoField pos field
                    TypeHoleJ <$> gensym "field"
    _ -> do addUError $ UError pos $ "Expecting struct when accessing field " ++ show field ++ " (not " ++ show (pretty aty') ++ ")"
@@ -930,6 +939,10 @@ universalizeTypeVars repMap ty = traverseTerm tty texp tloc trng ty
         texp expr = case expr of
           Get pos (Ref ty v) -> case M.lookup v repMap of
             Just v' -> return $ HoleJ pos v'
+            Nothing -> return expr
+          Addr pos (Ref ty v) -> case M.lookup v repMap of
+            -- TODO this is an example of impedance mismatch between Ref and Hole
+            Just {} -> error "Embarassingly, you cannot dependently use the address of an argument."
             Nothing -> return expr
           _ -> return expr
         tloc = return

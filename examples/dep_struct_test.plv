@@ -1,0 +1,7 @@
+struct Foo (
+  n :: int;
+  A :: double[100] storing double[n,n];
+);
+
+foo (x :: *Foo) :: _
+  := x.A <- x.A^T;

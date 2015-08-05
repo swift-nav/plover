@@ -18,10 +18,7 @@
   so an array of structs becomes a double pointer.  this is incorrect.
 
 
-- external/internal function names
-- typedefs referring to types other than structs
-- f (x,y,...) === f x y ...
-
+- external/internal function names (extern "name" foo ...)
 
 - Implement:
   - dgelsy - Least squares using QR
@@ -33,3 +30,5 @@
   - dpotri - inverse of real symm. pos. def.
   - dtrtri - inverse of triangular
   - lsame - char comparison
+
+- const global variables (and make better integration with C macro constants)
