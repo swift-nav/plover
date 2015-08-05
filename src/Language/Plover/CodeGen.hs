@@ -15,6 +15,7 @@ import qualified Text.PrettyPrint.Mainland as Mainland
 
 import Data.Either
 import Data.Tag
+import Data.List
 import Control.Monad.State
 import Control.Applicative ((<$>), (<*>))
 import qualified Data.Map as M
@@ -22,8 +23,9 @@ import qualified Data.Map as M
 import Language.Plover.Types hiding (freshName)
 
 import Data.Loc (SrcLoc(SrcLoc), Loc(NoLoc))
-
---import qualified Language.Plover.CodeGenMonad
+import Text.ParserCombinators.Parsec (SourcePos)
+import Language.Plover.ErrorUtil
+import System.IO.Unsafe (unsafePerformIO)
 
 import Debug.Trace
 strace :: Show a => a -> a
@@ -138,16 +140,19 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                              lookupName (error "Invalid top-level name") (binding defb)
                            decls <- fmap concat $ forM (filter (not . static) defbs') $ \defb ->
                                     newScope $ case definition defb of
-                                                 FunctionDef mexp ft -> compileFunctionDecl defb (binding defb) ft
+                                                 FunctionDef mexp ft -> compileFunctionDecl defb ft
                                                  TypeDef ty -> compileTypedef defb ty
-                                                 _ -> return []
+                                                 ValueDef mexp ty -> compileValueDecl defb ty
+                                                 StructDef members -> compileStructDef defb members
                            declstatic <- fmap concat $ forM (filter static defbs') $ \defb ->
                                          newScope $ case definition defb of
-                                                      FunctionDef mexp ft -> compileFunctionDecl defb (binding defb) ft
+                                                      FunctionDef mexp ft -> compileFunctionDecl defb ft
                                                       TypeDef ty -> compileTypedef defb ty
-                                                      _ -> return []
+                                                      ValueDef mexp ty -> compileValueDecl defb ty
+                                                      StructDef members -> compileStructDef defb members
                            ddef <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
+                             ValueDef mexp ty -> compileValue defb mexp ty
                              _ -> return []
                            return (ext_includes ++ decls, int_includes ++ declstatic ++ ddef)
   where ext_includes = [cunit| $esc:("#include \"common.h\"") |]
@@ -155,8 +160,8 @@ compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
                                $esc:("#include <stdio.h>")
                                $esc:("#include \"linear_algebra.h\"") |]
 
-compileFunctionDecl :: DefBinding -> String -> FunctionType -> CM [C.Definition]
-compileFunctionDecl defb name ft = do
+compileFunctionDecl :: DefBinding -> FunctionType -> CM [C.Definition]
+compileFunctionDecl defb ft = do
   args'' <- compileParams args'
   return $ case args'' of
     [] -> [ addStorage [cedecl| $ty:(compileType retty) $id:(name)(void); |] ]
@@ -171,6 +176,7 @@ compileFunctionDecl defb name ft = do
                                attrs inits srclocf) srclocfd
 --        addStatic f = f
         addStorage = if static defb then addStatic else id
+        name = binding defb
 
 compileFunction :: String -> FunctionType -> CExpr -> CM [C.Definition]
 compileFunction name ft exp = do
@@ -197,11 +203,43 @@ compileFunction name ft exp = do
                       _ -> True
         args' = [(v, dir, ty) | (_, v, _, dir, ty) <- args, nonVoid ty]
 
+codegenError :: Tag SourcePos -> String -> a
+codegenError pos msg = error $ unsafePerformIO $ do
+  sls <- mapM showLineFromFile (sort $ nub $ getTags pos)
+  return $ "Code generation error " ++ unlines (("at " ++) <$> sls) ++ msg
+
+compileValueDecl :: DefBinding -> Type -> CM [C.Definition]
+compileValueDecl defb ty = do (bl, cty) <- withCode $ compileInitType ty
+                              when (not $ null bl) $ codegenError (bindingPos defb) $
+                                "The value definition has a type which is too complicated for the code generator (sorry)."
+                              return [[cedecl| extern $ty:cty $id:name; |]]
+  where name = binding defb
+
+compileValue :: DefBinding -> Maybe CExpr -> Type -> CM [C.Definition]
+compileValue defb ma ty = do (_, cty) <- withCode $ compileInitType ty
+                             case ma of
+                               Nothing -> return [[cedecl| $ty:cty $id:name; |]]
+                               Just a -> do (bl, exp) <- withCode $ asExp $ compileStat a
+                                            when (not $ null bl) $ codegenError (bindingPos defb) $
+                                              "The value definition has a value which is too complicated for the code generator (sorry)."
+                                            return [[cedecl| $ty:cty $id:name = $exp; |]]
+
+  where name = binding defb
+
 compileTypedef :: DefBinding -> Type -> CM [C.Definition]
 compileTypedef defb ty = return [ [cedecl| typedef $ty:(compileType ty') $id:(binding defb); |] ]
   where ty' = case ty of
                 TypedefType ty2 _ -> ty2
                 _ -> ty
+
+compileStructDef :: DefBinding -> [StructMember] -> CM [C.Definition]
+compileStructDef defb members = do cmembs <- forM members $ \(v, (vpos, exty, _)) -> do
+                                     (bl, cty) <- withCode $ compileInitType exty
+                                     when (not $ null bl) $ codegenError vpos $
+                                       "The struct member has a type which is too complicated for the code generator (sorry)."
+                                     return [csdecl| $ty:cty $id:v; |]
+                                   return [ [cedecl| typedef struct $id:name { $sdecls:cmembs } $id:name; |] ]
+  where name = binding defb
 
 compileParams :: [(Variable, ArgDir, Type)] -> CM [C.Param]
 compileParams = mapM compileParam

@@ -45,6 +45,7 @@ instance NameContainer CExpr where
     IntLit {} -> []
     FloatLit {} -> []
     StrLit {} -> []
+    BoolLit {} -> []
     VecLit _ ty xs -> allNames ty ++ allNames xs
     TupleLit _ xs -> allNames xs
     Let _ v d x -> [v] ++ allNames d ++ allNames x
