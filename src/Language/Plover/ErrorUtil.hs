@@ -1,8 +1,15 @@
 module Language.Plover.ErrorUtil where
 
+import Data.Tag
+import Data.List
 import Text.ParserCombinators.Parsec
 import System.IO.Error
 import Control.Applicative ((<$>))
+
+showTagPositions :: Tag SourcePos -> IO String
+showTagPositions tag = do
+  sls <- mapM showLineFromFile (sort $ nub $ getTags tag)
+  return $ "Error " ++ unlines (("at " ++) <$> sls)
 
 showLineFromFile :: SourcePos -> IO String
 showLineFromFile pos = case sourceName pos of
