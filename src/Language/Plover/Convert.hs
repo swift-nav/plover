@@ -185,13 +185,14 @@ makeTypeFunc pos v args = case v of
 
 makeDefs :: Expr -> Either ConvertError [T.DefBinding]
 makeDefs exp@(PExpr pos pe) = case pe of
-  SeqExpr xs -> fmap join $ mapM makeDefs xs
+  SeqExpr xs -> fmap mconcat $ mapM makeDefs xs
   Extern a -> fmap (map (\z -> z { T.extern = True })) $ makeDefs a
   Static a -> fmap (map (\z -> z { T.static = True })) $ makeDefs a
   BinExpr Type a b -> return <$> makeTopType exp Nothing
   DefExpr a b -> return <$> (makeTopType a . Just =<< makeExpr b)
   Struct v members -> return <$> makeStructDecl pos v members
   Typedef v ty -> return <$> (T.mkBinding pos v . T.TypeDef <$> makeType ty)
+  Import s -> return [T.mkBinding pos s $ T.ImportDef s]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
 
 makeStructDecl :: Tag SourcePos -> Variable -> [Expr] -> Either ConvertError T.DefBinding

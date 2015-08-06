@@ -1,5 +1,5 @@
 module Language.Plover.CLI
-       (CompilerOpts(..), TargetFlag(..), hasOptFlag, compilerOpts)
+       (CompilerOpts(..), TargetFlag(..), hasOptFlag, compilerOpts, splitColon)
        where
 
 import System.Console.GetOpt
@@ -15,6 +15,7 @@ data CompilerOpts
     , hFilePrefix :: Maybe String
     , cFilePrefix :: Maybe String
     , libPrefix :: Maybe String
+    , includePaths :: [String]
     , target :: TargetFlag
     , debugMode :: Bool
     , helpMode :: Bool
@@ -37,6 +38,7 @@ defaultOptions = CompilerOpts
                  , hFilePrefix = Nothing
                  , cFilePrefix = Nothing
                  , libPrefix = Nothing
+                 , includePaths = ["."]
                  , target = TargetDefault
                  , debugMode = False
                  , helpMode = False
@@ -82,11 +84,13 @@ options :: [OptDescr (CompilerOpts -> CompilerOpts)]
 options =
   [ Option ['o'] ["out"] (ReqArg unitName' "NAME")  "Output unit NAME"
   , Option [] ["cdir"] (ReqArg cFilePrefix' "DIR")
-      "Directory to place generated .c files."
+      "Directory to place generated .c files"
   , Option [] ["hdir"] (ReqArg hFilePrefix' "DIR")
-      "Directory to place generated .h files."
+      "Directory to place generated .h files"
   , Option [] ["libprefix"] (ReqArg libPrefix' "STRING")
       "Library prefix to prefix includes with"
+  , Option "I" [] (ReqArg includePaths' "DIRS")
+      "List of module search paths"
   , Option ['t'] ["target"] (ReqArg target' "TARGET")
       ("Set target type:\n" ++
        "\t     parse : Parses the input file\n" ++
@@ -105,6 +109,7 @@ options =
         cFilePrefix' s opts = opts { cFilePrefix = Just s }
         hFilePrefix' s opts = opts { hFilePrefix = Just s }
         libPrefix' s opts = opts { libPrefix = Just s }
+        includePaths' s opts = opts { includePaths = splitColon s ++ includePaths opts }
         target' t opts = opts { target = targetOpt t }
         debug' opts = opts { debugMode = True }
         help' opts = opts { helpMode = True }
@@ -151,13 +156,14 @@ compilerOpts argv = case getOpt argorder options argv of
 
 
 -- Option handling stuff
-type OptionChecker = (CompilerOpts -> Bool, IO ())
+type OptionPred = CompilerOpts -> Bool
+type OptionChecker = (OptionPred, IO ())
 
 usageHeader :: String
 usageHeader = "Usage: plover [OPTIONS...] sources"
 
 doHandler :: CompilerOpts -> OptionChecker -> IO ()
-doHandler opts (p, m) = if p opts then m else return ()
+doHandler opts (p, m) = if p opts then return () else m
 
 implies :: Bool -> Bool -> Bool
 implies a b = not a || b
@@ -165,15 +171,17 @@ implies a b = not a || b
 equiv :: Bool -> Bool -> Bool
 equiv a b = implies a b && implies b a
 
-badO :: CompilerOpts -> Bool
-badO opts = not $ and
-  [ (isJust (cFilePrefix opts) `equiv` isJust (hFilePrefix opts))
-  , (isJust (cFilePrefix opts) `implies` isJust (unitName opts))]
+okayDir :: OptionPred
+okayDir opts = isJust (cFilePrefix opts) == isJust (hFilePrefix opts)
+
+okayO :: OptionPred
+okayO opts = isJust (unitName opts) `implies` (length (inputFiles opts) <= 1)
 
 optionHandlers :: [OptionChecker]
 optionHandlers =
-  [ (helpMode, printHelpMode)
-  , (badO, printError "c_output and h_output options must accompany each other and require the --out option.")
+  [ (not . helpMode, printHelpMode)
+  , (okayDir, printError "c_output and h_output options must accompany each other.")
+  , (okayO, printError "Must have at most one compilation unit with --out option.")
   ]
 
 printError :: String -> IO ()
@@ -186,3 +194,8 @@ printHelpMode = do
     putStr $ usageInfo usageHeader options
     putStr $ showOptClasses
     exitSuccess
+
+splitColon = splitColon' ""
+splitColon' acc [] = [reverse acc]
+splitColon' acc (':' : cs) = reverse acc : splitColon' "" cs
+splitColon' acc (c : cs) = splitColon' (c : acc) cs

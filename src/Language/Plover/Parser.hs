@@ -30,7 +30,7 @@ languageDef =
            , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", ".*", "&",
                                       "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
-             "module", "function", "declare", "define", "extern", "static", "inline",
+             "module", "import", "function", "declare", "define", "extern", "static", "inline",
              "struct", "type",
              "vec", "for", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
@@ -288,7 +288,7 @@ mstatements = do pos <- getPosition
                   _ -> return $ wrapPos pos $ SeqExpr xs
 
 toplevelStatement :: Parser Expr
-toplevelStatement = extern <|> static <|> struct <|> typedef <|> expr
+toplevelStatement = extern <|> static <|> struct <|> typedef <|> imp <|> expr
   where extern = withPos $ do reserved "extern"
                               x <- toplevelStatement
                               return $ Extern x
@@ -304,6 +304,9 @@ toplevelStatement = extern <|> static <|> struct <|> typedef <|> expr
                                reservedOp ":="
                                ty <- expr
                                return $ Typedef name ty
+        imp = withPos $ do reserved "import"
+                           name <- identifier
+                           return $ Import name
 
 
 -- Parse entire toplevel

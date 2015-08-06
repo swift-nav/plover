@@ -221,10 +221,22 @@ newBinding def = do
   semAssert (not (extern def && static def)) $
     SemError (bindingPos def) "Cannot be both static and extern simultaneously."
 
+isImported :: DefBinding -> Bool
+isImported = isJust . imported
+
 -- | These two bindings are for the same variable.  Make sure they are
 -- reconcilable, and bring them into a single binding (stored in the
 -- SemChecker state)
 reconcileBindings :: DefBinding -> DefBinding -> SemChecker ()
+reconcileBindings oldDef newDef | isImported oldDef || isImported newDef = do
+  semAssert (isImported oldDef && isImported newDef) $
+    SemError rtag "Cannot redefine imported symbol."
+  semAssert (imported oldDef == imported newDef) $
+    SemError rtag "Different modules may not define the same symbol."
+  let newDef' = oldDef { static = static oldDef && static newDef }
+      v = binding newDef'
+  modify $ \state -> state { globalBindings = M.insert v newDef' (globalBindings state) }
+  where rtag = MergeTags [bindingPos oldDef, bindingPos newDef]
 reconcileBindings oldDef newDef = do
   semAssert (extern oldDef || not (extern newDef)) $
     SemError rtag "Conflicting extern modifiers."
@@ -385,9 +397,6 @@ fillStructMembers members = forM members $ \(v, (pos, exty, inty)) -> do
 fillTermHoles :: TermMappable a => a -> SemChecker a
 fillTermHoles = traverseTerm tty texp tloc trng
   where tty (TypeHole Nothing) = TypeHoleJ <$> genUVar
-        tty ty@(FnType {}) = do addError $ SemError NoTag "COMPILER ERROR. Scoping issues when filling holes in FnType"
-                                return ty
-
         tty (TypedefType ty v) = return $ TypedefType (TypeHole Nothing) v -- don't want to fill type of typedef yet
         tty ty = return ty
 

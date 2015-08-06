@@ -109,6 +109,7 @@ data Expr' a = Vec [(Variable,a)] a
           | Static a
           | Struct Variable [a]
           | Typedef Variable a
+          | Import String
 
             -- Antiquotation
           | Antiquote String
@@ -197,6 +198,7 @@ instance PP a => PP (Expr' a) where
   pretty (Static a) = parens $ hang (text "Static") 1 $ pretty a
   pretty (Struct n a) = parens $ (text "Struct" <+> text n) $$ nest 1 (vcat $ map pretty a)
   pretty (Typedef n t) = parens $ (text "Typedef" <+> text n) <+> nest 1 (pretty t)
+  pretty (Import s) = parens $ text $ "Import " ++ s
 
   pretty (Antiquote s) = parens $ text "Antiquote" <+> text s
 

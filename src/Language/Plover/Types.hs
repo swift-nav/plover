@@ -269,19 +269,22 @@ data Definition = FunctionDef (Maybe CExpr) FunctionType
                 | StructDef [StructMember]
                 | TypeDef Type
                 | ValueDef (Maybe CExpr) Type
-                deriving Show
+                | ImportDef String
+                deriving (Show, Eq)
 data DefBinding = DefBinding { binding :: Variable
                              , bindingPos :: Tag SourcePos
                              , extern :: Bool -- ^ Whether this definition should not be included in the compilation unit
                              , static :: Bool -- ^ Whether this definition should by private to the compilation unit
+                             , imported :: Maybe String -- ^ Defining module, if this binding was imported
                              , definition :: Definition }
-                deriving Show
+                deriving (Show, Eq)
 
 mkBinding :: Tag SourcePos -> Variable -> Definition -> DefBinding
 mkBinding pos v d = DefBinding { binding = v
                                , bindingPos = pos
                                , extern = False
                                , static = False
+                               , imported = Nothing
                                , definition = d }
 
 definitionType :: DefBinding -> Type
