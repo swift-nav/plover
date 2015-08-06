@@ -1,0 +1,3 @@
+import C;
+
+b () :: double := c ();

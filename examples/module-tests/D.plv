@@ -1,0 +1,5 @@
+static import A;
+import B;
+
+d () :: double := a () + b ();
+
