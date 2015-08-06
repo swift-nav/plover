@@ -49,10 +49,11 @@ main = do
              _ -> forM (inputFiles opts) $ \fileName -> do contents <- readFile fileName
                                                            return (Just fileName, contents)
   forM_ files $ \file -> do
-    let mparsed = doParse opts file
+    let mfilename = fst file
+        mparsed = doParse opts file
         mconvert = doConvert opts mparsed
-        modname = (fromMaybe "Main" $ moduleName opts (fst file))
-        mchecked = loadNewModule (modname, Nothing)
+        modname = (fromMaybe "Main" $ moduleName opts mfilename)
+        mchecked = loadNewModule mfilename (modname, Nothing)
         mgen = doCodegen opts mchecked
     let tgt = case target opts of
                TargetDefault -> TargetCodeGen
@@ -83,6 +84,6 @@ main = do
         case gen of
           Left err -> do hPutStrLn stderr err
                          exitWith $ ExitFailure 1
-          Right (pair, imports) -> writeFiles pair imports opts $ moduleName opts (fst file)
+          Right (pair, imports) -> writeFiles pair imports opts $ moduleName opts mfilename
       _ -> putStrLn "Unimplemented target"
   return ()

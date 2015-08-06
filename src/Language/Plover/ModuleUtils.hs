@@ -49,10 +49,13 @@ runAction opts m = evalStateT (runEitherT m) (ModuleState opts initialModMap 0)
 plvExt = "plv"
 
 getImportTrace :: ModuleMap -> [T.DefBinding]
-getImportTrace =
-    mapMaybe (snd . snd) . sortOn fst . mapMaybe fromLeft . M.elems
+getImportTrace = mapMaybe id . getImportTrace'
+
+getImportTrace' =
+    map (snd . snd) . sortOn fst . mapMaybe fromLeft . M.elems
   where
     fromLeft = either Just (const Nothing)
+
 
 pushStatic :: Bool -> T.DefBinding -> T.DefBinding
 pushStatic stat b = b { T.static = stat || T.static b }
@@ -76,13 +79,19 @@ beginDef i@(name, _) = do
 isImport b | T.ImportDef _ <- T.definition b = True
 isImport _ = False
 
-loadNewModule :: Import -> Action CheckedBindings
-loadNewModule imp@(name, mbinding) = do
-  liftIO $ putStrLn $ "Loading module " ++ name ++ "..."
-  opts <- gets ms_opts
-  let paths = includePaths opts
+loadNewModule :: Maybe FilePath -> Import -> Action CheckedBindings
+loadNewModule mfilepath imp@(name, mbinding) = do
+  ModuleState{ms_map = mm, ms_opts = opts} <- get
+  -- Needed for cycle detection
   beginDef imp
-  (fileName, content) <- findImport paths name
+  liftIO $ putStrLn $ replicate (2 * length (getImportTrace' mm)) ' ' ++
+    "Loading module " ++ name ++ "..."
+  (fileName, content) <-
+    case mfilepath of
+      Just filePath -> do
+        content <- liftIO (readFile filePath)
+        return (filePath, content)
+      Nothing -> findImport (includePaths opts) name
   expr <- doParse opts (Just fileName, content)
   defs <- doConvert opts (return expr)
   defsOK <- doTypeCheck opts (return defs)
@@ -99,11 +108,10 @@ removeImports = filter (isNothing . T.imported)
 
 processBinding :: T.DefBinding -> Action [T.DefBinding]
 processBinding b | T.ImportDef name <- T.definition b = do
-  opts <- gets ms_opts
-  modMap <- gets ms_map
+  ModuleState{ms_map = modMap, ms_opts = opts} <- get
   case M.lookup name modMap of
     Nothing -> fmap (filterImportedBindings name b . snd) $
-                 loadNewModule (name, Just b)
+                 loadNewModule Nothing (name, Just b)
     -- Error: we are currently trying to load this module already
     Just (Left _) -> do
       -- For the error report only:
