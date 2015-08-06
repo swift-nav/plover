@@ -84,6 +84,11 @@ runSemChecker m = let (v, s) = runState m (newSemCheckData [])
                       [] -> Right v
                       errs -> Left errs
 
+isOkIdentifier :: String -> Bool
+isOkIdentifier (x:xs) = x `elem` okStart && all (`elem` okRest) xs
+  where okStart = ['A'..'Z'] ++ ['a'..'z'] ++ "_"
+        okRest = okStart ++ ['0'..'9']
+
 -- | Phases:
 -- 1. merge top level bindings
 -- 2. alpha rename
@@ -269,6 +274,8 @@ globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
                        modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
   where doAlphaRename defb = do resetLocalBindings
                                 let pos = bindingPos defb
+                                semAssert (isOkIdentifier $ binding defb) $
+                                  SemError pos "Top-level identifiers must be valid as C identifiers."
                                 def' <- case definition defb of
                                   FunctionDef mexp ft -> do ft' <- alphaRenameFunType pos ft
                                                             mexp' <- mapM (alphaRenameTerms pos) mexp
@@ -279,19 +286,6 @@ globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
                                   StructDef members -> StructDef <$> alphaRenameStructMembers members
                                   TypeDef ty -> return $ TypeDef ty
                                 return $ defb { definition = def' }
-
--- TODO add something like this back in once structs are settled
-                         -- StructDef members -> do
-                         --   members' <- forM members $ \(v,(vpos,ty)) -> do
-                         --     ty' <- fillTypeHoles pos ty
-                         --     mtag <- addNewLocalBinding pos v v
-                         --     case mtag of
-                         --      Just otag -> do
-                         --        addError $ SemError (MergeTags [otag, pos]) $
-                         --          "Redefinition of member " ++ show v ++ " in struct."
-                         --      Nothing -> return ()
-                         --     return (v, (vpos, ty'))
-                         --   return $ StructDef members'
 
 -- | Check for undefined variables, and α-rename.
 alphaRenameFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
