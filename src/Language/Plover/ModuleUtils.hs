@@ -206,9 +206,10 @@ writeFiles (header, source) imports opts unitName =
    Just name -> do
      let cfile = joinPath [fromMaybe "" (cFilePrefix opts), name ++ ".c"]
      let hfile = joinPath [fromMaybe "" (hFilePrefix opts), name ++ ".h"]
-     let includeName = joinPath [fromMaybe "" (libPrefix opts), name]
-     writeFile hfile (wrapHeader normalIncludes name header)
-     writeFile cfile (addIncludes staticIncludes includeName source)
+     let addPrefix name = joinPath [fromMaybe "" (libPrefix opts), name]
+     let includeName = addPrefix name
+     writeFile hfile (wrapHeader (map addPrefix normalIncludes) name header)
+     writeFile cfile (addIncludes (map addPrefix staticIncludes) includeName source)
 
 makeHeaderName :: String -> String
 makeHeaderName unitName = "PLOVER_GENERATED_" ++ clean' unitName

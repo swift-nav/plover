@@ -62,6 +62,7 @@ library
                      Language.Plover.ErrorUtil,
                      Language.Plover.Unify,
                      Language.Plover.CLI,
+                     Language.Plover.ModuleUtils,
                      Data.Tag
 
   build-depends:     base >=4.8 && <4.9
