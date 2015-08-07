@@ -190,6 +190,18 @@ doCodegen opts mchecked = do
   let defs' = removeImports defs
   return (CodeGen.doCompile defs', imports)
 
+fromRight (Right x) = x
+
+doCodegenAll :: Action ()
+doCodegenAll = do
+  modMap <- gets ms_map
+  opts <- gets ms_opts
+  let pairs = M.toList modMap
+  forM_ pairs $ \(mod, bs) -> do
+    (pair, imports) <- doCodegen opts (return $ fromRight bs)
+    liftIO $ writeFiles pair imports opts (Just mod)
+
+
 splitStatic b | T.static b = Left b
 splitStatic b = Right b
 

@@ -18,6 +18,7 @@ import Language.Plover.ModuleUtils
 
 import Control.Monad
 import Control.Applicative ((<$>))
+import Control.Monad.Trans (liftIO)
 import Data.List
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as M
@@ -36,6 +37,15 @@ moduleName opts mfile = mconcat [explicit, fromFile]
     explicit = unitName opts
     fromFile = dropExtension . takeFileName <$> mfile
 
+
+runAction_ :: CompilerOpts -> Action a -> IO ()
+runAction_ opts m = do
+  result <- runAction opts m
+  case result of
+    Left err -> do
+      hPutStrLn stderr err
+      exitWith $ ExitFailure 1
+    Right _ -> return ()
 
 main :: IO ()
 main = do
@@ -59,31 +69,18 @@ main = do
                TargetDefault -> TargetCodeGen
                x -> x
     case tgt of
-      TargetParse -> do
-        parsed <- runAction opts $ mparsed
-        case parsed of
-          Left err -> do hPutStrLn stderr err
-                         exitWith $ ExitFailure 1
-          Right expr ->
-            putStrLn $ show $ T.pretty expr
-      TargetConvert -> do
-        convert <- runAction opts $ mconvert
-        case convert of
-          Left err -> do hPutStrLn stderr err
-                         exitWith $ ExitFailure 1
-          Right defs -> putStrLn $ Pr.ppShow defs
-      TargetTypeCheck -> do
-        checked <- runAction opts $ mchecked
-        case checked of
-          Left err -> do hPutStrLn stderr err
-                         exitWith $ ExitFailure 1
-          Right defs -> do
-            putStrLn $ Pr.ppShow defs
-      TargetCodeGen -> do
-        gen <- runAction opts $ mgen
-        case gen of
-          Left err -> do hPutStrLn stderr err
-                         exitWith $ ExitFailure 1
-          Right (pair, imports) -> writeFiles pair imports opts $ moduleName opts mfilename
+      TargetParse ->
+        runAction_ opts $ do
+          expr <- mparsed
+          liftIO $ print $ T.pretty expr
+      TargetConvert -> runAction_ opts $ do
+        defs <- mconvert
+        liftIO $ putStrLn $ Pr.ppShow defs
+      TargetTypeCheck -> runAction_ opts $ do
+        defs <- mchecked
+        liftIO $ putStrLn $ Pr.ppShow defs
+      TargetCodeGen -> runAction_ opts $ do
+        mgen
+        doCodegenAll
       _ -> putStrLn "Unimplemented target"
   return ()
