@@ -656,6 +656,8 @@ typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
   addBinding pos v tyx -- alpha renamed, so ok
   bt <- typeCheck body
+  when (refOccursIn v bt) $ do
+    addUError $ URefOccurs (MergeTags [pos, getTag body]) v bt
   return bt
 typeCheck (Uninitialized pos ty) = typeCheckType pos ty
 typeCheck (Seq pos a b) = do
