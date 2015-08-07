@@ -1,0 +1,6 @@
+-- demonstrates leakage.  type of foo cannot reference Let binding
+-- variable.  Added occurs check so error message is useful.
+
+foo () :: _
+  := (n := 22;
+      vec i in n -> i;);

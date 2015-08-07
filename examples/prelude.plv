@@ -46,11 +46,48 @@ __C__
 --- stdio.h
 ---
 
-static __C__ "#include <stdio.h>";
+__C__ "#include <stdio.h>";
 extern (
   printf (x :: string) __VARARGS__ :: int;
 );
 
+
+---
+--- stdlib.h
+---
+
+__C__ "#include <stdlib.h>";
+extern (
+  struct div_t (
+    quot :: int;
+    rem :: int;
+  );
+  RAND_MAX :: int;
+  -- skipping __compar_fn_t
+  abort :: ();
+  abs (i :: int) :: int;
+  -- skipping bsearch
+  div (n :: int) (denom :: int) :: div_t;
+  -- skipping ldiv
+  -- skipping qsort
+  strtol (nptr :: string) (inout endptr :: *string) (base :: int) :: int;
+  strtoul (nptr :: string) (inout endptr :: *string) (base :: int) :: u32; -- unsigned long
+  atol (s :: string) :: int; -- long
+  atoi (s :: string) :: int;
+  exit (status :: int) :: ();
+  -- skipping malloc, free, calloc, realloc
+  strtod (nptr :: string) (inout endptr :: *string) :: double;
+  atof (s :: string) :: double;
+  rand () :: int;
+  srand (seed :: u32) :: ();
+  rand_r (ctxt :: *u32) :: int; -- argument is unsigned long
+
+  -- non-standard
+  random () :: int; -- long
+  srandom (seed :: u32) :: (); -- u32 is unsigned long
+  random_r (ctxt :: *u32) :: int; -- u32 is unsigned long
+  RANDOM_MAX :: int;
+);
 
 ---
 --- math.h

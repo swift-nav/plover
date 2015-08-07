@@ -261,7 +261,8 @@ antiquote = do reservedOp "~"
                       return $ before ++ during ++ after
 
 form :: Parser Expr
-form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp <|> inlineC
+form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp
+       <|> inlineC <|> struct <|> typedef
   where iter cons s = withPos $ do
           reserved s
           vs <- sepBy ((,) <$> identifier <* reserved "in" <*> range) (symbol ",")
@@ -291,22 +292,6 @@ form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp <|>
           reserved "__C__"
           InlineC <$> stringLiteral
 
--- Parse semicolon-separated sequenced statements
-mstatements :: Parser Expr
-mstatements = do pos <- getPosition
-                 xs <- sepEndBy1 expr (symbol ";")
-                 case xs of
-                  [x] -> return x -- so no need to sequence
-                  _ -> return $ wrapPos pos $ SeqExpr xs
-
-toplevelStatement :: Parser Expr
-toplevelStatement = extern <|> static <|> struct <|> typedef <|> imp <|> expr
-  where extern = withPos $ do reserved "extern"
-                              x <- toplevelStatement
-                              return $ Extern x
-        static = withPos $ do reserved "static"
-                              x <- toplevelStatement
-                              return $ Static x
         struct = withPos $ do reserved "struct"
                               name <- identifier
                               xs <- parens $ sepEndBy1 expr (symbol ";")
@@ -316,6 +301,24 @@ toplevelStatement = extern <|> static <|> struct <|> typedef <|> imp <|> expr
                                reservedOp ":="
                                ty <- expr
                                return $ Typedef name ty
+
+
+-- Parse semicolon-separated sequenced statements
+mstatements :: Parser Expr
+mstatements = do pos <- getPosition
+                 xs <- sepEndBy1 expr (symbol ";")
+                 case xs of
+                  [x] -> return x -- so no need to sequence
+                  _ -> return $ wrapPos pos $ SeqExpr xs
+
+toplevelStatement :: Parser Expr
+toplevelStatement = extern <|> static <|> imp <|> expr
+  where extern = withPos $ do reserved "extern"
+                              x <- toplevelStatement
+                              return $ Extern x
+        static = withPos $ do reserved "static"
+                              x <- toplevelStatement
+                              return $ Static x
         imp = withPos $ do reserved "import"
                            name <- identifier
                            return $ Import name
