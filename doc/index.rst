@@ -2,8 +2,6 @@
  Plover
 ========
 
-.. compile docs with $ rst2html.py index.rst index.html
-
 :Authors:  Scott Kovach, Kyle Miller
 :Modified: August 2015
 
@@ -85,9 +83,10 @@ value of the sequence.  Hence,
 
    a; b; c
 
-has value ``c``.  Like other operators, parentheses are used to
-delimit sequences of expressions (not curly braces, which are instead
-used to delimit implicit function arguments).
+has value ``c``, after evaluating ``a`` and ``b`` (in that order).
+Like other operators, parentheses are used to delimit sequences of
+expressions (not curly braces, which are instead used to delimit
+implicit function arguments).
 
 
 Iteration constructs
