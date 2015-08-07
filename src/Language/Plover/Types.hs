@@ -282,6 +282,9 @@ data DefBinding = DefBinding { binding :: Variable
                              , definition :: Definition }
                 deriving (Show, Eq)
 
+isImported :: DefBinding -> Bool
+isImported = isJust . imported
+
 mkBinding :: Tag SourcePos -> Variable -> Definition -> DefBinding
 mkBinding pos v d = DefBinding { binding = v
                                , bindingPos = pos

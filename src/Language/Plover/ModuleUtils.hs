@@ -100,14 +100,23 @@ loadNewModule mfilepath imp@(name, mbinding) = do
   return (importLines, defsOK)
 
 filterImportedBindings name b =
-    map (pushStatic (T.static b) . mplusName) . filter (not . T.static) . filter importable
+    map (stripDef . pushStatic (T.static b) . mplusName) . filter (not . T.static) . filter importable
    where
     mplusName b = b { T.imported = T.imported b `mplus` Just name }
     importable defb = case T.definition defb of
       T.InlineCDef {} -> False
       _ -> True
 
-removeImports = filter (isNothing . T.imported)
+    stripDef defb = defb { T.definition = def' }
+      where def' = case T.definition defb of
+              T.FunctionDef _ ft -> T.FunctionDef Nothing ft
+              T.StructDef {} -> T.definition defb
+              T.TypeDef {} -> T.definition defb
+              T.ValueDef _ ty -> T.ValueDef Nothing ty
+              T.ImportDef {} -> error "COMPILER ERROR: ImportDef is not importable."
+              T.InlineCDef {} -> error "COMPILER ERROR: InlineCDef is not importable."
+
+removeImports = filter (not . T.isImported)
 
 processBinding :: T.DefBinding -> Action [T.DefBinding]
 processBinding b | T.ImportDef name <- T.definition b = do

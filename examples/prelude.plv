@@ -229,11 +229,12 @@ normalize {n} (v :: double[n]) :: double[n]
   := v / norm v;
 
 print_vec {n} (v :: double[n]) :: ()
-  := for i in n -> printf "% 12lf\n" v[i];
+  := for i in n -> printf "[% 12lf]\n" v[i];
 print_mat {n,m} (A :: double[n,m]) :: ()
   := for i in n -> (
+       printf "[";
        for j in m -> printf "% 12lf " A[i,j];
-       printf "\n";
+       printf "]\n";
      );
 
 

@@ -229,9 +229,6 @@ newBinding def = do
           InlineCDef {} -> True
           _ -> False
 
-isImported :: DefBinding -> Bool
-isImported = isJust . imported
-
 -- | These two bindings are for the same variable.  Make sure they are
 -- reconcilable, and bring them into a single binding (stored in the
 -- SemChecker state)
@@ -281,7 +278,7 @@ reconcileDefinitions tag oldDef newDef = do
 checkFuncBodies :: SemChecker ()
 checkFuncBodies = do defbs <- M.elems . globalBindings <$> get
                      forM_ defbs $ \defb -> case definition defb of
-                       FunctionDef mexp ft -> do when (not (extern defb) && isNothing mexp) $
+                       FunctionDef mexp ft -> do when (not (isImported defb) && not (extern defb) && isNothing mexp) $
                                                    addError $
                                                    SemError (bindingPos defb) "Function missing body."
                                                  let FnT args mva retty = ft
