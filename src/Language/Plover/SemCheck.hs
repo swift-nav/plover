@@ -107,7 +107,8 @@ doSemCheck defs = runSemChecker dochecks
                       globalConcretizeApps
                       globalFillHoles
 
-                      defs' <- M.elems . globalBindings <$> get
+                      defsMap' <- globalBindings <$> get
+                      let defs' = map (defsMap' M.!) names
 
                       he <- hasErrors
                       if not he
@@ -117,6 +118,7 @@ doSemCheck defs = runSemChecker dochecks
                           Left errs -> do mapM_ (addError . SemUniError) errs
                                           return []
                         else return []
+        names = nub $ map binding defs
 
 gensym :: String -> SemChecker String
 gensym prefix = do names <- gensymState <$> get
@@ -210,6 +212,7 @@ defHasValue (DefBinding { definition = def }) = case def of
   StructDef _ -> False
   ValueDef me _ -> isJust me
   TypeDef _ -> False
+  InlineCDef {} -> False
 
 -- | This is a new binding, not already in the SemChecker state.  Put
 -- it there, and do some consistency checks.
@@ -220,6 +223,11 @@ newBinding def = do
     SemError (bindingPos def) "Extern definition cannot have value or function body."
   semAssert (not (extern def && static def)) $
     SemError (bindingPos def) "Cannot be both static and extern simultaneously."
+  semAssert (not (is_inline def && extern def)) $
+    SemError (bindingPos def) "Inline C may not be 'extern'."
+  where is_inline defb = case definition defb of
+          InlineCDef {} -> True
+          _ -> False
 
 isImported :: DefBinding -> Bool
 isImported = isJust . imported
@@ -273,9 +281,13 @@ reconcileDefinitions tag oldDef newDef = do
 checkFuncBodies :: SemChecker ()
 checkFuncBodies = do defbs <- M.elems . globalBindings <$> get
                      forM_ defbs $ \defb -> case definition defb of
-                       FunctionDef mexp ft -> when (not (extern defb) && isNothing mexp) $
-                                              addError $
-                                              SemError (bindingPos defb) "Function missing body."
+                       FunctionDef mexp ft -> do when (not (extern defb) && isNothing mexp) $
+                                                   addError $
+                                                   SemError (bindingPos defb) "Function missing body."
+                                                 let FnT args mva retty = ft
+                                                 when (not (extern defb) && isJust mva) $
+                                                   addError $
+                                                   SemError (bindingPos defb) "Non-extern functions may not be declared with varargs."
                        _ -> return ()
 
 
@@ -286,22 +298,28 @@ globalAlphaRename = do defbs <- M.elems . globalBindings <$> get
                        modify $ \state -> state { globalBindings = M.fromList [(binding d, d) | d <- defbs'] }
   where doAlphaRename defb = do resetLocalBindings
                                 let pos = bindingPos defb
-                                semAssert (isOkIdentifier $ binding defb) $
-                                  SemError pos "Top-level identifiers must be valid as C identifiers."
                                 def' <- case definition defb of
-                                  FunctionDef mexp ft -> do ft' <- alphaRenameFunType pos ft
+                                  FunctionDef mexp ft -> do idcheck pos defb
+                                                            ft' <- alphaRenameFunType pos ft
                                                             mexp' <- mapM (alphaRenameTerms pos) mexp
                                                             return $ FunctionDef mexp' ft'
-                                  ValueDef mexp ty -> do ty' <- alphaRenameTerms pos ty
+                                  ValueDef mexp ty -> do idcheck pos defb
+                                                         ty' <- alphaRenameTerms pos ty
                                                          mexp' <- mapM (alphaRenameTerms pos) mexp
                                                          return $ ValueDef mexp' ty'
-                                  StructDef members -> StructDef <$> alphaRenameStructMembers members
-                                  TypeDef ty -> return $ TypeDef ty
+                                  StructDef members -> do idcheck pos defb
+                                                          StructDef <$> alphaRenameStructMembers members
+                                  TypeDef ty -> do idcheck pos defb
+                                                   return $ TypeDef ty
+                                  InlineCDef {} -> return $ definition defb
                                 return $ defb { definition = def' }
+        idcheck pos defb = semAssert (isOkIdentifier $ binding defb) $
+                           SemError pos "Top-level identifiers must be valid as C identifiers."
+
 
 -- | Check for undefined variables, and α-rename.
 alphaRenameFunType :: Tag SourcePos -> FunctionType -> SemChecker FunctionType
-alphaRenameFunType pos (FnT args rty) = do
+alphaRenameFunType pos (FnT args mva rty) = do
   args' <- forM args $ \(vpos, v, req, dir, vty) -> do
     v' <- gensym v
     vty' <- alphaRenameTerms vpos vty
@@ -313,7 +331,7 @@ alphaRenameFunType pos (FnT args rty) = do
       Nothing -> return ()
     return (vpos, v', req, dir, vty')
   rty' <- alphaRenameTerms pos rty
-  return $ FnT args' rty'
+  return $ FnT args' mva rty'
 
 -- | Alpha-renaming is a misnomer: we are merely checking that members
 -- are defined at most once and are defined when used.
@@ -347,15 +365,16 @@ globalConcretizeApps = do defbs <- M.elems . globalBindings <$> get
                                                         return $ ValueDef mexp' ty'
                                  StructDef members -> StructDef <$> concretizeStructMembers members
                                  TypeDef ty -> TypeDef <$> concretizeApps ty
+                                 InlineCDef {} -> return $ definition defb
                                return $ defb { definition = def' }
 
 concretizeFunType :: FunctionType -> SemChecker FunctionType
-concretizeFunType (FnT args rty) = do
+concretizeFunType (FnT args mva rty) = do
   args' <- forM args $ \(vpos, v, req, dir, vty) -> do
     vty' <- concretizeApps vty
     return (vpos, v, req, dir, vty')
   rty' <- concretizeApps rty
-  return $ FnT args' rty'
+  return $ FnT args' mva rty'
 
 concretizeStructMembers :: [StructMember] -> SemChecker [StructMember]
 concretizeStructMembers members = forM members $ \(v, (pos, exty, inty)) -> do
@@ -378,15 +397,16 @@ globalFillHoles = do defbs <- M.elems . globalBindings <$> get
                                                   return $ ValueDef mexp' ty'
                            StructDef members -> StructDef <$> fillStructMembers members
                            TypeDef ty -> TypeDef <$> fillTermHoles ty
+                           InlineCDef {} -> return $ definition defb
                          return $ defb { definition = def' }
 
 fillFunType :: FunctionType -> SemChecker FunctionType
-fillFunType (FnT args rty) = do
+fillFunType (FnT args mva rty) = do
   args' <- forM args $ \(vpos, v, req, dir, vty) -> do
     vty' <- fillTermHoles vty
     return (vpos, v, req, dir, vty')
   rty' <- fillTermHoles rty
-  return $ FnT args' rty'
+  return $ FnT args' mva rty'
 
 fillStructMembers :: [StructMember] -> SemChecker [StructMember]
 fillStructMembers members = forM members $ \(v, (pos, exty, inty)) -> do
@@ -458,9 +478,10 @@ globalCheckTypedefs = do
                                    mapM_ (checkTypedefs pos) mexp
             StructDef members -> structMemberCheckTypedefs members
             TypeDef ty -> checkTypedefs pos ty
+            InlineCDef {} -> return ()
 
 funTypeCheckTypedefs :: Tag SourcePos -> FunctionType -> SemChecker ()
-funTypeCheckTypedefs pos (FnT args rty) = do
+funTypeCheckTypedefs pos (FnT args mva rty) = do
   forM_ args $ \(vpos, v, req, dir, vty) -> do
     checkTypedefs vpos vty
   checkTypedefs pos rty
@@ -497,7 +518,7 @@ checkTypedefs pos x = scopedTraverseTerm tr pos x >> return ()
 -- function (i.e., the one where a complex return value is a pointer
 -- argument).
 matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
-matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
+matchArgs pos args (FnT fargs mva _) = matchArgs' 1 args fargs
   where
     -- A passed argument matches a required argument
     matchArgs' i (Arg x : xs) ((vpos, v, True, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
@@ -511,16 +532,22 @@ matchArgs pos args (FnT fargs _) = matchArgs' 1 args fargs
     -- An implicit argument given where an implicit argument expected
     matchArgs' i (ImpArg x : xs) ((vpos, v, False, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
     -- (error) Fewer arguments than parameters
-    matchArgs' i [] (fx : fxs) = do addError $ SemError pos $ "Not enough arguments.  Given " ++ show i ++ "; " ++ validRange
+    matchArgs' i [] (fx : fxs) = do addError $ SemError pos $
+                                      "Not enough arguments.  Given " ++ show i ++ "; " ++ validRange
                                     name <- genUVar -- try to recover for error message's sake
                                     (HoleJ pos name :) <$> matchArgs' i [] fxs
     -- Exactly the correct number of arguments
     matchArgs' i [] [] = return []
-    matchArgs' i xs [] = do addError $ SemError pos $ "Too many arguments.  Given " ++ show i ++ ", " ++ validRange ++ "."
+    matchArgs' i (Arg x : xs) [] | isJust mva  = (x :) <$> matchArgs' (1 + i) xs []
+    matchArgs' i (ImpArg x : xs) [] | isJust mva = do addError $ SemError pos $
+                                                        "Implicit argument not allowed as vararg."
+                                                      return []
+    matchArgs' i xs [] = do addError $ SemError pos $
+                              "Too many arguments.  Given " ++ show i ++ ", " ++ validRange ++ "."
                             return []
 
     numReq = length $ filter (\(_, _, b, _, _) -> b) fargs
-    validRange = "expecting " ++ show numReq ++ " required and " ++ show (length fargs - numReq) ++ " implicit arguments"
+    validRange = "expecting " ++ show numReq ++ " required and " ++ show (length fargs - numReq) ++ " implicit arguments" ++ (if isJust mva then ", with any number of varargs" else "")
 
     addImplicit i v ty xs fxs = do name <- genUVarP v
                                    (HoleJ pos name :) <$> matchArgs' i xs fxs
@@ -535,7 +562,7 @@ topVerifyStorage dbs = mapM_ verifyStorageDefBinding dbs
 
 verifyStorageDefBinding :: DefBinding -> SemChecker ()
 verifyStorageDefBinding db = case definition db of
-  FunctionDef mexp (FnT args retty) -> do
+  FunctionDef mexp (FnT args mva retty) -> do
     forM_ args $ \(pos, v, b, dir, ty) -> do
       verifyStorage pos ty
     verifyStorage (bindingPos db) retty
@@ -557,6 +584,7 @@ verifyStorageDefBinding db = case definition db of
                      when (not $ typeCanHold ty (getType exp)) $
                        addError $ SemStorageError (bindingPos db) ty (getType exp)
   TypeDef ty -> return ()
+  InlineCDef {} -> return ()
 
 verifyStorage :: TermMappable a => Tag SourcePos -> a -> SemChecker ()
 verifyStorage rpos = void . traverseTerm tty texp tloc trng

@@ -75,24 +75,20 @@ makeExpr exp@(PExpr pos e') = case e' of
   Range {} -> T.RangeVal pos <$> makeRange exp
 
   App (PExpr _ (Ref v)) args | v `elem` ["not", "sum", "diag", "shape"] -> builtinFunc v args
-    where builtinFunc "not" args = do [a] <- exArgs args 1
+    where builtinFunc "not" args = do [a] <- exArgs (makePos exp) args 1
                                       return $ T.Unary pos T.Not a
-          builtinFunc "sum" args = do [a] <- exArgs args 1
+          builtinFunc "sum" args = do [a] <- exArgs (makePos exp) args 1
                                       return $ T.Unary pos T.Sum a
-          builtinFunc "diag" args = do [a] <- exArgs args 1
+          builtinFunc "diag" args = do [a] <- exArgs (makePos exp) args 1
                                        return $ T.Unary pos T.Diag a
-          builtinFunc "shape" args = do [a] <- exArgs args 1
+          builtinFunc "shape" args = do [a] <- exArgs (makePos exp) args 1
                                         return $ T.Unary pos T.Shape a
-          exArgs args n = do args' <- forM args $ \arg ->
-                               case arg of
-                                 ImpArg _ -> Left $ ConvertError (makePos exp) ["Unexpected implicit argument."]
-                                 Arg a -> makeExpr a
-                             if length args' == n
-                               then return args'
-                               else Left $ ConvertError (makePos exp) ["Expecting " ++ show n ++ " argument(s) for builtin function."]
-  App f args -> T.App pos <$> makeExpr f <*> (forM args' $ \arg -> case arg of
-                                                Arg a -> T.Arg <$> makeExpr a
-                                                ImpArg a -> T.ImpArg <$> makeExpr a)
+  App f args -> case Left True of --makeType f
+    Left {} -> T.App pos <$> makeExpr f <*> (forM args' $ \arg -> case arg of
+                                               Arg a -> T.Arg <$> makeExpr a
+                                               ImpArg a -> T.ImpArg <$> makeExpr a)
+    Right ty -> do [a] <- exArgs (makePos exp) args 1
+                   return $ T.CastType pos a ty
     where args' = filter novoid args
           novoid (Arg (PExpr _ VoidExpr)) = False
           novoid _ = True
@@ -103,6 +99,16 @@ makeExpr exp@(PExpr pos e') = case e' of
   Extern _ -> Left $ ConvertError (makePos exp) ["Non-toplevel extern."]
   Static _ -> Left $ ConvertError (makePos exp) ["Non-toplevel static."]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected or unimplemented expression."]
+
+exArgs pos args n = do args' <- forM args $ \arg ->
+                         case arg of
+                           ImpArg _ -> Left $ ConvertError pos ["Unexpected implicit argument."]
+                           Arg a -> makeExpr a
+                       if length args' == n
+                         then return args'
+                         else Left $ ConvertError pos
+                              ["Expecting " ++ show n ++ " argument(s) for builtin function."]
+
 
 makeLocation :: Expr -> Either ConvertError (T.Location T.CExpr)
 makeLocation exp@(PExpr pos e') = case e' of
@@ -193,7 +199,10 @@ makeDefs exp@(PExpr pos pe) = case pe of
   Struct v members -> return <$> makeStructDecl pos v members
   Typedef v ty -> return <$> (T.mkBinding pos v . T.TypeDef <$> makeType ty)
   Import s -> return [T.mkBinding pos s $ T.ImportDef s]
+  InlineC s -> return [T.mkBinding pos uniqueName $ T.InlineCDef s]
   _ -> Left $ ConvertError (makePos exp) ["Unexpected top-level form."]
+
+  where uniqueName = "[:-D]" ++ show pos
 
 makeStructDecl :: Tag SourcePos -> Variable -> [Expr] -> Either ConvertError T.DefBinding
 makeStructDecl pos v members = T.mkBinding pos v . T.StructDef <$> mapM makeStructMember members
@@ -214,35 +223,46 @@ makeTopType :: Expr -> Maybe T.CExpr -> Either ConvertError T.DefBinding
 makeTopType exp@(PExpr _ pe) val = case pe of
   BinExpr Type (PExpr pos (Ref v)) b -> T.mkBinding pos v . T.ValueDef val <$> makeType b
   BinExpr Type (PExpr pos (App (PExpr pos' (Ref v)) args)) b ->
-    do t <- makeType b
-       at <- funArgs args
-       return $ T.mkBinding pos' v $ T.FunctionDef val $ T.FnT at t
+    do fnt <- funArgs T.FnT args
+       t <- makeType b
+       return $ T.mkBinding pos' v $ T.FunctionDef val $ fnt t
   _ -> Left $ ConvertError (makePos exp) ["Expecting variable or function type definition (possibly missing return type)."]
 
 
-funArgs :: [Arg Expr] -> Either ConvertError [(Tag SourcePos, Variable, Bool, T.ArgDir, T.Type)]
-funArgs [] = return []
-funArgs ((Arg e@(PExpr _ pe)):args) = case pe of
-  BinExpr Type (PExpr pos (Ref v)) b  -> do t <- makeType b
-                                            ([(pos, v, True, T.ArgIn, t)] ++) <$> funArgs args
-  BinExpr Type (PExpr _ (App (PExpr _ (Ref dir)) [Arg (PExpr pos (Ref v))])) b -> do
-    dir <- decodeDir dir
-    t <- makeType b
-    ([(pos, v, True, dir, t)] ++) <$> funArgs args
+funArgs :: ([(Tag SourcePos, Variable, Bool, T.ArgDir, T.Type)] -> Maybe T.ArgDir -> a)
+        -> [Arg Expr] -> Either ConvertError a
+funArgs f args = funArgs' [] args
+  where
+    funArgs' acc [] = return $ f (reverse acc) Nothing
+    funArgs' acc ((Arg e@(PExpr apos pe)):args) = case pe of
+      Ref "__VARARGS__" -> case args of
+        [] -> return $ f (reverse acc) (Just T.ArgIn)
+        _ -> Left $ ConvertError (makePos e) ["No function parameters definitions may come after varargs."]
+      App (PExpr _ (Ref dir)) [Arg (PExpr pos (Ref "__VARARGS__"))] -> case args of
+        [] -> do dir <- decodeDir (makePos e) dir
+                 return $ f (reverse acc) (Just dir)
+        _ -> Left $ ConvertError (makePos e) ["No function parameters definitions may come after varargs."]
+      Ref v -> funArgs' ((apos, v, True, T.ArgIn, T.TypeHole Nothing):acc) args
+      BinExpr Type (PExpr pos (Ref v)) b  -> do t <- makeType b
+                                                funArgs' ((pos, v, True, T.ArgIn, t):acc) args
+      BinExpr Type (PExpr _ (App (PExpr _ (Ref dir)) [Arg (PExpr pos (Ref v))])) b -> do
+        dir <- decodeDir (makePos e) dir
+        t <- makeType b
+        funArgs' ((pos, v, True, dir, t):acc) args
+      VoidExpr -> funArgs' acc args
+      _ -> Left $ ConvertError (makePos e) ["Bad argument definition."]
+    funArgs' acc ((ImpArg e@(PExpr pos pe)):args) = case pe of
+      Tuple idxs -> funArgs' acc (map ImpArg idxs ++ args) -- shorthand: f {n,m}
+      Ref v -> funArgs' ((pos, v, False, T.ArgIn, T.IntType T.IDefault):acc) args
+      BinExpr Type (PExpr pos' (Ref v)) b  -> do t <- makeType b
+                                                 funArgs' ((pos', v, False, T.ArgIn, t):acc) args
+      _ -> Left $ ConvertError (makePos e) ["Bad implicit argument definition."]
 
-    where decodeDir dir = case dir of
-            "in" -> Right T.ArgIn
-            "out" -> Right T.ArgOut
-            "inout" -> Right T.ArgInOut
-            _ -> Left $ ConvertError (makePos e) ["Invalid argument direction specifier " ++ show dir]
-  VoidExpr -> funArgs args
-  _ -> Left $ ConvertError (makePos e) ["Bad argument definition."]
-funArgs ((ImpArg e@(PExpr pos pe)):args) = case pe of
-  Tuple idxs -> funArgs ((map ImpArg idxs) ++ args) -- shorthand: f {n,m}
-  Ref v -> ([(pos, v, False, T.ArgIn, T.IntType T.IDefault)] ++) <$> funArgs args
-  BinExpr Type (PExpr pos' (Ref v)) b  -> do t <- makeType b
-                                             ([(pos', v, False, T.ArgIn, t)] ++) <$> funArgs args
-  _ -> Left $ ConvertError (makePos e) ["Bad implicit argument definition."]
+decodeDir pos dir = case dir of
+--  "in" -> Right T.ArgIn  -- Just kidding, "in" is taken by the For syntax
+  "out" -> Right T.ArgOut
+  "inout" -> Right T.ArgInOut
+  _ -> Left $ ConvertError pos ["Invalid argument direction specifier " ++ show dir]
 
 reportConvertErr :: ConvertError
                  -> IO String

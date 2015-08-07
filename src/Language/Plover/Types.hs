@@ -130,6 +130,7 @@ data Expr a
   | Addr' (Location a)
   | Set' (Location a) a
   | AssertType' a Type
+  | CastType' a Type
   | Unary' UnOp a
   | Binary' BinOp a a
  deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
@@ -197,10 +198,10 @@ type Type = Type' CExpr
 --              | NumArith NumCtxt NumCtxt -- The number has the type after doing an arithmetic operation on the two nums
 --              deriving (Show, Eq, Ord)
 
--- Represents the type of an Expr
 -- Separates implicit parameters, explicit parameters, output type
 -- The boolean means whether the argument is required (False means implicit)
-data FunctionType = FnT [(Tag SourcePos, Variable, Bool, ArgDir, Type)] Type
+-- The (Maybe ArgDir) is for (external) varargs.
+data FunctionType = FnT [(Tag SourcePos, Variable, Bool, ArgDir, Type)] (Maybe ArgDir) Type
   deriving (Show)
 
 instance Eq FunctionType where
@@ -209,9 +210,9 @@ instance Ord FunctionType where
   compare = compare `on` strippedFunctionType
 
 -- | Removes argument source position information for Eq and Ord instances
-strippedFunctionType :: FunctionType -> ([(Variable, Bool, ArgDir, Type)], Type)
-strippedFunctionType (FnT args ty) = (map (\(pos, v, b, dir, ty) -> (v, b, dir, ty)) args,
-                                      ty)
+strippedFunctionType :: FunctionType -> ([(Variable, Bool, ArgDir, Type)], Maybe ArgDir, Type)
+strippedFunctionType (FnT args mva ty) = (map (\(pos, v, b, dir, ty) -> (v, b, dir, ty)) args,
+                                          mva, ty)
 
 -- Right now only works for vectors
 data ArgDir = ArgIn | ArgOut | ArgInOut
@@ -226,7 +227,7 @@ data StructType = ST
 
 -- Function without implicits or a dependent type
 fnT :: [Type] -> Type -> FunctionType
-fnT params out = FnT [(NoTag, "", True, ArgIn, t) | t <- params] out
+fnT params out = FnT [(NoTag, "", True, ArgIn, t) | t <- params] Nothing out
 
 
 -- | If a function returns a complex type, it must be passed as an
@@ -238,9 +239,9 @@ fnT params out = FnT [(NoTag, "", True, ArgIn, t) | t <- params] out
 -- universalized.
 -- TODO: returning a tuple?  (right now can just return a struct)
 getEffectiveFunType :: FunctionType -> (FunctionType, Maybe (Variable, Type))
-getEffectiveFunType ft@(FnT args retty) = if complexRet retty
-                                          then internReturn args' retty
-                                          else ((FnT args' retty), Nothing)
+getEffectiveFunType ft@(FnT args mva retty) = if complexRet retty
+                                              then internReturn args' retty
+                                              else ((FnT args' mva retty), Nothing)
   where complexRet :: Type -> Bool
         complexRet (VecType {}) = True
         -- TODO tuple
@@ -255,7 +256,8 @@ getEffectiveFunType ft@(FnT args retty) = if complexRet retty
         -- type itself seem correct so far.  Perhaps In/Out/InOut are
         -- in order to record these things better
         internReturn :: [(Tag SourcePos, Variable, Bool, ArgDir, Type)] -> Type -> (FunctionType, Maybe (Variable, Type))
-        internReturn args retty = (FnT (args ++ [(NoTag, retName, True, ArgOut, retty')]) Void, Just (retName, retty'))
+        internReturn args retty = (FnT (args ++ [(NoTag, retName, True, ArgOut, retty')]) mva Void,
+                                   Just (retName, retty'))
           where retName = genName [v | (_, v, _, _, _) <- args] "result$" -- since $ cannot occur in a normal argument
                 genName :: [Variable] -> Variable -> Variable
                 genName names test = if test `elem` names
@@ -270,6 +272,7 @@ data Definition = FunctionDef (Maybe CExpr) FunctionType
                 | TypeDef Type
                 | ValueDef (Maybe CExpr) Type
                 | ImportDef String
+                | InlineCDef String
                 deriving (Show, Eq)
 data DefBinding = DefBinding { binding :: Variable
                              , bindingPos :: Tag SourcePos
@@ -315,6 +318,7 @@ pattern Binary tag op x y = PExpr tag (Binary' op x y)
 pattern Negate tag x = Unary tag Neg x
 pattern Equal tag a b = Binary tag EqOp a b
 pattern AssertType tag a ty = PExpr tag (AssertType' a ty)
+pattern CastType tag a ty = PExpr tag (CastType' a ty)
 pattern Hole tag muvar= PExpr tag (Hole' muvar)
 pattern Get tag x = PExpr tag (Get' x)
 pattern Addr tag x = PExpr tag (Addr' x)
@@ -430,6 +434,7 @@ instance TermMappable CExpr where
     Addr pos loc -> Addr pos <$> tloc loc
     Set pos loc val -> Set pos <$> tloc loc <*> texp val
     AssertType pos v ty -> AssertType pos <$> texp v <*> tty ty
+    CastType pos v ty -> CastType pos <$> texp v <*> tty ty
     Unary pos op v -> Unary pos op <$> texp v
     Binary pos op v1 v2 -> Binary pos op <$> texp v1 <*> texp v2
   termMapper tty texp tloc trng = texp
@@ -736,7 +741,7 @@ instance PP Type where
                                      _ -> \x -> text (show st) <+> x
                            ty' -> pretty ty'
   pretty (TupleType xs) = parens $ sep $ punctuate (text ",") $ map pretty xs
-  pretty (FnType (FnT args retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
+  pretty (FnType (FnT args mva retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
     where prarg (pos, v, req, dir, ty) = (rqimp req) $ pdir (sep $ punctuate (text "::") [text v, pretty ty])
             where pdir x = case dir of
                     ArgIn -> x
@@ -832,6 +837,10 @@ getType (Get pos loc) = getLocType loc
 getType (Addr pos loc) = PtrType (getLocType loc)
 getType (Set {}) = Void
 getType (AssertType _ _ ty) = ty
+getType (CastType _ x ty) = case ty of
+  IntType _ -> ty
+  FloatType _ -> ty
+  -- TODO add the rest :-)
 getType (Unary pos op a) | op `elem` [Pos, Neg] = getVectorizedType (getType a) (getType a)
 getType (Unary pos Sum a) = case getVectorizedType (getType a) (getType a) of
   VecType _ (bnd:bnds) aty' -> normalizeTypes $ VecType DenseMatrix bnds aty'

@@ -16,6 +16,7 @@ import qualified Text.PrettyPrint.Mainland as Mainland
 import Data.Either
 import Data.Tag
 import Data.List
+import Data.Maybe
 import Control.Monad.State
 import Control.Applicative ((<$>), (<*>))
 import qualified Data.Map as M
@@ -136,29 +137,28 @@ newName def v = do v' <- freshName (getOkIdentifier def v)
 
 compileTopLevel :: [DefBinding] -> CM ([C.Definition], [C.Definition])
 compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
-                           forM_ defbs' $ \defb ->
-                             lookupName (error "Invalid top-level name") (binding defb)
                            decls <- fmap concat $ forM (filter (not . static) defbs') $ \defb ->
                                     newScope $ case definition defb of
                                                  FunctionDef mexp ft -> compileFunctionDecl defb ft
                                                  TypeDef ty -> compileTypedef defb ty
                                                  ValueDef mexp ty -> compileValueDecl defb ty
                                                  StructDef members -> compileStructDef defb members
+                                                 InlineCDef code -> compileInlineC defb code
                            declstatic <- fmap concat $ forM (filter static defbs') $ \defb ->
                                          newScope $ case definition defb of
                                                       FunctionDef mexp ft -> compileFunctionDecl defb ft
                                                       TypeDef ty -> compileTypedef defb ty
                                                       ValueDef mexp ty -> compileValueDecl defb ty
                                                       StructDef members -> compileStructDef defb members
+                                                      InlineCDef code -> compileInlineC defb code
                            ddef <- fmap concat $ forM defbs' $ \defb -> newScope $ case definition defb of
                              FunctionDef (Just body) ft -> compileFunction (binding defb) ft body
                              ValueDef mexp ty -> compileValue defb mexp ty
                              _ -> return []
-                           return (ext_includes ++ decls, int_includes ++ declstatic ++ ddef)
-  where ext_includes = [cunit| $esc:("#include \"common.h\"") |]
-        int_includes = [cunit| $esc:("#include <math.h>")
-                               $esc:("#include <stdio.h>")
-                               $esc:("#include \"linear_algebra.h\"") |]
+                           return (decls, declstatic ++ ddef)
+
+compileInlineC :: DefBinding -> String -> CM [C.Definition]
+compileInlineC defb code = return [cunit| $esc:code |]
 
 compileFunctionDecl :: DefBinding -> FunctionType -> CM [C.Definition]
 compileFunctionDecl defb ft = do
@@ -166,7 +166,7 @@ compileFunctionDecl defb ft = do
   return $ case args'' of
     [] -> [ addStorage [cedecl| $ty:(compileType retty) $id:(name)(void); |] ]
     _ ->  [ addStorage [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')); |] ]
-  where (FnT args retty, _) = getEffectiveFunType ft
+  where (FnT args mva retty, _) = getEffectiveFunType ft
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
@@ -197,7 +197,7 @@ compileFunction name ft exp = do
   return $ case args'' of
     [] -> [ [cedecl| $ty:(compileType retty) $id:(name)(void) { $items:blks } |] ]
     _ ->  [ [cedecl| $ty:(compileType retty) $id:(name)($params:(args'')) { $items:blks } |] ]
-  where (FnT args retty, mret) = getEffectiveFunType ft
+  where (FnT args mva retty, mret) = getEffectiveFunType ft
         nonVoid ty = case ty of
                       Void -> False
                       _ -> True
@@ -247,9 +247,9 @@ compileParams = mapM compileParam
 compileParam :: (Variable, ArgDir, Type) -> CM C.Param
 compileParam (v, dir, ty) = do v' <- lookupName "arg" v
                                case dir of -- TODO figure out how to document directions.
-                                ArgIn -> return [cparam| const $ty:(compileType ty) $id:(v') |]
-                                ArgOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
-                                ArgInOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
+                                 ArgIn -> return [cparam| const $ty:(compileType ty) $id:(v') |]
+                                 ArgOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
+                                 ArgInOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
 
 compileType :: Type -> C.Type
 compileType = compileType' -- . normalizeTypes
@@ -963,8 +963,8 @@ compileStat (Seq _ a b) = comp
                }
 
 compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args retty) = comp
-  where (FnT params _, mret) = getEffectiveFunType ft
-        dirs = map (\(_,_,_,dir,_) -> dir) params
+  where (FnT params mva _, mret) = getEffectiveFunType ft
+        dirs = map (\(_,_,_,dir,_) -> dir) params ++ (repeat (fromMaybe ArgIn mva))
 
         -- Compiled forms for the arguments
         margs' :: CM [([C.BlockItem],C.Exp,[C.BlockItem])]
@@ -972,12 +972,14 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args retty) = comp
         -- if the result is complex, the compiled arguments along with the destination
         margs'' dest = do args' <- margs'
                           (b,e,a) <- asArgument $ dest
-                          return $ args' ++ [(b,e,a)] -- TODO tuple dest
+                          return $ take (length params) args' ++ [(b,e,a)] ++ drop (length params) args' -- TODO tuple dest
+        -- if the result is complex, an ArgOut is inserted between the normal args and varargs
+        dirs' = map (\(_,_,_,dir,_) -> dir) params ++ [ArgOut] ++ (repeat (fromMaybe ArgIn mva))
 
         comp = case mret of
                 Just _ -> Compiled
                           { withDest = \dest -> do args' <- margs'' dest
-                                                   let dargs = zip (dirs ++ [ArgOut]) args'
+                                                   let dargs = zip dirs' args'
                                                        (bbl, fexp, bbl') = theCall f dargs
                                                    writeCode bbl
                                                    writeCode [citems| $fexp; |]

@@ -33,6 +33,7 @@ instance NameContainer Definition where
     StructDef defs -> map fst defs
     ValueDef cexpr t -> maybe [] allNames cexpr ++ allNames t
     TypeDef ty -> allNames ty
+    InlineCDef {} -> []
 
 instance NameContainer CExpr where
   allNames ex = case ex of
@@ -60,6 +61,7 @@ instance NameContainer CExpr where
     Addr _ loc -> allNames loc
     Set _ loc v -> allNames loc ++ allNames v
     AssertType _ v t -> allNames v ++ allNames t
+    CastType _ v t -> allNames v ++ allNames t
     Unary _ op x -> allNames x
     Binary _ op x y -> allNames x ++ allNames y
 
@@ -88,7 +90,7 @@ instance NameContainer Type where
     TypeHole mv -> maybe [] return mv
 
 instance NameContainer FunctionType where
-  allNames ft = let ((FnT args rt), _) = getEffectiveFunType ft
+  allNames ft = let ((FnT args mva rt), _) = getEffectiveFunType ft
                 in (args >>= \(_, v, _, _, t) -> [v] ++ allNames t) ++ allNames rt
 
 instance NameContainer StorageType where

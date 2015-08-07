@@ -100,9 +100,12 @@ loadNewModule mfilepath imp@(name, mbinding) = do
   return (importLines, defsOK)
 
 filterImportedBindings name b =
-    map (pushStatic (T.static b) . mplusName) . filter (not . T.static)
+    map (pushStatic (T.static b) . mplusName) . filter (not . T.static) . filter importable
    where
     mplusName b = b { T.imported = T.imported b `mplus` Just name }
+    importable defb = case T.definition defb of
+      T.InlineCDef {} -> False
+      _ -> True
 
 removeImports = filter (isNothing . T.imported)
 

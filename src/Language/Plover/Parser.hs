@@ -32,11 +32,12 @@ languageDef =
            , Token.reservedNames = [
              "module", "import", "function", "declare", "define", "extern", "static", "inline",
              "struct", "type",
-             "vec", "for", "in", "if", "then", "else",
+             "mat", "vec", "for", "in", "if", "then", "else",
              "True", "False", "Void", "T", "_",
              "array", "and", "or",
              "storing",
-             "return", "assert"
+             "return", "assert",
+             "__C__"
              ]
            , caseSensitive = True
            }
@@ -219,7 +220,7 @@ term = literal >>= doMember
 literal :: Parser Expr
 literal = voidlit <|> holelit <|> transposelit <|> numlit <|> binlit <|> strlit
           <|> ref <|> parenGroup
-          <|> veclit <|> form <|> antiquote
+          <|> matlit <|> veclit <|> form <|> antiquote
   where ref = withPos $ Ref <$> identifier
         voidlit = withPos $ reserved "Void" >> return VoidExpr
         holelit = withPos $ reserved "_" >> return Hole
@@ -235,6 +236,13 @@ literal = voidlit <|> holelit <|> transposelit <|> numlit <|> binlit <|> strlit
                         symbol "("
                         (symbol ")" >> (return $ wrapPos pos VoidExpr))
                           <|> (mstatements <* symbol ")")
+        matlit = do
+          pos <- getPosition
+          reserved "mat"
+          symbol "("
+          entries <- sepEndBy (sepEndBy range (symbol ",")) (symbol ";")
+          symbol ")"
+          return $ wrapPos pos $ VecLit (map (wrapPos pos . VecLit) entries)
         veclit = -- basically match tuple. TODO better vec literal?
           withPos $ do
             try (reserved "vec" >> symbol "(")
@@ -253,7 +261,7 @@ antiquote = do reservedOp "~"
                       return $ before ++ during ++ after
 
 form :: Parser Expr
-form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp
+form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp <|> inlineC
   where iter cons s = withPos $ do
           reserved s
           vs <- sepBy ((,) <$> identifier <* reserved "in" <*> range) (symbol ",")
@@ -278,6 +286,10 @@ form = iter Vec "vec" <|> iter For "for" <|> ifexpr <|> retexp <|> assertexp
         assertexp = withPos $ do
           reserved "assert"
           Assert <$> expr
+
+        inlineC = withPos $ do
+          reserved "__C__"
+          InlineC <$> stringLiteral
 
 -- Parse semicolon-separated sequenced statements
 mstatements :: Parser Expr

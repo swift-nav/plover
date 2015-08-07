@@ -271,7 +271,7 @@ withNewUScope m = do
 typeCheckDefBinding :: DefBinding -> UM ()
 typeCheckDefBinding def = case definition def of
   FunctionDef mexp ft -> do
-    (FnType (FnT args retty)) <- typeCheckType (bindingPos def) (FnType ft) -- this introduces function arguments into scope
+    (FnType (FnT args mva retty)) <- typeCheckType (bindingPos def) (FnType ft) -- this introduces function arguments into scope
     retty' <- typeCheckType (bindingPos def) retty
     modify $ \state -> state { uRetType = Just (bindingPos def, retty') }
     case mexp of
@@ -292,6 +292,7 @@ typeCheckDefBinding def = case definition def of
         void $ unifyN (bindingPos def) expty ty
       Nothing -> return ()
   TypeDef ty -> void $ typeCheckType (bindingPos def) ty
+  InlineCDef {} -> return ()
 
 expandDefBinding :: DefBinding -> UM DefBinding
 expandDefBinding db = do def' <- expandDefBinding' db
@@ -300,7 +301,7 @@ expandDefBinding db = do def' <- expandDefBinding' db
 expandDefBinding' :: DefBinding -> UM Definition
 expandDefBinding' def = case definition def of
   FunctionDef mexp ft -> do
-    (FnType (FnT args retty)) <- typeCheckType (bindingPos def) (FnType ft) -- this introduces function arguments into scope (TODO just add them directly)
+    (FnType (FnT args mva retty)) <- typeCheckType (bindingPos def) (FnType ft) -- this introduces function arguments into scope (TODO just add them directly)
     case mexp of
       Just exp | not (extern def) -> do
                    args' <- forM args $ \(pos, v, b, dir, ty) -> do
@@ -310,12 +311,12 @@ expandDefBinding' def = case definition def of
                    retty' <- fullExpandTerm retty
                    _ <- typeCheck exp -- need to typeCheck to introduce bindings
                    exp' <- fullExpandTerm exp
-                   return $ FunctionDef (Just exp') (FnT args' retty')
+                   return $ FunctionDef (Just exp') (FnT args' mva retty')
       _ -> do args' <- forM args $ \(pos, v, b, dir, ty) -> do
                 ty' <- fullExpandTerm ty
                 return (pos, v, b, dir, ty')
               retty' <- fullExpandTerm retty
-              return $ FunctionDef Nothing (FnT args' retty')
+              return $ FunctionDef Nothing (FnT args' mva retty')
   StructDef members -> StructDef <$> do
     forM members $ \(v, (vpos, exty, inty)) -> do
       exty' <- fullExpandTerm exty
@@ -332,6 +333,7 @@ expandDefBinding' def = case definition def of
   TypeDef ty -> do
     ty' <- fullExpandTerm ty
     return $ TypeDef ty'
+  InlineCDef {} -> return $ definition def
 
 class Unifiable a where
   unify :: Tag SourcePos -> a -> a -> UM a
@@ -589,13 +591,13 @@ typeCheckType pos (VecType st idxs ty) = do
         checkSqrType _ = addUError $ UError pos "Expecting two-dimensional vector type."
 typeCheckType pos (TupleType tys) = TupleType <$> mapM (typeCheckType pos) tys
 typeCheckType pos (FnType fn) = do  -- Adds function parameters as bindings
-  let (FnT args retty) = fn
+  let (FnT args mva retty) = fn
   args' <- forM args $ \(vpos, v, b, dir, vty) -> do
     vty' <- typeCheckType vpos vty
     addBinding vpos v vty' -- assumes bindings cleared between functions
     return (vpos, v, b, dir, vty')
   retty' <- typeCheckType pos retty
-  return $ FnType $ FnT args' retty' -- N.B. this is the effective func type
+  return $ FnType $ FnT args' mva retty' -- N.B. this is the effective func type
 typeCheckType pos t@(IntType {}) = return t
 typeCheckType pos t@(FloatType {}) = return t
 typeCheckType pos StringType = return StringType
@@ -662,13 +664,14 @@ typeCheck (Seq pos a b) = do
 -- skip App
 typeCheck (ConcreteApp pos (Get _ (Ref _ v)) args rty) = do
   Just (gpos, (FnType fty)) <- getBinding v
-  FnEnv fargs ret <- universalizeFunType fty
-  when (length args /= length fargs) $ do
+  FnEnv fargs mva ret <- universalizeFunType fty
+  when (length args < length fargs || (not mva && length args > length fargs)) $ do
     addUError $ UError (MergeTags [pos, gpos]) "COMPILER ERROR. Incorrect number of arguments."
   forM_ (zip args fargs) $ \(arg, (vpos, v, vty)) -> do
     unify (MergeTags [vpos, pos, gpos]) arg (HoleJ pos v)
     tyarg <- typeCheck arg
     unify (MergeTags [vpos, pos, gpos]) tyarg vty
+  when  mva $ forM_ (drop (length $ zip args fargs) args) $ typeCheck
   unify (MergeTags [pos, gpos]) rty ret
   return ret
 typeCheck t@(HoleJ pos v) = do
@@ -911,7 +914,8 @@ typeCheckLoc pos (Deref a) = do
    PtrType dty -> return dty
    _ -> return (TypeHoleJ g)
 
-data FunctionEnv = FnEnv [(Tag SourcePos, Variable, Type)] Type
+-- | The boolean is whether this allows varargs
+data FunctionEnv = FnEnv [(Tag SourcePos, Variable, Type)] Bool Type
                  deriving Show
 
 -- | When unifying against a function type, it is something like
@@ -920,7 +924,7 @@ data FunctionEnv = FnEnv [(Tag SourcePos, Variable, Type)] Type
 -- variables replaced with fresh symbols.
 universalizeFunType :: FunctionType -> UM FunctionEnv
 universalizeFunType ft = do
-  let ft'@(FnT args retty)= ft
+  let ft'@(FnT args mva retty)= ft
   repAList <- forM args $ \(pos, v, req, dir, ty) -> do
     v' <- gensym v
     return (v, v')
@@ -930,7 +934,7 @@ universalizeFunType ft = do
     addUTypeBinding pos (vMap M.! v) uty
     return (pos, vMap M.! v, uty)
   uretty <- universalizeTypeVars vMap retty
-  return $ FnEnv args' uretty
+  return $ FnEnv args' (isJust mva) uretty
 
 
 universalizeTypeVars :: M.Map Variable Variable -> Type -> UM Type
