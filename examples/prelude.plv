@@ -1,0 +1,261 @@
+-- prelude.plv
+-- The standard library for plover
+
+
+-- static __C__ "#include \"linear_algebra.h\"";
+
+---
+--- Integers
+---
+__C__
+  "\n#include <stdint.h>\n\
+  \#include <stdbool.h>\n\
+  \#include <inttypes.h>\n\
+  \#ifndef COMMON_INT_TYPES\n\
+  \#define COMMON_INT_TYPES\n\
+  \/** \\defgroup common_inttypes Integer types\n\
+  \ * Specified-width integer type definitions for shorter and nicer code.\n\
+  \ *\n\
+  \ * These should be used in preference to unspecified width types such as\n\
+  \ * `int` which can lead to portability issues between different platforms.\n\
+  \ * \\{ */\n\
+  \\n\
+  \/** Signed 8-bit integer. */\n\
+  \typedef int8_t s8;\n\
+  \/** Signed 16-bit integer. */\n\
+  \typedef int16_t s16;\n\
+  \/** Signed 32-bit integer. */\n\
+  \typedef int32_t s32;\n\
+  \/** Signed 64-bit integer. */\n\
+  \typedef int64_t s64;\n\
+  \/** Unsigned 8-bit integer. */\n\
+  \typedef uint8_t u8;\n\
+  \/** Unsigned 16-bit integer. */\n\
+  \typedef uint16_t u16;\n\
+  \/** Unsigned 32-bit integer. */\n\
+  \typedef uint32_t u32;\n\
+  \/** Unsigned 64-bit integer. */\n\
+  \typedef uint64_t u64;\n\
+  \\n\
+  \#endif\n\
+  \\n\
+  \/** \\} */";
+
+
+---
+--- stdio.h
+---
+
+static __C__ "#include <stdio.h>";
+extern (
+  printf (x :: string) __VARARGS__ :: int;
+);
+
+
+---
+--- math.h
+---
+
+__C__ "#include <math.h>";
+extern (
+  fpclassify (x :: double) :: int;
+  FP_INFINITE :: int;
+  FP_NAN :: int;
+  FP_NORMAL :: int;
+  FP_SUBNORMAL :: int;
+  FP_ZERO :: int;
+  
+  isfinite (x :: double) :: bool;
+  isgreater (x :: double) (y :: double) :: bool;
+  isgreaterequal (x :: double) (y :: double) :: bool;
+  isinf (x :: double) :: bool;
+  isless (x :: double) (y :: double) :: bool;
+  islessequal (x :: double) (y :: double) :: bool;
+  islessgreater (x :: double) (y :: double) :: bool;
+  isnan (x :: double) :: bool;
+  isnormal (x :: double) :: bool;
+  isunordered (x :: double) :: bool;
+  signbit (x :: double) :: bool;
+
+  M_E :: double;
+  M_LOG2E :: double;
+  M_LOG10E :: double;
+  M_LN2 :: double;
+  M_LN10 :: double;
+  M_PI :: double;
+  M_PI_2 :: double;
+  M_PI_4 :: double;
+  M_1_PI :: double;
+  M_2_PI :: double;
+  M_2_SQRTPI :: double;
+  M_SQRT2 :: double;
+  M_SQRT_1_2 :: double;
+
+  FP_ILOGB0 :: int;
+  FP_ILOGBNAN :: int;
+
+  acos (x :: double) :: double;
+  acosf (x :: float) :: float;
+  acosh (x :: double) :: double;
+  acoshf (x :: float) :: float;
+  asin (x :: double) :: double;
+  asinf (x :: float) :: float;
+  asinh (x :: double) :: double;
+  asinhf (x :: float) :: float;
+  atan (x :: double) :: double;
+  atan2 (x :: double) (y :: double) :: double;
+  atan2f (x :: float) (y :: float) :: float;
+  atanf (x :: float) :: float;
+  atanh (x :: double) :: double;
+  atanhf (x :: float) :: float;
+  cbrt (x :: double) :: double;
+  cbrtf (x :: float) :: float;
+  ceil (x :: double) :: double;
+  ceilf (x :: float) :: float;
+  copysign (x :: double) (y :: double) :: double;
+  copysignf (x :: float) (y :: float) :: float;
+  cos (x :: double) :: double;
+  cosf (x :: float) :: float;
+  cosh (x :: double) :: double;
+  coshf (x :: float) :: float;
+  erf (x :: double) :: double;
+  erfc (x :: double) :: double;
+  erfcf (x :: float) :: float;
+  erff (x :: float) :: float;
+  exp (x :: double) :: double;
+  exp2 (x :: double) :: double;
+  exp2f (x :: float) :: float;
+  expf (x :: float) :: float;
+  expm1 (x :: double) :: double;
+  expm1f (x :: float) :: float;
+  fabs (x :: double) :: double;
+  fabsf (x :: float) :: float;
+  fdim (x :: double) (y :: double) :: double;
+  fdimf (x :: float) (y :: float) :: float;
+  floor (x :: double) :: double;
+  floorf (x :: float) :: float;
+  fma (x :: double) (y :: double) (z :: double) :: double;
+  fmaf (x :: float) (y :: float) (z :: float) :: float;
+  fmax (x :: double) (y :: double) :: double;
+  fmaxf (x :: float) (y :: float) :: float;
+  fmin (x :: double) (y :: double) :: double;
+  fminf (x :: float) (y :: float) :: float;
+  fmod (x :: double) (y :: double) :: double;
+  fmodf (x :: float) (y :: float) :: float;
+  frexp (x :: double) (out y :: *int) :: double;
+  frexpf (x :: float) (out y :: *int) :: float;
+  hypot (x :: double) (y :: double) :: double;
+  hypotf (x :: float) (y :: float) :: float;
+  ilogb (x :: double) :: int;
+  ilogbf (x :: float) :: int;
+  j0 (x :: double) :: double;
+  j1 (x :: double) :: double;
+  jn (x :: int) (y :: double) :: double;
+  ldexp (x :: double) (y :: int) :: double;
+  ldexpf (x :: float) (y :: int) :: float;
+  lgamma (x :: double) :: double;
+  lgammaf (x :: float) :: float;
+  llrint (x :: double) :: s64;
+  llrintf (x :: float) :: s64;
+  llround (x :: double) :: s64;
+  llroundf (x :: float) :: s64;
+  log (x :: double) :: double;
+  log10 (x :: double) :: double;
+  log10f (x :: float) :: float;
+  log1p (x :: double) :: double;
+  log1pf (x :: float) :: float;
+  log2 (x :: double) :: double;
+  log2f (x :: float) :: float;
+  logb (x :: double) :: double;
+  logbf (x :: float) :: float;
+  logf (x :: float) :: float;
+  lrint (x :: double) :: s32;
+  lrintf (x :: float) :: s32;
+  lround (x :: double) :: s32;
+  lroundf (x :: float) :: s32;
+  modf (x :: double) (out y :: *double) :: double;
+  modff (x :: float) (out y :: *float) :: float;
+  nan (x :: string) :: double;
+  nanf (x :: string) :: float;
+  nearbyint (x :: double) :: double;
+  nearbyintf (x :: float) :: float;
+  nextafter (x :: double) (y :: double) :: double;
+  nextafterf (x :: float) (y :: float) :: float;
+  pow (x :: double) (y :: double) :: double;
+  powf (x :: float) (y :: float) :: float;
+  remainder (x :: double) (y :: double) :: double;
+  remainderf (x :: float) (y :: float) :: float;
+  remquo (x :: double) (y :: double) (out z :: *int) :: double;
+  remquof (x :: float) (y :: float) (out z :: *int) :: float;
+  rint (x :: double) :: double;
+  rintf (x :: float) :: float;
+  round (x :: double) :: double;
+  roundf (x :: float) :: float;
+  scalbln (x :: double) (y :: s32) :: double;
+  scalblnf (x :: float) (y :: s32) :: float;
+  scalbn (x :: double) (y :: int) :: double;
+  scalbnf (x :: float) (y :: int) :: float;
+  sin (x :: double) :: double;
+  sinf (x :: float) :: float;
+  sinh (x :: double) :: double;
+  sinhf (x :: float) :: float;
+  sqrt (x :: double) :: double;
+  sqrtf (x :: float) :: float;
+  tan (x :: double) :: double;
+  tanf (x :: float) :: float;
+  tanh (x :: double) :: double;
+  tanhf (x :: float) :: float;
+  tgamma (x :: double) :: double;
+  tgammaf (x :: float) :: float;
+  trunc (x :: double) :: double;
+  truncf (x :: float) :: float;
+  y0 (x :: double) :: double;
+  y1 (x :: double) :: double;
+  yn (x :: int) (y :: double) :: double;
+  signgam :: int;
+);
+
+
+---
+--- Vector stuff
+---
+static __C__ "#define MATRIX_EPSILON (1e-60)";
+extern MATRIX_EPSILON :: double;
+
+
+norm {n} (v :: double[n]) :: double
+  := sqrt (v * v);
+normalize {n} (v :: double[n]) :: double[n]
+  := v / norm v;
+
+print_vec {n} (v :: double[n]) :: ()
+  := for i in n -> printf "% 12lf\n" v[i];
+print_mat {n,m} (A :: double[n,m]) :: ()
+  := for i in n -> (
+       for j in m -> printf "% 12lf " A[i,j];
+       printf "\n";
+     );
+
+
+matrix_inverse {n} (A :: double[n,n]) (out B :: double[n, n]) :: int
+  :=  ( if n == 2 then
+          inv2 A[0:2,0:2] B[0:2,0:2]
+{-        else if n == 3 then
+          inv3 A B
+        else if n == 4 then
+          inv4 A B
+-}        else 
+           -1
+      );
+
+static (
+  inv2 (A :: double[2,2]) (out B :: double[2,2]) :: int
+    := ( det := A[0,0] * A[1,1] - A[0,1] * A[1,0];
+         if fabs det < MATRIX_EPSILON then return -1;
+
+         B <- mat( A[1,1] / det, -A[0,1] / det;
+                  -A[1,0] / det,  A[0,0] / det);
+         
+         return 0;
+       );
+);
