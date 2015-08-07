@@ -68,6 +68,7 @@ data BinOp = Add
 
 data Expr' a = Vec [(Variable,a)] a
           | For [(Variable,a)] a
+          | While a a
             
             -- Elementary Expressions
           | Ref Variable
@@ -187,7 +188,7 @@ instance PP a => PP (Expr' a) where
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
   pretty (For vs e) = parens $ hang (text "For") 1 $ sep [nest 3 $ sep (map iter vs) <+> text "->", pretty e]
     where iter (v, e) = parens $ text v <+> text "in" <+> pretty e
-
+  pretty (While test body) = parens $ hang (text "While") 1 $ sep [nest 5 $ pretty test, pretty body]
   pretty (App f args) = parens $ hang (pretty f) 0 $ sep (map pretty args)
 
   pretty (SeqExpr args) = parens $ hang (text "Seq") 4 $ vcat $ punctuate semi (map pretty args)

@@ -100,6 +100,7 @@ data Expr a
   -- Things at the top of the constructor list
   = Vec' Variable (Range a) a
   | For' Variable (Range a) a
+  | While' a a
   | Return' Type a -- The type is that of the aborted continuation
   | Assert' a
   | RangeVal' (Range a) -- TODO rename RangeLit'
@@ -302,6 +303,7 @@ definitionType def = case definition def of
 
 pattern Vec tag a b c = PExpr tag (Vec' a b c)
 pattern For tag a b c = PExpr tag (For' a b c)
+pattern While tag a b = PExpr tag (While' a b)
 pattern If tag a b c = PExpr tag (If' a b c)
 pattern RangeVal tag r = PExpr tag (RangeVal' r)
 pattern VoidExpr tag = PExpr tag (TupleLit' [])
@@ -415,6 +417,7 @@ instance TermMappable CExpr where
   mapTerm tty texp tloc trng exp = case exp of
     Vec pos v range expr -> Vec pos v <$> trng range <*> texp expr
     For pos v range expr -> For pos v <$> trng range <*> texp expr
+    While pos test body -> While pos <$> texp test <*> texp body
     Return pos ty v -> Return pos <$> tty ty <*> texp v
     Assert pos v -> Assert pos <$> texp v
     RangeVal pos range -> RangeVal pos <$> trng range
@@ -820,6 +823,7 @@ getRangeType (Range from to step) = intMerge S32 $ arithInt (arithInt t1 t2) t3
 getType :: CExpr -> Type
 getType (Vec pos _ range base) = VecType DenseMatrix [rangeLength pos range] (getType base)
 getType (For {}) = Void
+getType (While {}) = Void
 getType (Return _ ty _) = ty -- the type of the aborted continuation
 getType (Assert {}) = Void
 getType (RangeVal pos range) = VecType DenseMatrix [rangeLength pos range] (IntType $ getRangeType range)

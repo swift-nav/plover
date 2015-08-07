@@ -622,6 +622,10 @@ typeCheck (For pos v range body) = do
   addBinding pos v (IntType rt)
   typeCheck body
   return Void
+typeCheck (While pos test body) = do
+  expectBool pos =<< typeCheck test
+  typeCheck body
+  return Void
 typeCheck (Return pos ty a) = do
   mretty <- uRetType <$> get
   aty <- typeCheck a
@@ -757,6 +761,16 @@ typeCheck (Binary pos op a b)
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       numTypeVectorize pos aty bty
+  | op == Pow = do
+      aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+      bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
+      aty' <- unify pos aty (IntType defaultIntType)
+      bty' <- unify pos bty (IntType defaultIntType)
+      return $ case (aty', bty') of
+        (IntType ai, IntType {}) -> IntType $ promoteInt ai
+        (FloatType af, FloatType bf) -> FloatType $ arithFloat af bf
+        (_, FloatType bf) -> FloatType $ promoteFloat bf
+        (FloatType af, _) -> FloatType $ promoteFloat af
   | op == Mul  = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM

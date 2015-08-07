@@ -257,12 +257,36 @@ extern (
   signgam :: int;
 );
 
+extern ipow (base :: int) (exp :: int) :: int;
+__C__ "int ipow(int base, int exp);";
+static __C__ "int ipow(int base, int exp) {\n\
+\  int result = 1;\n\
+\  while (exp) {\n\
+\    if (exp & 1)  result *= base;\n\
+\    exp >>= 1;\n\
+\    base *= base;\n\
+\  }\n\
+\  return result;\n\
+\}";
+extern dipow (base :: double) (exp :: int) :: double;
+__C__ "double dipow(double base, int exp);";
+static __C__ "double dipow(double base, int exp) {\n\
+\  double result = 1;\n\
+\  while (exp) {\n\
+\    if (exp & 1)  result *= base;\n\
+\    exp >>= 1;\n\
+\    base *= base;\n\
+\  }\n\
+\  return result;\n\
+\}";
+
+
 -- Generates a uniform random double from 0 to 1, saturating all
 -- mantissa bits.  bits.  Computes it by taking a random double in
 -- [1,2) then subtracting 1.
-extern randomd() :: double;
-__C__ "double randomd(void);";
-static __C__ "double randomd(void) {\n\
+extern rand_uniform() :: double;
+__C__ "double rand_uniform(void);";
+static __C__ "double rand_uniform(void) {\n\
 \  union { double d; u64 i; } di;\n\
 \  di.i = 0;\n\
 \  const int width = 32 - __builtin_clz((u32)RAND_MAX);\n\
@@ -273,6 +297,21 @@ static __C__ "double randomd(void) {\n\
 \  di.i |= 0x3ff0000000000000; // zero exponent\n\
 \  return di.d-1;\n\
 \}";
+
+-- Computes a random normally-distributed number using the Box-Muller
+-- transform.
+-- Source: http://www.design.caltech.edu/erik/Misc/Gaussian.html
+rand_normal() :: double
+  := (x1 :: double; x2 :: double;
+      w :: double;
+      while (x1 <- 2 * rand_uniform() - 1.0;
+             x2 <- 2 * rand_uniform() - 1.0;
+             w <- x1 ^ 2 + x2 ^ 2;
+             w >= 1.0);
+      w <- sqrt( -2 * log w / w );
+      return x1 * w;
+      -- waste x2 * w;
+     );
 
 ---
 --- Vector stuff

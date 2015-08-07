@@ -835,6 +835,26 @@ compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
                , asLoc = error "Cannot use For as location"
                }
         itty = compileType $ IntType $ getRangeType range
+compileStat (While pos test body) = comp
+  where comp = Compiled
+               { noValue = do (tbl, texp) <- withCode $ asExp $ compileStat test
+                              -- test if this needs blocks, and if it
+                              -- does, scrap it to recompile with boolean test variable
+                              case tbl of
+                                [] -> do (bbl, _) <- withCode $ noValue $ compileStat body
+                                         writeCode [citems| while($texp) { $items:bbl } |]
+                                _ -> do t <- freshName "test"
+                                        let tloc = expLoc BoolType (return [cexp| $id:t |])
+                                        writeCode [citems| typename bool $id:t; |]
+                                        withDest (compileStat test) tloc
+                                        (bbl, _) <- withCode $ newScope $ do
+                                          noValue $ compileStat body
+                                          withDest (compileStat test) tloc
+                                        writeCode [citems| while($id:t) { $items:bbl } |]
+               , asExp = error "Cannot get While as expression"
+               , withDest = error "Cannot use While as dest"
+               , asLoc = error "Cannot use While as location"
+               }
 compileStat (Return pos cty exp) = comp
   where comp = Compiled
                { noValue = case getType exp of
@@ -1196,6 +1216,25 @@ compileStat v@(Binary _ op a b)
                       }
         compileVectorized vty aloc bloc
           = compPureExpr vty $ opExp <$> (asExp $ asRValue aloc) <*> (asExp $ asRValue bloc)
+
+-- TODO make ipow deal with various int types! maybe make it inline the prelude ipow impl?
+compileStat v@(Binary _ Pow a b) = case (aty, bty) of
+  (IntType {}, IntType {}) -> compileIntPow rty a b
+  (FloatType {}, IntType {}) -> compileFloatIntPow rty a b
+  _ -> compileFloatPow rty a b
+  where aty = normalizeTypes $ getType a
+        bty = normalizeTypes $ getType b
+        rty = normalizeTypes $ getType v
+
+        compileIntPow rty a b = compPureExpr rty $ do aex <- asExp $ compileStat a
+                                                      bex <- asExp $ compileStat b
+                                                      return [cexp| ipow($aex, $bex) |]
+        compileFloatIntPow rty a b = compPureExpr rty $ do aex <- asExp $ compileStat a
+                                                           bex <- asExp $ compileStat b
+                                                           return [cexp| dipow($aex, $bex) |]
+        compileFloatPow rty a b = compPureExpr rty $ do aex <- asExp $ compileStat a
+                                                        bex <- asExp $ compileStat b
+                                                        return [cexp| pow($aex, $bex) |]
 
 compileStat v@(Binary _ Mul a b) = case (aty, bty) of
   (VecType _ [ia, ib] aty', VecType _ [_, ic] bty') ->

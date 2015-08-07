@@ -27,6 +27,7 @@ makeExpr exp@(PExpr pos e') = case e' of
   Vec ((v,r):bs) e -> T.Vec pos v <$> makeRange r <*> makeExpr (PExpr pos (Vec bs e))
   For [] e -> makeExpr e
   For ((v,r):bs) e -> T.For pos v <$> makeRange r <*> makeExpr (PExpr pos (For bs e))
+  While test body -> T.While pos <$> makeExpr test <*> makeExpr body
   Ref v -> return $ T.Get pos $ T.Ref (T.TypeHole Nothing) v
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]
   Hole -> return $ T.Hole pos Nothing

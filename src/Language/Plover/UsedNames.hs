@@ -39,6 +39,7 @@ instance NameContainer CExpr where
   allNames ex = case ex of
     Vec _ v rng x -> [v] ++ allNames rng ++ allNames x
     For _ v rng x -> [v] ++ allNames rng ++ allNames x
+    While _ test body -> allNames test ++ allNames body
     Return _ ty x -> allNames ty ++ allNames x
     Assert _ x -> allNames x
     RangeVal _ rng -> allNames rng
