@@ -41,6 +41,11 @@ __C__
   \\n\
   \/** \\} */";
 
+---
+--- Floats
+---
+__C__
+  "\n#include <float.h>";
 
 ---
 --- stdio.h
@@ -83,10 +88,10 @@ extern (
   rand_r (ctxt :: *u32) :: int; -- argument is unsigned long
 
   -- non-standard
-  random () :: int; -- long
-  srandom (seed :: u32) :: (); -- u32 is unsigned long
-  random_r (ctxt :: *u32) :: int; -- u32 is unsigned long
-  RANDOM_MAX :: int;
+--  random () :: int; -- long
+--  srandom (seed :: u32) :: (); -- u32 is unsigned long
+--  random_r (ctxt :: *u32) :: int; -- u32 is unsigned long
+--  RANDOM_MAX :: int;
 );
 
 ---
@@ -252,6 +257,22 @@ extern (
   signgam :: int;
 );
 
+-- Generates a uniform random double from 0 to 1, saturating all
+-- mantissa bits.  bits.  Computes it by taking a random double in
+-- [1,2) then subtracting 1.
+extern randomd() :: double;
+__C__ "double randomd(void);";
+static __C__ "double randomd(void) {\n\
+\  union { double d; u64 i; } di;\n\
+\  di.i = 0;\n\
+\  const int width = 32 - __builtin_clz((u32)RAND_MAX);\n\
+\  for (int j = 0; j < DBL_MANT_DIG; j += width) {\n\
+\    di.i = (di.i << width) | rand();\n\
+\  }\n\
+\  di.i = (di.i << (64 - DBL_MANT_DIG)) >> (64 - DBL_MANT_DIG);\n\
+\  di.i |= 0x3ff0000000000000; // zero exponent\n\
+\  return di.d-1;\n\
+\}";
 
 ---
 --- Vector stuff
