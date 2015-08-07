@@ -805,7 +805,7 @@ typeCheck (Binary pos op a b)
        _ -> do addUError $ UError pos "Bad argument types to concatenation operator."
                hole <- gensym "concat"
                return $ TypeHoleJ hole
-  | op `elem` [EqOp, LTOp, LTEOp] = do
+  | op `elem` [EqOp, NEqOp, LTOp, LTEOp] = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       _ <- arithType pos aty bty

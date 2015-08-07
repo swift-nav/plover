@@ -80,7 +80,7 @@ data UnOp = Pos | Neg | Not
 data BinOp = Add | Sub | Mul | Div | Hadamard
            | Pow | Concat
            | And | Or
-           | EqOp | LTOp | LTEOp
+           | EqOp | NEqOp | LTOp | LTEOp
            deriving (Show, Eq, Ord)
 
 data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
@@ -804,6 +804,7 @@ instance PP BinOp where
   pretty And = text "and"
   pretty Or = text "or"
   pretty EqOp = text "=="
+  pretty NEqOp = text "!="
   pretty LTOp = text "<"
   pretty LTEOp = text "<="
 
@@ -880,7 +881,7 @@ getType (Binary pos op a b)
     (VecType _ (abnd:abnds) aty', VecType _ (bbnd:_) bty') -> VecType DenseMatrix
                                                               (reduceArithmetic (Binary pos Add abnd bbnd) : abnds)
                                                               (getMinimalType aty' bty')
-  | op `elem` [And, Or, EqOp, LTOp, LTEOp]  = BoolType
+  | op `elem` [And, Or, EqOp, NEqOp, LTOp, LTEOp]  = BoolType
   | op == Pow = case (aty, bty) of
     (IntType ai, IntType {}) -> IntType $ promoteInt ai
     (FloatType af, FloatType bf) -> FloatType $ arithFloat af bf

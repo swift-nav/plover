@@ -1354,11 +1354,12 @@ compileStat v@(Binary pos op v1 v2) | op `elem` comparisonOps = comp
                   }
         opExp a b = case op of
                       EqOp ->  [cexp| $a == $b |]
+                      NEqOp ->  [cexp| $a != $b |]
                       LTOp ->  [cexp| $a <  $b |]
                       LTEOp -> [cexp| $a <= $b |]
                       And -> [cexp| $a && $b |]
                       Or -> [cexp| $a || $b |]
-        comparisonOps = [EqOp, LTOp, LTEOp, And, Or]
+        comparisonOps = [EqOp, NEqOp, LTOp, LTEOp, And, Or]
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
 compileLoc :: Location CExpr -> CM CmLoc

@@ -66,6 +66,7 @@ makeExpr exp@(PExpr pos e') = case e' of
           tr And = T.And
           tr Or = T.Or
           tr EqualOp = T.EqOp
+          tr NEqOp = T.NEqOp
           tr LTOp = T.LTOp
           tr LTEOp = T.LTEOp
 
