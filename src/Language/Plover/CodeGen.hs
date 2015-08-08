@@ -37,8 +37,12 @@ data CodeGenState = CodeGenState
                     { bindings :: M.Map String String
                     , usedNames :: [String]
                     , genCode :: [C.BlockItem]
-                    , inhibitGenCode :: Bool -- | used to "abort the continuation", (e.g. return)
+                    , inhibitGenCode :: Bool -- ^ used to "abort the continuation", (e.g. return)
                     , genRetLoc :: Maybe CmLoc
+                    , ineqDB :: M.Map C.Exp Bool
+                      -- ^ a database of boolean expressions and
+                      -- whether they are currently true or false in
+                      -- the current context
                     }
 
 
@@ -50,7 +54,14 @@ doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
                             return (Mainland.pretty 80 $ Mainland.ppr header, Mainland.pretty 80 $ Mainland.ppr code)
 
 runCM :: CM a -> a
-runCM m = evalState m (CodeGenState M.empty [] [] False Nothing)
+runCM m = evalState m (CodeGenState
+                       { bindings = M.empty
+                       , usedNames = []
+                       , genCode = []
+                       , inhibitGenCode = False
+                       , genRetLoc = Nothing
+                       , ineqDB = M.empty
+                       })
 
 writeCode :: [C.BlockItem] -> CM ()
 writeCode code = do inhibit <- inhibitGenCode <$> get
@@ -70,16 +81,32 @@ abortContinuation = modify $ \state -> state { inhibitGenCode = True }
 withCode :: CM a -> CM ([C.BlockItem], a)
 withCode m = do code <- genCode <$> get
                 lastInihibit <- inhibitGenCode <$> get
+                lastIneqDB <- ineqDB <$> get
                 modify $ \state -> state { genCode = [], inhibitGenCode = False }
                 x <- m
                 code' <- genCode <$> get
-                modify $ \state -> state { genCode = code, inhibitGenCode = lastInihibit }
+                modify $ \state -> state { genCode = code
+                                         , inhibitGenCode = lastInihibit
+                                         , ineqDB = lastIneqDB }
                 return (code', x)
 
+-- | Adds an expression to the inequality database
+addIneq :: C.Exp -> Bool -> CM ()
+addIneq ex truth = modify $ \state -> state { ineqDB = M.insert ex truth $ ineqDB state }
+-- | Checks whether an expression is in the inequality database
+checkIneq :: C.Exp -> CM (Maybe Bool)
+checkIneq ex = do ineq <- ineqDB <$> get
+                  return $ M.lookup ex ineq
+
 mkIf :: C.Exp -> [C.BlockItem] -> [C.BlockItem] -> CM ()
-mkIf aexp bbl [] = writeCode [citems| if ($aexp) { $items:bbl } |]
-mkIf aexp [] cbl = writeCode [citems| if (!$aexp) { $items:cbl } |]
-mkIf aexp bbl cbl = writeCode [citems| if ($aexp) { $items:bbl } else { $items:cbl } |]
+mkIf aexp bbl cbl = do atrue <- checkIneq aexp
+                       case atrue of
+                         Just True -> writeCode bbl
+                         Just False -> writeCode cbl
+                         Nothing -> mkIf' aexp bbl cbl
+mkIf' aexp bbl [] = writeCode [citems| if ($aexp) { $items:bbl } |]
+mkIf' aexp [] cbl = writeCode [citems| if (!$aexp) { $items:cbl } |]
+mkIf' aexp bbl cbl = writeCode [citems| if ($aexp) { $items:bbl } else { $items:cbl } |]
 
 newScope :: CM a -> CM a
 newScope m = do bs <- bindings <$> get
@@ -502,19 +529,19 @@ indexStorage DiagonalMatrix [(w, i), (_, j)] subLoc =
         bty = vecBaseType vty
         uninit = compileUninit bty
 indexStorage LowerTriangular [(w, i), (_, j)] subLoc =
-  return $ condLoc [cexp| $i >= $j |] sl (constLoc vty uninit)
+  return $ condLoc [cexp| $i + 1 > $j |] sl (constLoc vty uninit)
   where sl = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $i * ($i + 1) / 2 + $j|]
         vty = locType sl
         bty = vecBaseType vty
         uninit = compileUninit bty
 indexStorage UpperTriangular [(w, i), (_, j)] subLoc =
-  return $ condLoc [cexp| $j >= $i |] sl (constLoc vty uninit)
+  return $ condLoc [cexp| $j + 1 > $i |] sl (constLoc vty uninit)
   where sl = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $j * ($j + 1) / 2 + $i|]
         vty = locType sl
         bty = vecBaseType vty
         uninit = compileUninit bty
 indexStorage SymmetricMatrix [(w, i), (_, j)] subLoc =
-  return $ condLoc [cexp| $i >= $j |] sl1 sl2
+  return $ condLoc [cexp| $i + 1 > $j |] sl1 sl2
   where sl1 = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $i * ($i + 1) / 2 + $j|]
         sl2 = subLoc [cexp| $w * ($w + 1) / 2 |] [cexp| $j * ($j + 1) / 2 + $i|]
         vty = locType sl1
@@ -737,6 +764,9 @@ makeFor' :: C.Type -> C.Exp -> C.Exp -> (C.Exp -> CM ()) -> CM ()
 makeFor' itty lowerEx upperEx mbody = do
   (body, i) <- withCode $ newScope $ do
                  i <- freshName "idx"
+                 addIneq [cexp| $lowerEx <= $id:i |] True
+                 addIneq [cexp| $id:i < $upperEx |] True
+                 addIneq [cexp| $upperEx > $id:i |] True
                  mbody [cexp| $id:i |]
                  return i
   writeCode [citems| for ($ty:itty $id:i = $lowerEx; $id:i < $upperEx; $id:i++) { $items:body } |]
