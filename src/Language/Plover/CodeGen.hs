@@ -1245,33 +1245,23 @@ compileStat v@(Binary _ Pow a b) = case (aty, bty) of
 compileStat v@(Binary _ Mul a b) = case (aty, bty) of
   (VecType _ [ia, ib] aty', VecType _ [_, ic] bty') -> comp
     where comp = Compiled
-                 { withDest = \dest -> storeLoc dest =<< asLoc comp
-                                       -- do aloc <- asLoc $ compileStat a
-                                       --    bloc <- asLoc $ compileStat b
-                                       --    makeFor ia $ \i -> do
-                                       --      aloc' <- apIndex aloc i
-                                       --      dest' <- apIndex dest i
-                                       --      makeFor ic $ \k -> do
-                                       --        sumname <- freshName "sum"
-                                       --        writeCode [citems| $ty:sumty $id:sumname = 0; |]
-                                       --        makeFor ib $ \j -> do
-                                       --          aex <- apIndex aloc' j >>= asExp . asRValue
-                                       --          bex <- apIndex bloc j >>= flip apIndex k >>= asExp . asRValue
-                                       --          writeCode [citems| $id:sumname += $aex * $bex; |]
-                                       --        dest'' <- apIndex dest' k
-                                       --        store dest'' [cexp| $id:sumname |]
+                 { withDest = \dest -> do aloc <- asLoc $ compileStat a
+                                          bloc <- asLoc $ compileStat b
+                                          makeFor ia $ \i -> do
+                                            aloc' <- apIndex aloc i
+                                            dest' <- apIndex dest i
+                                            makeFor ic $ \k -> do
+                                              sumname <- freshName "sum"
+                                              writeCode [citems| $ty:sumty $id:sumname = 0; |]
+                                              makeFor ib $ \j -> do
+                                                aex <- apIndex aloc' j >>= asExp . asRValue
+                                                bex <- apIndex bloc j >>= flip apIndex k >>= asExp . asRValue
+                                                writeCode [citems| $id:sumname += $aex * $bex; |]
+                                              dest'' <- apIndex dest' k
+                                              store dest'' [cexp| $id:sumname |]
                  , asExp = defaultAsExp (getType v) comp
                  , noValue = defaultNoValue (getType v) comp
-                 , asLoc = do aloc <- asLoc $ compileStat a
-                              bloc <- asLoc $ compileStat b
-                              deferLoc (getType v) 2 $ \bty [(_, idx1), (_, idx2)] -> do
-                                sumname <- freshName "sum"
-                                writeCode [citems| $ty:(compileType bty) $id:sumname = 0; |]
-                                makeFor ib $ \j -> do
-                                  aex <- apIndices aloc [idx1, j] >>= asExp . asRValue
-                                  bex <- apIndices bloc [j, idx2] >>= asExp . asRValue
-                                  writeCode [citems| $id:sumname += $aex * $bex; |]
-                                return $ expLoc bty (return [cexp| $id:sumname |])
+                 , asLoc = defaultAsLoc (getType v) comp
                  }
 
   (VecType _ [ia] aty', VecType _ [_, ib] bty') -> -- left vector is (ia x 1) matrix, so right is (1 x ib) row vector (outer product)
