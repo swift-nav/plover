@@ -565,7 +565,8 @@ unifyArithmetic pos x y = do
   case substForm zq of
     Nothing -> do
       when (not $ isZero zq) $
-        addUError $ UExFailure pos (reduceArithmetic x) (reduceArithmetic y)
+        void $ unify pos (reduceArithmetic x) (reduceArithmetic y)
+--        addUError $ UExFailure pos (reduceArithmetic x) (reduceArithmetic y)
     Just p@(var, e) -> do
       void $ unify pos (reduceArithmetic e) (HoleJ pos var)
   return $ reduceArithmetic x

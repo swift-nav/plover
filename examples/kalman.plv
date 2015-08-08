@@ -1,0 +1,58 @@
+--- A kalman filter implementation
+
+import prelude;
+
+static rand_mat (n :: int) (m :: int) :: double[n,m]
+  := vec i in n, j in m -> rand_uniform();
+
+static rand_sym_pos_semidef (n :: int) :: Symmetric double[n,n]
+  := ( x := rand_mat n n;
+       -- almost surely pos def
+       y :: Symmetric double[n,n];
+       y <- x * x^T;
+       y;
+     );
+
+static rand_transition_mtx (dim :: int) :: double[dim,dim]
+  := ( trans_mtx := rand_mat dim dim;
+       s := 1;  -- TODO: the largest singular value of trans_mtx
+       trans_mtx / s; );
+
+extern MAX_STATEDIM :: int;
+extern MAX_OBSDIM :: int;
+__C__ "#define MAX_STATEDIM 50";
+__C__ "#define MAX_OBSDIM 50";
+
+struct KF (
+  state_dim :: int;
+  -- mean
+  x :: double[MAX_STATEDIM] storing double[state_dim];
+  -- cov
+  p :: double[MAX_STATEDIM * (MAX_STATEDIM + 1) / 2]
+       storing Symmetric double[state_dim, state_dim];
+  -- transition mtx
+  f :: double[MAX_STATEDIM * MAX_STATEDIM]
+       storing double[state_dim, state_dim];
+  -- transition cov
+  q :: double[MAX_STATEDIM * (MAX_STATEDIM + 1) / 2]
+       storing Symmetric double[state_dim, state_dim];
+  obs_dim :: int;
+  -- obs mtx
+  h :: double[MAX_OBSDIM * MAX_STATEDIM]
+       storing double[obs_dim, state_dim];
+  -- obs cov
+  r :: double[MAX_OBSDIM * (MAX_OBSDIM + 1) / 2]
+       storing Symmetric double[obs_dim, obs_dim];
+);
+
+kalman_update (inout kf :: *KF) (obs :: double[kf.obs_dim]) :: ()
+  := ( -- predict
+       xp := kf.f * kf.x;
+       pp := kf.f * kf.p * kf.f^T + kf.q;
+       -- update
+       y := obs - kf.h * xp; -- Error in predicted observations
+       s := kf.h * pp * kf.h^T + kf.r; -- variance of prediction error
+       k := pp * kf.h^T * s^(-1); -- kalman gain
+       kf.x <- xp + k * y;
+       kf.p <- pp - k * kf.h * pp; -- (I - k * kf.h) * pp
+     );
