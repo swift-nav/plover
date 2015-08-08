@@ -51,7 +51,8 @@ type CM a = State CodeGenState a
 -- | Returns the output header file and the output source file.
 doCompile :: [DefBinding] -> (String, String)
 doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
-                            return (Mainland.pretty 80 $ Mainland.ppr header, Mainland.pretty 80 $ Mainland.ppr code)
+                            return (Mainland.pretty 120 $ Mainland.ppr header,
+                                    Mainland.pretty 120 $ Mainland.ppr code)
 
 runCM :: CM a -> a
 runCM m = evalState m (CodeGenState
@@ -506,7 +507,7 @@ mkVecLoc' array offset vty@(VecType storageType bnds baseTy) = collectIdxs [] bn
         buildLoc :: [(C.Exp, C.Exp)] -> CM CmLoc
         buildLoc acc = let subloc w i = mkVecLoc' array (shiftOffset offset w (Just i)) baseTy
                        in indexStorage storageType acc subloc
-        
+
 mkVecLoc' array offset ty = expLoc ty (return $ applyOffset array offset)
 
 
@@ -723,6 +724,12 @@ spillLoc loc = do sloc <- freshLoc "tmp" (locType loc)
                   storeLoc sloc loc
                   return sloc
 
+                  -- This doesn't work because `exp` does not expect
+                  -- being used more than once:
+                  --(bl, exp, _) <- asArgument loc
+                  --writeCode bl
+                  --return $ expLoc (locType loc) (return exp)
+
 storeExp :: CmLoc -> C.Exp -> CM ()
 storeExp dst exp = case normalizeTypes (locType dst) of
   vty@(VecType {}) -> storeLoc dst (mkVecLoc vty exp)
@@ -871,13 +878,21 @@ compileStat (For pos v range@(Range cstart cend cstep) exp) = comp
                , asLoc = error "Cannot use For as location"
                }
         itty = compileType $ IntType $ getRangeType range
+compileStat (While pos test (VoidExpr _)) = comp
+  where comp = Compiled
+               { noValue = do (tbl, texp) <- withCode $ newScope $ asExp $ compileStat test
+                              writeCode [citems| do { $items:tbl } while($texp); |]
+               , asExp = error "Cannot get While as expression"
+               , withDest = error "Cannot use While as dest"
+               , asLoc = error "Cannot use While as location"
+               }
 compileStat (While pos test body) = comp
   where comp = Compiled
                { noValue = do (tbl, texp) <- withCode $ asExp $ compileStat test
                               -- test if this needs blocks, and if it
                               -- does, scrap it to recompile with boolean test variable
                               case tbl of
-                                [] -> do (bbl, _) <- withCode $ noValue $ compileStat body
+                                [] -> do (bbl, _) <- withCode $ newScope $ noValue $ compileStat body
                                          writeCode [citems| while($texp) { $items:bbl } |]
                                 _ -> do t <- freshName "test"
                                         let tloc = expLoc BoolType (return [cexp| $id:t |])
@@ -948,19 +963,30 @@ compileStat exp@(RangeVal _ range) = comp
                                      return [cexp| $stex + $idx * $stepex |]
 
 
-compileStat (If _ a b c) = comp
+compileStat x@(If _ a b c) = comp
   where comp = Compiled
-               { noValue = do aexp <- asExp $ compileStat a
-                              (bbl,_) <- withCode $ newScope $ noValue $ compileStat b
-                              (cbl,_) <- withCode $ newScope $ noValue $ compileStat c
-                              mkIf aexp bbl cbl
-               , withDest = \loc -> do aexp <- asExp $ compileStat a
-                                       (bbl,_) <- withCode $ newScope $ withDest (compileStat b) loc
-                                       (cbl,_) <- withCode $ newScope $ withDest (compileStat c) loc
-                                       mkIf aexp bbl cbl
-               , asExp = defaultAsExp (getType b) comp
-               , asLoc = defaultAsLoc (getType b) comp
+               { noValue = mk noValue
+               , withDest = \loc -> mk $ flip withDest loc
+               , asExp = defaultAsExp (getType x) comp
+               , asLoc = defaultAsLoc (getType x) comp
                }
+        mk f = do aexp <- asExp $ compileStat a
+                  (bbl,_) <- withCode $ newScope $ f $ compileStat b
+                  (cbl,_) <- withCode $ newScope $ f $ compileStat c
+                  mkIf aexp bbl cbl
+compileStat x@(Specialize _ v conds dflt) = comp
+  where comp = Compiled
+               { noValue = mk noValue
+               , withDest = \loc -> mk $ flip withDest loc
+               , asExp = defaultAsExp (getType x) comp
+               , asLoc = defaultAsLoc (getType x) comp
+               }
+        mk f = do v <- lookupName "v" v
+                  (dbl,_) <- withCode $ newScope $ f $ compileStat dflt
+                  cases <- forM conds $ \(cons, cond) -> do
+                    (cbl,_) <- withCode $ newScope $ f $ compileStat cond
+                    return $ [citems| case $int:cons : { $items:cbl break; } |]
+                  writeCode [citems| switch($id:v) { $items:(concat cases) default: { $items:dbl } } |]
 
 compileStat (VoidExpr _) = Compiled { noValue = return ()
                                     , withDest = \v -> error "Cannot store VoidExpr"
@@ -1272,7 +1298,7 @@ compileStat v@(Binary _ Pow a b) = case (aty, bty) of
                                                         bex <- asExp $ compileStat b
                                                         return [cexp| pow($aex, $bex) |]
 
-compileStat v@(Binary _ Mul a b) = case (aty, bty) of
+compileStat v@(Binary pos Mul a b) = case (aty, bty) of
   (VecType _ [ia, ib] aty', VecType _ [_, ic] bty') -> comp
     where comp = Compiled
                  { withDest = \dest -> do aloc <- asLoc $ compileStat a
@@ -1346,16 +1372,7 @@ compileStat v@(Binary _ Mul a b) = case (aty, bty) of
                }
     in comp
   (VecType {}, VecType {}) -> error "compileStat: cannot multiply arbitrary vectors"
-  _ -> let comp = Compiled
-                  { noValue = return ()
-                  , asExp =  do
-                       aex <- asExp $ compileStat a
-                       bex <- asExp $ compileStat b
-                       return [cexp| $aex * $bex |]
-                  , asLoc = defaultAsLocFromAsExp (getType v) comp
-                  , withDest = defaultWithDest (getType v) comp
-                  }
-       in comp
+  _ -> compileStat $ Binary pos Hadamard a b
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
 

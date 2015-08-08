@@ -6,6 +6,7 @@ module Language.Plover.Convert where
 import Language.Plover.ParserTypes
 import Language.Plover.ErrorUtil
 import Data.Tag
+import Data.Maybe
 import Text.ParserCombinators.Parsec.Pos
 import Control.Monad
 import Control.Applicative ((<$>), (<*>))
@@ -37,6 +38,19 @@ makeExpr exp@(PExpr pos e') = case e' of
   StrLit s -> return $ T.StrLit pos s
   VecLit es -> T.VecLit pos (T.TypeHole Nothing) <$> mapM makeExpr es
   If a b c -> T.If pos <$> makeExpr a <*> makeExpr b <*> makeExpr c
+  Specialize v cases -> do (cases', dflt) <- processCases [] cases
+                           return $ T.Specialize pos v cases' dflt
+    where processCases acc [] = Left $ ConvertError (makePos exp)
+                                ["Missing default case."]
+          processCases acc [(PExpr _ Hole, dflt)] = do dflt' <- makeExpr dflt
+                                                       return $ (reverse acc, dflt')
+          processCases acc ((PExpr _ Hole, _):xs) = Left $ ConvertError (makePos exp)
+                                                    ["Default case must not precede other cases."]
+          processCases acc ((PExpr _ (IntLit _ i),cons):xs) = do
+            cons' <- makeExpr cons
+            processCases ((i,cons'):acc) xs
+          processCases acc _ = Left $ ConvertError (makePos exp)
+                               ["Can only specialize on integers."]
   Return e -> T.Return pos (T.TypeHole Nothing) <$> makeExpr e
   Assert e -> T.Assert pos <$> makeExpr e
   UnExpr Deref a -> T.Get pos . T.Deref <$> makeExpr a

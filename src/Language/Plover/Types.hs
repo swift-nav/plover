@@ -107,6 +107,7 @@ data Expr a
 
   -- Control flow
   | If' a a a
+  | Specialize' String [(Integer, a)] a -- | condition, value pairs; and a default
 
   -- Elementary expressions
   | IntLit' IntType Integer
@@ -305,6 +306,7 @@ pattern Vec tag a b c = PExpr tag (Vec' a b c)
 pattern For tag a b c = PExpr tag (For' a b c)
 pattern While tag a b = PExpr tag (While' a b)
 pattern If tag a b c = PExpr tag (If' a b c)
+pattern Specialize tag v a b = PExpr tag (Specialize' v a b)
 pattern RangeVal tag r = PExpr tag (RangeVal' r)
 pattern VoidExpr tag = PExpr tag (TupleLit' [])
 pattern IntLit tag t a = PExpr tag (IntLit' t a)
@@ -422,6 +424,9 @@ instance TermMappable CExpr where
     Assert pos v -> Assert pos <$> texp v
     RangeVal pos range -> RangeVal pos <$> trng range
     If pos a b c -> If pos <$> texp a <*> texp b <*> texp c
+    Specialize pos v cases dflt -> Specialize pos v <$> mapM tcase cases <*> texp dflt
+      where tcase (cond, cons) = do cons' <- texp cons
+                                    return (cond, cons')
     IntLit {} -> return exp
     FloatLit {} -> return exp
     StrLit {} -> return exp
@@ -828,7 +833,8 @@ getType (While {}) = Void
 getType (Return _ ty _) = ty -- the type of the aborted continuation
 getType (Assert {}) = Void
 getType (RangeVal pos range) = VecType DenseMatrix [rangeLength pos range] (IntType $ getRangeType range)
-getType (If pos a b c) = getType b
+getType (If pos a b c) = getType b -- TODO merge types if arithmetic!
+getType (Specialize pos v cases dflt) = getType dflt
 getType (IntLit pos t _) = IntType t
 getType (FloatLit pos t _) = FloatType t
 getType (StrLit {}) = StringType
@@ -876,7 +882,7 @@ getType (Binary pos op a b)
     (VecType _ [a, _] aty', VecType _ [c] bty') -> VecType DenseMatrix [a] (getArithType aty' bty')
     (VecType _ [a] aty', VecType _ [_] bty') -> getArithType aty' bty' -- dot product
     (VecType {}, VecType {}) -> error "getType: Bad vector sizes for multiplication"
-    _ -> getArithType aty bty
+    _ -> getType $ Binary pos Hadamard a b
   | op == Concat = case (aty, bty) of
     (VecType _ (abnd:abnds) aty', VecType _ (bbnd:_) bty') -> VecType DenseMatrix
                                                               (reduceArithmetic (Binary pos Add abnd bbnd) : abnds)

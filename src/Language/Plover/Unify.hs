@@ -44,6 +44,7 @@ data UnifierData = UnifierData
                    , uErrors :: [UnificationError]
                    , uTypeEnv :: M.Map Variable (Tag SourcePos, Type) -- ^ variables -> types
                    , uRetType :: Maybe (Tag SourcePos, Type) -- ^ The expected return type of the current function
+                   , uSpecializations :: M.Map Variable CExpr
                    }
                    deriving Show
 
@@ -95,6 +96,7 @@ initUniData defbs = UnifierData
                     , uTypeEnv = M.fromList [(binding d, (bindingPos d, definitionType d))
                                             | d <- defbs]
                     , uRetType = error "Return type not set"
+                    , uSpecializations = M.empty
                     }
 
 addUError :: UnificationError -> UM ()
@@ -150,6 +152,8 @@ expandTerm term = do
   let tty (TypeHoleJ v) | Just (_, ty') <- M.lookup v tenv = expand ty'
       tty ty = return ty
 
+      texp x@(Get pos (Ref _ v)) = do spec <- lookupSpecialization v
+                                      maybe (return x) texp spec
       texp (HoleJ pos v) | Just (_, exp') <- M.lookup v eenv = expand exp'
       texp exp = return exp
 
@@ -267,6 +271,19 @@ withNewUScope m = do
   v <- m
   modify $ \state -> state { uTypeEnv = bindings, uRetType = retty }
   return v
+
+withSpecialization :: String -> CExpr -> UM a -> UM a
+withSpecialization v val m = do
+  specs <- uSpecializations <$> get
+  modify $ \state -> state { uSpecializations = M.insert v val specs }
+  a <- m
+  modify $ \state -> state { uSpecializations = specs }
+  return a
+
+lookupSpecialization :: String -> UM (Maybe CExpr)
+lookupSpecialization v = do
+  specs <- uSpecializations <$> get
+  return $ M.lookup v specs
 
 typeCheckDefBinding :: DefBinding -> UM ()
 typeCheckDefBinding def = case definition def of
@@ -437,8 +454,17 @@ instance Unifiable CExpr where
     return $ ConcreteApp pos' f' args' rty'
     where pos' = MergeTags [pos1, pos2]
 
-  unify pos (Get pos1 loc1) (Get pos2 loc2) = Get pos' <$> unify pos' loc1 loc2
+  unify pos (Get pos1 loc1) (Get pos2 loc2) = do
+    spec1 <- spec loc1
+    spec2 <- spec loc2
+    case (spec1, spec2) of
+      (Just s1, Just s2) -> unify pos s1 s2
+      (Just s1, _) -> unify pos s1 (Get pos2 loc2)
+      (_, Just s2) -> unify pos (Get pos1 loc1) s2
+      _ -> Get pos' <$> unify pos' loc1 loc2
     where pos' = MergeTags [pos1, pos2]
+          spec (Ref _ v) = lookupSpecialization v
+          spec _ = return Nothing
   unify pos (Addr pos1 loc1) (Addr pos2 loc2) = Addr pos' <$> unify pos' loc1 loc2
     where pos' = MergeTags [pos1, pos2]
   unify pos (Set pos1 loc1 v1) (Set pos2 loc2 v2) = Set pos' <$> unify pos' loc1 loc2 <*> unify pos' v1 v2
@@ -646,6 +672,14 @@ typeCheck (If pos a b c) = do
   tyb <- typeCheck b
   tyc <- typeCheck c
   unify pos tyb tyc
+typeCheck (Specialize pos v cases dflt) = do
+  Just (vpos, vty) <- getBinding v
+  _ <- expectInt pos vty
+  dty <- typeCheck dflt
+  forM_ cases $ \(cond, cons) -> do
+    consty <- withSpecialization v (fromInteger cond) $ typeCheck cons
+    unify pos consty dty
+  return dty
 typeCheck (IntLit pos ty _) = return $ IntType ty
 typeCheck (FloatLit pos ty _) = return $ FloatType ty
 typeCheck (StrLit {}) = return $ StringType
@@ -795,7 +829,7 @@ typeCheck (Binary pos op a b)
        (VecType {}, VecType {}) -> do
          addUError $ UError pos "Only 1-d and 2-d vectors may be multiplied."
          return $ TypeHole Nothing
-       _ -> arithType pos aty bty
+       _ -> typeCheck $ Binary pos Hadamard a b
   | op == Concat = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM

@@ -1,0 +1,31 @@
+import prelude;
+
+main () :: int
+  := ( N := 10;
+       for trial in 1 .. 5 -> (
+    
+    printf "*** Matrix trial %d ***\n" trial;
+    A := vec i in N, j in : -> rand_normal(); --mat(1.0,2;3,4);
+    printf "A:\n";
+    print_mat A;
+    printf "A^(-1):\n";
+    print_mat (A^(-1));
+    printf "A * A^(-1):\n";
+    print_mat (A * A^(-1));
+    printf "det A * det (A^(-1)) = %lf\n"  (det A * det (A^(-1)));
+       );
+       qr :: div_t := div 100 3;
+--       srandom(time());
+       printf "q=%d, r=%d\n" qr.quot qr.rem;
+       for i in 10 -> printf "%lf\n" (rand_normal());
+       return 0;
+     );
+  
+non_zero {n} (A :: double[n]) :: double
+  := ( i := 0;
+       while (i < n) -> (
+         if A[i] != 0 then return A[i];
+         i <- i + 1;
+       );
+       return 0;
+     );

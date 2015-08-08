@@ -32,7 +32,7 @@ languageDef =
            , Token.reservedNames = [
              "module", "import", "function", "declare", "define", "extern", "static", "inline",
              "struct", "type",
-             "mat", "vec", "for", "in", "while", "if", "then", "else",
+             "mat", "vec", "for", "in", "while", "if", "then", "else", "specialize",
              "True", "False", "Void", "T", "_",
              "array", "and", "or",
              "storing",
@@ -261,7 +261,8 @@ antiquote = do reservedOp "~"
                       return $ before ++ during ++ after
 
 form :: Parser Expr
-form = iter Vec "vec" <|> iter For "for" <|> whileexp <|> ifexpr <|> retexp <|> assertexp
+form = iter Vec "vec" <|> iter For "for" <|> whileexp <|> ifexpr <|> specexpr
+       <|> retexp <|> assertexp
        <|> inlineC <|> struct <|> typedef
   where iter cons s = withPos $ do
           reserved s
@@ -286,6 +287,16 @@ form = iter Vec "vec" <|> iter For "for" <|> whileexp <|> ifexpr <|> retexp <|> 
           reserved "else"
           alt <- expr
           return $ If cond cons alt
+
+        specexpr = withPos $ do
+          reserved "specialize"
+          v <- identifier
+          cases <- parens $ flip sepEndBy1 (symbol ";") $ do
+            ca <- expr
+            reservedOp "->"
+            res <- expr
+            return (ca, res)
+          return $ Specialize v cases
 
         retexp = withPos $ do
           reserved "return"

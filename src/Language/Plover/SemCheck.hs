@@ -429,7 +429,14 @@ alphaRenameTerms :: ScopedTraverser a => Tag SourcePos -> a -> SemChecker a
 alphaRenameTerms = scopedTraverseTerm alphatr
   where alphatr = ScopedTraverserRec
                   { stTy = \pos -> return
-                  , stEx = \pos -> return
+                  , stEx = \pos x -> case x of
+                      Specialize pos v cases dflt -> do mv' <- lookupSym v
+                                                        case mv' of
+                                                          Just (_, v') ->
+                                                            return $ Specialize pos v' cases dflt
+                                                          Nothing -> do addError $ SemUnbound pos v
+                                                                        return x
+                      _ -> return x
                   , stLoc = \pos x -> case x of
                                Ref ty v -> do mv' <- lookupSym v
                                               case mv' of

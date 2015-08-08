@@ -23,15 +23,17 @@ class NameContainer a where
 
 instance NameContainer a => NameContainer [a] where
   allNames xs = xs >>= allNames
+instance NameContainer a => NameContainer (Maybe a) where
+  allNames = maybe [] allNames
 
 instance NameContainer DefBinding where
   allNames db = [binding db] ++ allNames (definition db)
 
 instance NameContainer Definition where
   allNames def = case def of
-    FunctionDef cexpr ft -> maybe [] allNames cexpr ++ allNames ft
+    FunctionDef cexpr ft -> allNames cexpr ++ allNames ft
     StructDef defs -> map fst defs
-    ValueDef cexpr t -> maybe [] allNames cexpr ++ allNames t
+    ValueDef cexpr t -> allNames cexpr ++ allNames t
     TypeDef ty -> allNames ty
     InlineCDef {} -> []
 
@@ -44,6 +46,7 @@ instance NameContainer CExpr where
     Assert _ x -> allNames x
     RangeVal _ rng -> allNames rng
     If _ a b c -> allNames [a, b, c]
+    Specialize _ v cases dflt -> [v] ++ concat [allNames cond | (_,cond) <- cases] ++ allNames dflt
     IntLit {} -> []
     FloatLit {} -> []
     StrLit {} -> []

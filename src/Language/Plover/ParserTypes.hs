@@ -80,6 +80,7 @@ data Expr' a = Vec [(Variable,a)] a
           | StrLit String
           | VecLit [a]
           | If a a a
+          | Specialize String [(a, a)]
           | Return a
           | Assert a
 
@@ -155,6 +156,7 @@ instance PP a => PP (Expr' a) where
   pretty (VecLit xs) = parens $ text "VecLit" <+> sep (map pretty xs)
 
   pretty (If a b c) = parens $ (text "if" <+> nest 3 (pretty a)) $$ (nest 1 (vcat [text "then" <+> pretty b, text "else" <+> pretty c]))
+  pretty (Specialize v cases) = parens $ (text $ "specialize " ++ v) $$ (nest 1 (vcat [pretty ca <+> text "->" <+> nest 2 (pretty ex) | (ca, ex) <- cases]))
 
   pretty (Return a) = parens $ (text "return" <+> nest 7 (pretty a))
   pretty (Assert a) = parens $ (text "assert" <+> nest 7 (pretty a))
