@@ -67,7 +67,7 @@ type HoleData = (M.Map Variable Type, M.Map Variable CExpr)
 -- | Takes the list of bindings, a list of holes one would like value/type
 -- information about, and the monadic value to evaluate.
 runUM :: [DefBinding] -> [String] -> UM a -> Either [UnificationError] (HoleData, a)
-runUM defbs holes m = let (v, s) = runState m (initUniData defbs)
+runUM defbs holes m = let (v, s) = runState (m <* expandMapErrors) (initUniData defbs)
                           p v x = (v, x)
                           htys = M.fromList $ mapMaybe
                                  (\v -> p v <$> snd <$> M.lookup v (uTypes s)) holes
@@ -76,6 +76,15 @@ runUM defbs holes m = let (v, s) = runState m (initUniData defbs)
                       in case uErrors s of
                            [] -> Right ((htys, hexs), v)
                            errs -> Left errs
+  where
+    sm f (a, b) = do
+      b <- f b
+      return (a, b)
+    expandMapErrors = do
+      s <- get
+      types' <- sequence $ M.map (sm expandTerm) (uTypes s)
+      exprs' <- sequence $ M.map (sm expandTerm) (uExprs s)
+      modify $ \s -> s { uTypes = types', uExprs = exprs'}
 
 instance TermMappable UnificationError where
   mapTerm tty texp tloc trng err = case err of
