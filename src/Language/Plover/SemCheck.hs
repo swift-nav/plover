@@ -23,6 +23,7 @@ data SemError = SemError (Tag SourcePos) String
               | SemUnboundType (Tag SourcePos) Variable
               | SemStorageError (Tag SourcePos) Type Type
               | SemUniError UnificationError
+              | SemNoisyHole (Tag SourcePos) (Maybe Type) (Maybe CExpr)
               deriving (Show, Eq, Ord)
 
 reportSemErr :: SemError
@@ -52,6 +53,10 @@ reportSemErr err
                               ++ " occurs in type\n" ++ nice ty ++ "\n"
        UNoField tag v -> posStuff tag $ "No such field " ++ show v ++ "\n"
        UGenTyError tag ty msg -> posStuff tag $ msg ++ "\n" ++ nice ty ++ "\n"
+     SemNoisyHole tag Nothing Nothing -> posStuff tag $ "Noisy hole with unknown type or value.\n"
+     SemNoisyHole tag (Just ty) Nothing -> posStuff tag $ "Noisy hole of type\n" ++ nice ty ++ "\n"
+     SemNoisyHole tag Nothing (Just ex) -> posStuff tag $ "Noisy hole with value\n" ++ nice ex ++ "\n"
+     SemNoisyHole tag (Just ty) (Just ex) -> posStuff tag $ "Noisy hole of type\n" ++ nice ty ++ "\nand value\n" ++ nice ex ++ "\n"
   where posStuff tag s = do sls <- mapM showLineFromFile (sort $ nub $ getTags tag)
                             return $ "Error " ++ unlines (("at " ++) <$> sls) ++ s
         nice :: (Show a, PP a) => a -> String
@@ -64,6 +69,7 @@ data SemCheckData = SemCheckData
                     , globalBindings :: Map Variable DefBinding
                     , localBindings :: Map Variable (Tag SourcePos, Variable) -- ^ for α-renaming
                     , semRetType :: Type -- the current function's return type
+                    , semNoisyHoles :: Map Variable (Tag SourcePos)
                     }
                   deriving Show
 
@@ -74,6 +80,7 @@ newSemCheckData vs = SemCheckData
                      , globalBindings = M.empty
                      , localBindings = M.empty
                      , semRetType = error "semRetType not defined"
+                     , semNoisyHoles = M.empty
                      }
 
 type SemChecker = State SemCheckData
@@ -88,6 +95,12 @@ isOkIdentifier :: String -> Bool
 isOkIdentifier (x:xs) = x `elem` okStart && all (`elem` okRest) xs
   where okStart = ['A'..'Z'] ++ ['a'..'z'] ++ "_"
         okRest = okStart ++ ['0'..'9']
+
+recordNoisyHole :: Variable -> Tag SourcePos -> SemChecker ()
+recordNoisyHole v tag = modify $ \state ->
+  state { semNoisyHoles = M.insert v tag $ semNoisyHoles state }
+noisyHoleNames :: SemChecker [Variable]
+noisyHoleNames = M.keys <$> semNoisyHoles <$> get
 
 -- | Phases:
 -- 1. merge top level bindings
@@ -111,14 +124,22 @@ doSemCheck defs = runSemChecker dochecks
                       let defs' = map (defsMap' M.!) names
 
                       he <- hasErrors
+                      nhnames <- noisyHoleNames
                       if not he
-                        then case runUM defs' (typeCheckToplevel defs') of
-                          Right defs'' -> do topVerifyStorage defs''
-                                             return defs''
+                        then case runUM defs' nhnames (typeCheckToplevel defs') of
+                          Right (nhdata, defs'') -> do noisyHolesAreErrors nhnames nhdata
+                                                       topVerifyStorage defs''
+                                                       return defs''
                           Left errs -> do mapM_ (addError . SemUniError) errs
                                           return []
                         else return []
         names = nub $ map binding defs
+
+noisyHolesAreErrors :: [Variable] -> HoleData -> SemChecker ()
+noisyHolesAreErrors holes (htys, hexs) = do
+  hmap <- semNoisyHoles <$> get
+  forM_ holes $ \hole -> do
+    addError $ SemNoisyHole (hmap M.! hole) (M.lookup hole htys) (M.lookup hole hexs)
 
 gensym :: String -> SemChecker String
 gensym prefix = do names <- gensymState <$> get
@@ -414,10 +435,16 @@ fillStructMembers members = forM members $ \(v, (pos, exty, inty)) -> do
 fillTermHoles :: TermMappable a => a -> SemChecker a
 fillTermHoles = traverseTerm tty texp tloc trng
   where tty (TypeHole Nothing) = TypeHoleJ <$> genUVar
+        tty (NoisyTypeHole pos) = do v <- genUVar
+                                     recordNoisyHole v pos
+                                     return $ TypeHoleJ v
         tty (TypedefType ty v) = return $ TypedefType (TypeHole Nothing) v -- don't want to fill type of typedef yet
         tty ty = return ty
 
         texp (Hole pos Nothing) = HoleJ pos <$> genUVar
+        texp (NoisyHole pos) = do v <- genUVar
+                                  recordNoisyHole v pos
+                                  return $ HoleJ pos v
         texp exp = return exp
 
         tloc (Ref ty v) = return $ Ref (TypeHole Nothing) v -- don't want to fill type of Refs yet

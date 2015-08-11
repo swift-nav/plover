@@ -74,6 +74,7 @@ data Expr' a = Vec [(Variable,a)] a
           | Ref Variable
           | T
           | Hole
+          | NoisyHole
           | IntLit IntType Integer
           | FloatLit FloatType Double
           | BoolLit Bool
@@ -149,6 +150,7 @@ instance PP a => PP (Expr' a) where
   pretty (Ref v) = text v
   pretty T = text "T"
   pretty Hole = text "_"
+  pretty NoisyHole = text "__"
   pretty (IntLit t x) = parens $ text $ "IntLit " ++ show t ++ " " ++ show x
   pretty (FloatLit t x) = parens $ text $ "(FloatLit " ++ show t ++ " " ++ show x
   pretty (BoolLit b) = parens $ text $ "BoolLit " ++ show b

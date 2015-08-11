@@ -61,6 +61,7 @@ instance NameContainer CExpr where
                     in allNames f ++ allNames (map unarg args)
     ConcreteApp _ f args rty -> allNames f ++ allNames args ++ allNames rty
     Hole _ mv -> maybe [] return mv
+    NoisyHole _ -> []
     Get _ loc -> allNames loc
     Addr _ loc -> allNames loc
     Set _ loc v -> allNames loc ++ allNames v
@@ -92,6 +93,7 @@ instance NameContainer Type where
     TypedefType ty v -> allNames ty ++ [v]
     StructType v _ -> [v]
     TypeHole mv -> maybe [] return mv
+    NoisyTypeHole _ -> []
 
 instance NameContainer FunctionType where
   allNames ft = let ((FnT args mva rt), _) = getEffectiveFunType ft

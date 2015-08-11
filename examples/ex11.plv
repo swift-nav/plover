@@ -29,3 +29,5 @@ non_zero {n} (A :: double[n]) :: double
        );
        return 0;
      );
+
+foo (x :: _) :: _ := x + 2.2;

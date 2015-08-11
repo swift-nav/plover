@@ -62,11 +62,20 @@ data UnificationError = UError (Tag SourcePos) String
 
 type UM = State UnifierData
 
-runUM :: [DefBinding] -> UM a -> Either [UnificationError] a
-runUM defbs m = let (v, s) = runState (m <* expandErrors) (initUniData defbs)
-                in case uErrors s of
-                    [] -> Right v
-                    errs -> Left errs
+type HoleData = (M.Map Variable Type, M.Map Variable CExpr)
+
+-- | Takes the list of bindings, a list of holes one would like value/type
+-- information about, and the monadic value to evaluate.
+runUM :: [DefBinding] -> [String] -> UM a -> Either [UnificationError] (HoleData, a)
+runUM defbs holes m = let (v, s) = runState (m <* expandErrors) (initUniData defbs)
+                          p v x = (v, x)
+                          htys = M.fromList $ mapMaybe
+                                 (\v -> p v <$> snd <$> M.lookup v (uTypes s)) holes
+                          hexs = M.fromList $ mapMaybe
+                                 (\v -> p v <$> snd <$> M.lookup v (uExprs s)) holes
+                      in case uErrors s of
+                           [] -> Right ((htys, hexs), v)
+                           errs -> Left errs
 
 instance TermMappable UnificationError where
   mapTerm tty texp tloc trng err = case err of

@@ -32,6 +32,7 @@ makeExpr exp@(PExpr pos e') = case e' of
   Ref v -> return $ T.Get pos $ T.Ref (T.TypeHole Nothing) v
   T -> Left $ ConvertError (makePos exp) ["Unexpected transpose operator in non-exponent position"]
   Hole -> return $ T.Hole pos Nothing
+  NoisyHole -> return $ T.NoisyHole pos
   IntLit t i -> return $ T.IntLit pos t i
   FloatLit t x -> return $ T.FloatLit pos t x
   BoolLit b -> return $ T.BoolLit pos b
@@ -162,7 +163,7 @@ makeSequence pos (x@(PExpr pos' x') : xs) = case x' of
 
 
 makeType :: Expr -> Either ConvertError T.Type
-makeType exp@(PExpr _ e') = case e' of
+makeType exp@(PExpr pos e') = case e' of
   Index a (PExpr _ (Tuple idxs)) -> T.VecType T.DenseMatrix <$> mapM makeExpr idxs <*> makeType a
   Index a b -> T.VecType T.DenseMatrix <$> (return <$> makeExpr b) <*> makeType a
   App (PExpr _ (Ref v)) args -> makeTypeFunc (makePos exp) v args
@@ -185,6 +186,7 @@ makeType exp@(PExpr _ e') = case e' of
   UnExpr Deref a -> T.PtrType <$> makeType a
   Tuple xs -> T.TupleType <$> mapM makeType xs
   Hole -> return $ T.TypeHole Nothing
+  NoisyHole -> return $ T.NoisyTypeHole pos
   _ -> Left $ ConvertError (makePos exp) ["Expecting type"]
 
 makeTypeFunc :: SourcePos -> String -> [Arg Expr] -> Either ConvertError T.Type

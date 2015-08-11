@@ -203,6 +203,36 @@ Box-Muller transform for normally distributed random numbers: ::
         );
 
 
+Value and type holes
+++++++++++++++++++++
+
+The Plover language supports introducing holes into a program which,
+depending on context, may in some circumstances be filled during
+normal typechecking.  This feature allows a programmer some
+flexibility when prototyping and debugging.  The holes come in two
+flavors: quiet and noisy.  The difference between the two is that
+noisy holes will cause an error while typechecking which will describe
+what the type system believes to may be substituted for the holes,
+whereas quiet holes will not cause an error so long as a valid
+substitution is found.  The syntax for a quiet hole is a single
+underscore (``_``) and for a noisy hole a double underscore (``__``).
+
+A common example is in function parameter lists.  One may drop off the
+types as in the following: ::
+
+  foo (x :: _) :: _  := x + 1;
+
+and because of defaulting rules, ``x`` will be ``int``, as is the
+return type of ``foo``.
+
+The following is the same as the above example: ::
+
+  foo x :: _ := x + 1;
+
+Noisy holes let a programmer see the type of intermediate results.
+For instance, ::
+
+  B :: __  := (G^T * G :: __)^(-1) * G^T;
 
 Type system
 -----------

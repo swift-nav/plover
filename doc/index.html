@@ -368,14 +368,15 @@ ul.auto-toc {
 <li><a class="reference internal" href="#while-loop" id="id11"><tt class="docutils literal">while</tt> loop</a></li>
 </ul>
 </li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id12">Value and type holes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#type-system" id="id12">Type system</a><ul>
-<li><a class="reference internal" href="#vector-types" id="id13">Vector types</a></li>
+<li><a class="reference internal" href="#type-system" id="id13">Type system</a><ul>
+<li><a class="reference internal" href="#vector-types" id="id14">Vector types</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id14">Modules</a></li>
-<li><a class="reference internal" href="#compiler-options" id="id15">Compiler options</a></li>
+<li><a class="reference internal" href="#modules" id="id15">Modules</a></li>
+<li><a class="reference internal" href="#compiler-options" id="id16">Compiler options</a></li>
 </ul>
 </li>
 </ul>
@@ -545,19 +546,48 @@ rand_normal() :: double
 </pre>
 </div>
 </div>
+<div class="section" id="value-and-type-holes">
+<h3><a class="toc-backref" href="#id12">Value and type holes</a></h3>
+<p>The Plover language supports introducing holes into a program which,
+depending on context, may in some circumstances be filled during
+normal typechecking.  This feature allows a programmer some
+flexibility when prototyping and debugging.  The holes come in two
+flavors: quiet and noisy.  The difference between the two is that
+noisy holes will cause an error while typechecking which will describe
+what the type system believes to may be substituted for the holes,
+whereas quiet holes will not cause an error so long as a valid
+substitution is found.  The syntax for a quiet hole is a single
+underscore (<tt class="docutils literal">_</tt>) and for a noisy hole a double underscore (<tt class="docutils literal">__</tt>).</p>
+<p>A common example is in function parameter lists.  One may drop off the
+types as in the following:</p>
+<pre class="literal-block">
+foo (x :: _) :: _  := x + 1;
+</pre>
+<p>and because of defaulting rules, <tt class="docutils literal">x</tt> will be <tt class="docutils literal">int</tt>, as is the
+return type of <tt class="docutils literal">foo</tt>.</p>
+<p>The following is the same as the above example:</p>
+<pre class="literal-block">
+foo x :: _ := x + 1;
+</pre>
+<p>Noisy holes let a programmer see the type of intermediate results.
+For instance,</p>
+<pre class="literal-block">
+B :: __  := (G^T * G :: __)^(-1) * G^T;
+</pre>
+</div>
 </div>
 <div class="section" id="type-system">
-<h2><a class="toc-backref" href="#id12">Type system</a></h2>
+<h2><a class="toc-backref" href="#id13">Type system</a></h2>
 <p>The void type is the same as the type of empty tuples.</p>
 <div class="section" id="vector-types">
-<h3><a class="toc-backref" href="#id13">Vector types</a></h3>
+<h3><a class="toc-backref" href="#id14">Vector types</a></h3>
 </div>
 </div>
 <div class="section" id="modules">
-<h2><a class="toc-backref" href="#id14">Modules</a></h2>
+<h2><a class="toc-backref" href="#id15">Modules</a></h2>
 </div>
 <div class="section" id="compiler-options">
-<h2><a class="toc-backref" href="#id15">Compiler options</a></h2>
+<h2><a class="toc-backref" href="#id16">Compiler options</a></h2>
 </div>
 </div>
 </div>

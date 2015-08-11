@@ -128,6 +128,9 @@ data Expr a
   -- Operators
   -- Symbolic patterns given below
   | Hole' (Maybe UVar) -- value hole
+  | NoisyHole' -- | This is temporary so that the semantic checker has
+               -- a chance to record its existence, before becoming a
+               -- normal Hole.
   | Get' (Location a)
   | Addr' (Location a)
   | Set' (Location a) a
@@ -173,6 +176,9 @@ data Type' a
   | TypedefType (Type' a) Variable -- Like Ref
   | StructType Variable StructType
   | TypeHole (Maybe UVar)
+  | NoisyTypeHole (Tag SourcePos) -- | This is temporary so the
+                                  -- semchecker can see it and
+                                  -- translate it to typehole
   deriving (Show, Eq, Ord, Functor, F.Foldable, T.Traversable)
 
 type CExpr = FixTagged SourcePos Expr
@@ -327,6 +333,7 @@ pattern Equal tag a b = Binary tag EqOp a b
 pattern AssertType tag a ty = PExpr tag (AssertType' a ty)
 pattern CastType tag a ty = PExpr tag (CastType' a ty)
 pattern Hole tag muvar= PExpr tag (Hole' muvar)
+pattern NoisyHole tag = PExpr tag NoisyHole'
 pattern Get tag x = PExpr tag (Get' x)
 pattern Addr tag x = PExpr tag (Addr' x)
 pattern Set tag l x = PExpr tag (Set' l x)
@@ -413,6 +420,7 @@ instance TermMappable Type where
     TypedefType ty v -> TypedefType <$> tty ty <*> pure v
     StructType {} -> return ty -- Struct types are different (TODO?)
     TypeHole {} -> return ty
+    NoisyTypeHole {} -> return ty
   termMapper tty texp tloc trng = tty
 
 instance TermMappable CExpr where
@@ -441,6 +449,7 @@ instance TermMappable CExpr where
             targ (ImpArg a) = ImpArg <$> texp a
     ConcreteApp pos fn args rty -> ConcreteApp pos <$> texp fn <*> mapM texp args <*> tty rty
     Hole {} -> return exp
+    NoisyHole {} -> return exp
     Get pos loc -> Get pos <$> tloc loc
     Addr pos loc -> Addr pos <$> tloc loc
     Set pos loc val -> Set pos <$> tloc loc <*> texp val
@@ -772,6 +781,7 @@ instance PP Type where
   pretty (StructType v _) = text v
   pretty (TypeHole (Just v)) = text v -- should have $ so shouldn't conflict
   pretty (TypeHole Nothing) = text "$hole"
+  pretty (NoisyTypeHole {}) = text "$noisyhole"
 --  pretty x = text $ show x
 
 instance (Show a, PP a) => PP (Expr a) where
@@ -782,6 +792,7 @@ instance (Show a, PP a) => PP (Expr a) where
   pretty (BoolLit' x) = text $ show x
   pretty (Hole' (Just v)) = text v -- it should start with $ so shouldn't conflict
   pretty (Hole' Nothing) = parens $ text "$hole"
+  pretty NoisyHole' = text "$noisyhole"
   pretty (Get' loc) = pretty loc
   pretty (Addr' loc) = parens $ hang (text "&") 2 (pretty loc)
   pretty (Unary' op expr) = parens $ pretty op <+> pretty expr

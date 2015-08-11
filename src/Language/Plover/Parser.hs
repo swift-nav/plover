@@ -33,7 +33,7 @@ languageDef =
              "module", "import", "function", "declare", "define", "extern", "static", "inline",
              "struct", "type",
              "mat", "vec", "for", "in", "while", "if", "then", "else", "specialize",
-             "True", "False", "Void", "T", "_",
+             "True", "False", "Void", "T", "_", "__",
              "array", "and", "or",
              "storing",
              "return", "assert",
@@ -218,12 +218,14 @@ term = literal >>= doMember
 
 -- Parse a literal or parenthesis group
 literal :: Parser Expr
-literal = voidlit <|> holelit <|> transposelit <|> numlit <|> binlit <|> strlit
+literal = voidlit <|> holelit <|> noisyHoleLit
+          <|> transposelit <|> numlit <|> binlit <|> strlit
           <|> ref <|> parenGroup
           <|> matlit <|> veclit <|> form <|> antiquote
   where ref = withPos $ Ref <$> identifier
         voidlit = withPos $ reserved "Void" >> return VoidExpr
         holelit = withPos $ reserved "_" >> return Hole
+        noisyHoleLit = withPos $ reserved "__" >> return NoisyHole
         transposelit = withPos $ reserved "T" >> return T
         numlit = withPos $ either integer float <$> naturalOrFloat
         binlit = withPos $ do
