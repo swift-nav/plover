@@ -67,7 +67,7 @@ type HoleData = (M.Map Variable Type, M.Map Variable CExpr)
 -- | Takes the list of bindings, a list of holes one would like value/type
 -- information about, and the monadic value to evaluate.
 runUM :: [DefBinding] -> [String] -> UM a -> Either [UnificationError] (HoleData, a)
-runUM defbs holes m = let (v, s) = runState (m <* expandErrors) (initUniData defbs)
+runUM defbs holes m = let (v, s) = runState m (initUniData defbs)
                           p v x = (v, x)
                           htys = M.fromList $ mapMaybe
                                  (\v -> p v <$> snd <$> M.lookup v (uTypes s)) holes
@@ -92,7 +92,7 @@ instance TermMappable UnificationError where
   termMapper = error "Cannot get termMapper for UnificationError"
 
 expandErrors :: UM ()
-expandErrors = do errors <- uErrors <$> get
+expandErrors = do errors <- gets uErrors
                   errors' <- mapM (mapTerm expandTerm expandTerm expandTerm expandTerm) errors
                   modify $ \state -> state { uErrors = errors' }
 
@@ -109,8 +109,9 @@ initUniData defbs = UnifierData
                     }
 
 addUError :: UnificationError -> UM ()
-addUError err = do s <- get
-                   put $ s { uErrors = uErrors s ++ [err] }
+addUError err = do
+  err' <- mapTerm expandTerm expandTerm expandTerm expandTerm $ err
+  modify $ \s -> s { uErrors = uErrors s ++ [err'] }
 
 -- | Used for checking whether the typechecking should be aborted,
 -- since the typechecking occurs in two passes (once to solve, once to
@@ -745,7 +746,7 @@ typeCheck (Set pos loc v) = do
         unifySet (VecType _ [] bty1) ty2 = unifySet bty1 ty2
         unifySet ty1 (VecType _ [] bty2) = unifySet ty1 bty2
         unifySet (VecType st1 (idx1:idxs1) bty1) (VecType st2 (idx2:idxs2) bty2)
-          = do unify pos idx1 idx2
+          = do unifyArithmetic pos idx1 idx2
                unifySet (VecType st1 idxs1 bty1) (VecType st2 idxs2 bty2)
         unifySet ty1 ty2 = void $ unify pos ty1 ty2
 typeCheck (AssertType pos v ty) = do
