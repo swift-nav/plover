@@ -493,7 +493,7 @@ mkVecLoc' array offset vty@(VecType storageType bnds baseTy) = collectIdxs [] bn
           , asRValue = error "Cannot get vector as rvalue"
           , asArgument = case acc of
              [] -> do absOffset <- mabsOffset
-                      return ([], [cexp| $(applyOffsetAddr array absOffset) |], [])
+                      return ([], applyOffsetAddr array absOffset, [])
              _ -> error "partial application asArgument unimplemented"
           , locType = case acc of
                         [] -> VecType storageType (bnd:bnds) baseTy
@@ -772,6 +772,9 @@ makeFor' itty lowerEx upperEx mbody = do
   (body, i) <- withCode $ newScope $ do
                  i <- freshName "idx"
                  addIneq [cexp| $lowerEx <= $id:i |] True
+                 addIneq [cexp| $id:i >= $lowerEx |] True
+                 addIneq [cexp| $lowerEx < $id:i + 1 |] True
+                 addIneq [cexp| $id:i + 1 > $lowerEx  |] True
                  addIneq [cexp| $id:i < $upperEx |] True
                  addIneq [cexp| $upperEx > $id:i |] True
                  mbody [cexp| $id:i |]

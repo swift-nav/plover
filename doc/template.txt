@@ -1,0 +1,30 @@
+%(head_prefix)s
+%(head)s
+%(stylesheet)s
+<!-- body prefix -->
+%(body_prefix)s
+<!-- body pre docinfo  -->
+<div id="header_wrap" class="outer">
+  <header class="inner">
+    <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
+    %(body_pre_docinfo)s
+  </header>
+</div>
+
+<div id="main_content_wrap" class="outer">
+  <section id="main_content" class="inner">
+    <!-- body -->
+    %(body)s
+
+  </section>
+</div>
+
+<div id="footer_wrap" class="outer">
+  <footer class="inner">
+    <!-- docinfo -->
+    %(docinfo)s
+  </footer>
+</div>
+
+<!-- body suffix -->
+%(body_suffix)s

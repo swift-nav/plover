@@ -9,6 +9,6 @@ foo2 {m} (A :: LowerTriangular (double)[m,m]) (B :: double[m,m]) :: ()
   := (A <- B;
       B <- A;);
 
-foo3 {m} (A :: UpperTriangular (double)[m,m]) (B :: double[m,m]) :: ()
-  := (A <- B;
+foo3 {m} (A :: UpperTriangular (double)[m,m]) (B :: LowerTriangular double[m,m]) :: ()
+  := (A <- B; A <- A * A;
       B <- A;);

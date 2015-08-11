@@ -1,11 +1,12 @@
-========
- Plover
-========
+==============================================
+                    Plover
+==============================================
+----------------------------------------------
+A beautiful, responsive way to tie your shoes
+----------------------------------------------
 
 :Authors:  Scott Kovach, Kyle Miller
 :Modified: August 2015
-
-.. contents:: Table of Contents
 
 Introduction
 ============
@@ -19,6 +20,8 @@ dependent type system.
 
 Plover also aims to make use of sparse structure present in many
 real-world linear algebra problems to generate more efficient code.
+
+.. contents:: Table of Contents
 
 Installation
 ============
@@ -81,7 +84,7 @@ operator.  Plover treats the final expression in a sequence as the
 value of the sequence.  Hence,
 ::
 
-   a; b; c
+   (a; b; c)
 
 has value ``c``, after evaluating ``a`` and ``b`` (in that order).
 Like other operators, parentheses are used to delimit sequences of
@@ -171,7 +174,7 @@ For instance, to binary search an array for a ``u8`` key:
 ::
 
    binary_search {n} (A :: u8[n]) (key :: u8) :: int
-     := ( imin := 0; imax := 0;
+     := ( imin := 0; imax := n;
           while (imax >= imin) -> (
             imid := imin + (imax - imin) / 2;
             if A[imid] == key then
@@ -211,11 +214,11 @@ depending on context, may in some circumstances be filled during
 normal typechecking.  This feature allows a programmer some
 flexibility when prototyping and debugging.  The holes come in two
 flavors: quiet and noisy.  The difference between the two is that
-noisy holes will cause an error while typechecking which will describe
-what the type system believes to may be substituted for the holes,
-whereas quiet holes will not cause an error so long as a valid
-substitution is found.  The syntax for a quiet hole is a single
-underscore (``_``) and for a noisy hole a double underscore (``__``).
+noisy holes will cause an error which will describe what the type
+system believes may be a valid substitution for the holes, whereas
+quiet holes will not cause an error so long as a valid substitution is
+found.  The syntax for a quiet hole is a single underscore (``_``) and
+for a noisy hole a double underscore (``__``).
 
 A common example is in function parameter lists.  One may drop off the
 types as in the following: ::
@@ -234,6 +237,8 @@ For instance, ::
 
   B :: __  := (G^T * G :: __)^(-1) * G^T;
 
+to get the types of ``B`` and of ``G^T * G``.
+
 Type system
 -----------
 
@@ -242,9 +247,22 @@ The void type is the same as the type of empty tuples.
 Vector types
 ++++++++++++
 
+Compute :math:`v^TAv`
+
+This is a math block
+
+.. math::
+
+   \alpha_t(i) = 2t+i
+
 Modules
 -------
 
 
 Compiler options
 ----------------
+
+There are options to the compiler, which you may discover with
+::
+
+   $ plover -h

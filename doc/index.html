@@ -6,7 +6,808 @@
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
 <title>Plover</title>
 <meta name="authors" content="Scott Kovach  Kyle Miller" />
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
 <style type="text/css">
+
+/*! normalize.css v2.1.3 | MIT License | git.io/normalize */
+
+/* ==========================================================================
+   HTML5 display definitions
+   ========================================================================== */
+
+/**
+ * Correct `block` display not defined in IE 8/9.
+ */
+
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+hgroup,
+main,
+nav,
+section,
+summary {
+    display: block;
+}
+
+/**
+ * Correct `inline-block` display not defined in IE 8/9.
+ */
+
+audio,
+canvas,
+video {
+    display: inline-block;
+}
+
+/**
+ * Prevent modern browsers from displaying `audio` without controls.
+ * Remove excess height in iOS 5 devices.
+ */
+
+audio:not([controls]) {
+    display: none;
+    height: 0;
+}
+
+/**
+ * Address `[hidden]` styling not present in IE 8/9.
+ * Hide the `template` element in IE, Safari, and Firefox < 22.
+ */
+
+[hidden],
+template {
+    display: none;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+/**
+ * 1. Set default font family to sans-serif.
+ * 2. Prevent iOS text size adjust after orientation change, without disabling
+ *    user zoom.
+ */
+
+html {
+    font-family: sans-serif; /* 1 */
+    -ms-text-size-adjust: 100%; /* 2 */
+    -webkit-text-size-adjust: 100%; /* 2 */
+}
+
+/**
+ * Remove default margin.
+ */
+
+body {
+    margin: 0;
+}
+
+/* ==========================================================================
+   Links
+   ========================================================================== */
+
+/**
+ * Remove the gray background color from active links in IE 10.
+ */
+
+a {
+    background: transparent;
+}
+
+/**
+ * Address `outline` inconsistency between Chrome and other browsers.
+ */
+
+a:focus {
+    outline: thin dotted;
+}
+
+/**
+ * Improve readability when focused and also mouse hovered in all browsers.
+ */
+
+a:active,
+a:hover {
+    outline: 0;
+}
+
+/* ==========================================================================
+   Typography
+   ========================================================================== */
+
+/**
+ * Address variable `h1` font-size and margin within `section` and `article`
+ * contexts in Firefox 4+, Safari 5, and Chrome.
+ */
+
+h1 {
+    font-size: 2em;
+    margin: 0.67em 0;
+}
+
+/**
+ * Address styling not present in IE 8/9, Safari 5, and Chrome.
+ */
+
+abbr[title] {
+    border-bottom: 1px dotted;
+}
+
+/**
+ * Address style set to `bolder` in Firefox 4+, Safari 5, and Chrome.
+ */
+
+b,
+strong {
+    font-weight: bold;
+}
+
+/**
+ * Address styling not present in Safari 5 and Chrome.
+ */
+
+dfn {
+    font-style: italic;
+}
+
+/**
+ * Address differences between Firefox and other browsers.
+ */
+
+hr {
+    -moz-box-sizing: content-box;
+    box-sizing: content-box;
+    height: 0;
+}
+
+/**
+ * Address styling not present in IE 8/9.
+ */
+
+mark {
+    background: #ff0;
+    color: #000;
+}
+
+/**
+ * Correct font family set oddly in Safari 5 and Chrome.
+ */
+
+code,
+kbd,
+pre,
+samp {
+    font-family: monospace, serif;
+    font-size: 1em;
+}
+
+/**
+ * Improve readability of pre-formatted text in all browsers.
+ */
+
+pre {
+    white-space: pre-wrap;
+}
+
+/**
+ * Set consistent quote types.
+ */
+
+q {
+    quotes: "\201C" "\201D" "\2018" "\2019";
+}
+
+/**
+ * Address inconsistent and variable font size in all browsers.
+ */
+
+small {
+    font-size: 80%;
+}
+
+/**
+ * Prevent `sub` and `sup` affecting `line-height` in all browsers.
+ */
+
+sub,
+sup {
+    font-size: 75%;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+}
+
+sup {
+    top: -0.5em;
+}
+
+sub {
+    bottom: -0.25em;
+}
+
+/* ==========================================================================
+   Embedded content
+   ========================================================================== */
+
+/**
+ * Remove border when inside `a` element in IE 8/9.
+ */
+
+img {
+    border: 0;
+}
+
+/**
+ * Correct overflow displayed oddly in IE 9.
+ */
+
+svg:not(:root) {
+    overflow: hidden;
+}
+
+/* ==========================================================================
+   Figures
+   ========================================================================== */
+
+/**
+ * Address margin not present in IE 8/9 and Safari 5.
+ */
+
+figure {
+    margin: 0;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+/**
+ * Define consistent border, margin, and padding.
+ */
+
+fieldset {
+    border: 1px solid #c0c0c0;
+    margin: 0 2px;
+    padding: 0.35em 0.625em 0.75em;
+}
+
+/**
+ * 1. Correct `color` not being inherited in IE 8/9.
+ * 2. Remove padding so people aren't caught out if they zero out fieldsets.
+ */
+
+legend {
+    border: 0; /* 1 */
+    padding: 0; /* 2 */
+}
+
+/**
+ * 1. Correct font family not being inherited in all browsers.
+ * 2. Correct font size not being inherited in all browsers.
+ * 3. Address margins set differently in Firefox 4+, Safari 5, and Chrome.
+ */
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit; /* 1 */
+    font-size: 100%; /* 2 */
+    margin: 0; /* 3 */
+}
+
+/**
+ * Address Firefox 4+ setting `line-height` on `input` using `!important` in
+ * the UA stylesheet.
+ */
+
+button,
+input {
+    line-height: normal;
+}
+
+/**
+ * Address inconsistent `text-transform` inheritance for `button` and `select`.
+ * All other form control elements do not inherit `text-transform` values.
+ * Correct `button` style inheritance in Chrome, Safari 5+, and IE 8+.
+ * Correct `select` style inheritance in Firefox 4+ and Opera.
+ */
+
+button,
+select {
+    text-transform: none;
+}
+
+/**
+ * 1. Avoid the WebKit bug in Android 4.0.* where (2) destroys native `audio`
+ *    and `video` controls.
+ * 2. Correct inability to style clickable `input` types in iOS.
+ * 3. Improve usability and consistency of cursor style between image-type
+ *    `input` and others.
+ */
+
+button,
+html input[type="button"], /* 1 */
+input[type="reset"],
+input[type="submit"] {
+    -webkit-appearance: button; /* 2 */
+    cursor: pointer; /* 3 */
+}
+
+/**
+ * Re-set default cursor for disabled elements.
+ */
+
+button[disabled],
+html input[disabled] {
+    cursor: default;
+}
+
+/**
+ * 1. Address box sizing set to `content-box` in IE 8/9/10.
+ * 2. Remove excess padding in IE 8/9/10.
+ */
+
+input[type="checkbox"],
+input[type="radio"] {
+    box-sizing: border-box; /* 1 */
+    padding: 0; /* 2 */
+}
+
+/**
+ * 1. Address `appearance` set to `searchfield` in Safari 5 and Chrome.
+ * 2. Address `box-sizing` set to `border-box` in Safari 5 and Chrome
+ *    (include `-moz` to future-proof).
+ */
+
+input[type="search"] {
+    -webkit-appearance: textfield; /* 1 */
+    -moz-box-sizing: content-box;
+    -webkit-box-sizing: content-box; /* 2 */
+    box-sizing: content-box;
+}
+
+/**
+ * Remove inner padding and search cancel button in Safari 5 and Chrome
+ * on OS X.
+ */
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+}
+
+/**
+ * Remove inner padding and border in Firefox 4+.
+ */
+
+button::-moz-focus-inner,
+input::-moz-focus-inner {
+    border: 0;
+    padding: 0;
+}
+
+/**
+ * 1. Remove default vertical scrollbar in IE 8/9.
+ * 2. Improve readability and alignment in all browsers.
+ */
+
+textarea {
+    overflow: auto; /* 1 */
+    vertical-align: top; /* 2 */
+}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+/**
+ * Remove most spacing between table cells.
+ */
+
+table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+</style>
+<style type="text/css">
+
+.highlight .hll { background-color: #ffffcc }
+.highlight  { background: #f0f3f3; }
+.highlight .c { color: #0099FF; font-style: italic } /* Comment */
+.highlight .err { color: #AA0000; background-color: #FFAAAA } /* Error */
+.highlight .k { color: #006699; font-weight: bold } /* Keyword */
+.highlight .o { color: #555555 } /* Operator */
+.highlight .cm { color: #0099FF; font-style: italic } /* Comment.Multiline */
+.highlight .cp { color: #009999 } /* Comment.Preproc */
+.highlight .c1 { color: #0099FF; font-style: italic } /* Comment.Single */
+.highlight .cs { color: #0099FF; font-weight: bold; font-style: italic } /* Comment.Special */
+.highlight .gd { background-color: #FFCCCC; border: 1px solid #CC0000 } /* Generic.Deleted */
+.highlight .ge { font-style: italic } /* Generic.Emph */
+.highlight .gr { color: #FF0000 } /* Generic.Error */
+.highlight .gh { color: #003300; font-weight: bold } /* Generic.Heading */
+.highlight .gi { background-color: #CCFFCC; border: 1px solid #00CC00 } /* Generic.Inserted */
+.highlight .go { color: #AAAAAA } /* Generic.Output */
+.highlight .gp { color: #000099; font-weight: bold } /* Generic.Prompt */
+.highlight .gs { font-weight: bold } /* Generic.Strong */
+.highlight .gu { color: #003300; font-weight: bold } /* Generic.Subheading */
+.highlight .gt { color: #99CC66 } /* Generic.Traceback */
+.highlight .kc { color: #006699; font-weight: bold } /* Keyword.Constant */
+.highlight .kd { color: #006699; font-weight: bold } /* Keyword.Declaration */
+.highlight .kn { color: #006699; font-weight: bold } /* Keyword.Namespace */
+.highlight .kp { color: #006699 } /* Keyword.Pseudo */
+.highlight .kr { color: #006699; font-weight: bold } /* Keyword.Reserved */
+.highlight .kt { color: #007788; font-weight: bold } /* Keyword.Type */
+.highlight .m { color: #FF6600 } /* Literal.Number */
+.highlight .s { color: #CC3300 } /* Literal.String */
+.highlight .na { color: #330099 } /* Name.Attribute */
+.highlight .nb { color: #336666 } /* Name.Builtin */
+.highlight .nc { color: #00AA88; font-weight: bold } /* Name.Class */
+.highlight .no { color: #336600 } /* Name.Constant */
+.highlight .nd { color: #9999FF } /* Name.Decorator */
+.highlight .ni { color: #999999; font-weight: bold } /* Name.Entity */
+.highlight .ne { color: #CC0000; font-weight: bold } /* Name.Exception */
+.highlight .nf { color: #CC00FF } /* Name.Function */
+.highlight .nl { color: #9999FF } /* Name.Label */
+.highlight .nn { color: #00CCFF; font-weight: bold } /* Name.Namespace */
+.highlight .nt { color: #330099; font-weight: bold } /* Name.Tag */
+.highlight .nv { color: #003333 } /* Name.Variable */
+.highlight .ow { color: #000000; font-weight: bold } /* Operator.Word */
+.highlight .w { color: #bbbbbb } /* Text.Whitespace */
+.highlight .mf { color: #FF6600 } /* Literal.Number.Float */
+.highlight .mh { color: #FF6600 } /* Literal.Number.Hex */
+.highlight .mi { color: #FF6600 } /* Literal.Number.Integer */
+.highlight .mo { color: #FF6600 } /* Literal.Number.Oct */
+.highlight .sb { color: #CC3300 } /* Literal.String.Backtick */
+.highlight .sc { color: #CC3300 } /* Literal.String.Char */
+.highlight .sd { color: #CC3300; font-style: italic } /* Literal.String.Doc */
+.highlight .s2 { color: #CC3300 } /* Literal.String.Double */
+.highlight .se { color: #CC3300; font-weight: bold } /* Literal.String.Escape */
+.highlight .sh { color: #CC3300 } /* Literal.String.Heredoc */
+.highlight .si { color: #AA0000 } /* Literal.String.Interpol */
+.highlight .sx { color: #CC3300 } /* Literal.String.Other */
+.highlight .sr { color: #33AAAA } /* Literal.String.Regex */
+.highlight .s1 { color: #CC3300 } /* Literal.String.Single */
+.highlight .ss { color: #FFCC33 } /* Literal.String.Symbol */
+.highlight .bp { color: #336666 } /* Name.Builtin.Pseudo */
+.highlight .vc { color: #003333 } /* Name.Variable.Class */
+.highlight .vg { color: #003333 } /* Name.Variable.Global */
+.highlight .vi { color: #003333 } /* Name.Variable.Instance */
+.highlight .il { color: #FF6600 } /* Literal.Number.Integer.Long */
+
+.type-csharp .highlight .k { color: #0000FF }
+.type-csharp .highlight .kt { color: #0000FF }
+.type-csharp .highlight .nf { color: #000000; font-weight: normal }
+.type-csharp .highlight .nc { color: #2B91AF }
+.type-csharp .highlight .nn { color: #000000 }
+.type-csharp .highlight .s { color: #A31515 }
+.type-csharp .highlight .sc { color: #A31515 }
+
+</style>
+<style type="text/css">
+
+/****
+Adapted from Slate Theme for GitHub Pages and David Goodger's html4css1.css
+****/
+
+*, *:before, *:after {
+  -moz-box-sizing: border-box;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+
+body {
+  color:#373737;
+  background: #212121;
+  font-size: 18px;
+  font-family: 'Myriad Pro', Calibri, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 10px 0;
+  font-weight: 700;
+  color:#222222;
+  font-family: 'Lucida Grande', 'Calibri', Helvetica, Arial, sans-serif;
+  letter-spacing: -1px;
+}
+
+h1 {
+  font-size: 36px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 32px;
+}
+
+h3 {
+  font-size: 24px;
+}
+
+h4 {
+  font-size: 21px;
+}
+
+h5 {
+  font-size: 18px;
+}
+
+h6 {
+  font-size: 16px;
+}
+
+p {
+  font-size: 18px;
+  margin: 10px 0 15px 0;
+}
+
+footer p, footer table {
+  color: #f2f2f2;
+}
+footer table.docinfo th.docinfo-name {
+
+}
+
+a {
+  text-decoration: none;
+  color: #007edf;
+  text-shadow: none;
+}
+
+a:hover, a:focus {text-decoration: underline;}
+
+footer a {
+  color: #F2F2F2;
+  text-decoration: underline;
+}
+
+em {
+  font-style: italic;
+}
+
+strong {
+  font-weight: bold;
+}
+
+img {
+  position: relative;
+  margin: 0 auto;
+  max-width: 739px;
+  padding: 5px;
+  margin: 10px 0 10px 0;
+  border: 1px solid #ebebeb;
+
+  box-shadow: 0 0 5px #ebebeb;
+  -webkit-box-shadow: 0 0 5px #ebebeb;
+  -moz-box-shadow: 0 0 5px #ebebeb;
+  -o-box-shadow: 0 0 5px #ebebeb;
+  -ms-box-shadow: 0 0 5px #ebebeb;
+}
+
+p img {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+  text-align: center;
+  border: none;
+}
+
+pre, code {
+  width: 100%;
+  color: #222;
+  background-color: #fff;
+
+  font-family: Monaco, "Bitstream Vera Sans Mono", "Lucida Console", Terminal, monospace;
+  font-size: 14px;
+
+  border-radius: 2px;
+  -moz-border-radius: 2px;
+  -webkit-border-radius: 2px;
+
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+}
+
+pre {
+  padding: 10px;
+  overflow: auto;
+}
+
+code {
+  padding: 3px;
+  margin: 0 3px;
+}
+
+pre.code {
+  display: block;
+  box-shadow: none;
+}
+
+blockquote {
+  color: #666;
+  margin: 0 0 20px 2px;
+  padding-left: 20px;
+  border-left: 3px solid #bbb;
+  font-style: italic;
+}
+
+ul, ol, dl {
+  margin: 0 0 15px 0;
+  padding-left: 20px;
+}
+
+dl dt {
+  font-weight: bold;
+}
+
+dl dd {
+  margin-left: 0;
+  padding-left: 0;
+  font-style: italic;
+}
+
+dl p {
+  padding-left: 20px;
+  font-style: italic;
+}
+
+table {
+
+  margin-bottom: 20px;
+  text-align: left;
+
+}
+
+.docinfo tr {
+    display: inline-block;
+    padding-right: 2.2em;
+}
+
+th {
+  font-family: 'Lucida Grande', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+ }
+
+td {
+
+ }
+
+
+
+/*******************************************************************************
+Full-Width Styles
+*******************************************************************************/
+
+.outer {
+  width: 100%;
+}
+
+.inner {
+  position: relative;
+  max-width: 777px; /* jackpot! */
+  padding: 20px 10px;
+  margin: 0 auto;
+}
+
+#forkme_banner {
+  display: block;
+  position: absolute;
+  top:0;
+  right: 10px;
+  z-index: 10;
+  padding: 10px 50px 10px 10px;
+  color: #fff;
+  background: url('blacktocat.png') #0090ff no-repeat 95% 50%;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(0,0,0,.5);
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
+#header_wrap {
+  background: #212121;
+}
+
+#header_wrap .inner {
+  padding: 50px 10px 30px 10px;
+}
+
+.title {
+  margin: 0;
+  color: #fff;
+  font-size: 42px;
+  font-weight: 700;
+  text-shadow: #111 0px 0px 10px;
+}
+
+.subtitle {
+  color: #fff;
+  font-size: 24px;
+  font-weight: 300;
+  background: none;
+  text-shadow: #111 0px 0px 10px;
+}
+
+#main_content_wrap {
+  background: #f2f2f2;
+  border-top: 1px solid #111;
+  border-bottom: 1px solid #111;
+}
+
+#main_content {
+  padding-top: 40px;
+}
+
+#footer_wrap {
+  background: #212121;
+}
+
+/*******************************************************************************
+Small Device Styles
+*******************************************************************************/
+
+@media screen and (max-width: 480px) {
+  body {
+    font-size:14px;
+  }
+
+  #downloads {
+    display: none;
+  }
+
+  .inner {
+    min-width: 320px;
+    max-width: 480px;
+  }
+
+  #project_title {
+  font-size: 32px;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  h2 {
+    font-size: 24px;
+  }
+
+  h3 {
+    font-size: 21px;
+  }
+
+  h4 {
+    font-size: 18px;
+  }
+
+  h5 {
+    font-size: 14px;
+  }
+
+  h6 {
+    font-size: 12px;
+  }
+
+  code, pre {
+    min-width: 320px;
+    max-width: 480px;
+    font-size: 11px;
+  }
+}
+
+/*****
+ End small device styles
+****/
 
 /*
 :Author: David Goodger (goodger@python.org)
@@ -153,12 +954,6 @@ h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
 h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
   margin-top: 0.4em }
 
-h1.title {
-  text-align: center }
-
-h2.subtitle {
-  text-align: center }
-
 hr.docutils {
   width: 75% }
 
@@ -250,7 +1045,7 @@ pre.address {
   margin-top: 0 ;
   font: inherit }
 
-pre.literal-block, pre.doctest-block, pre.math, pre.code {
+pre.doctest-block, pre.math, pre.code {
   margin-left: 2em ;
   margin-right: 2em }
 
@@ -336,22 +1131,42 @@ h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
 ul.auto-toc {
   list-style-type: none }
 
+/*.contents {
+    float: right;
+    width: 200px;
+    margin-right: -200px;
+}
+*/
+.contents ul {
+    padding-left: 1.5em;
+    list-style-type: square;
+}
 </style>
+<!-- body prefix -->
 </head>
 <body>
 <div class="document" id="plover">
-<h1 class="title">Plover</h1>
-<table class="docinfo" frame="void" rules="none">
-<col class="docinfo-name" />
-<col class="docinfo-content" />
-<tbody valign="top">
-<tr><th class="docinfo-name">Authors:</th>
-<td>Scott Kovach
-<br />Kyle Miller</td></tr>
-<tr class="field"><th class="docinfo-name">Modified:</th><td class="field-body">August 2015</td>
-</tr>
-</tbody>
-</table>
+<!-- body pre docinfo  -->
+<div id="header_wrap" class="outer">
+  <header class="inner">
+    <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
+    <h1 class="title">Plover</h1>
+<h2 class="subtitle" id="a-beautiful-responsive-way-to-tie-your-shoes">A beautiful, responsive way to tie your shoes</h2>
+  </header>
+</div>
+
+<div id="main_content_wrap" class="outer">
+  <section id="main_content" class="inner">
+    <!-- body -->
+    <div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Plover is a programming language designed for compiling linear algebra
+into robust, efficient C code suitable for running on embedded systems.</p>
+<p>Plover generates code free of dynamic memory allocation and provides
+compile-time checking of matrix and vector shapes using a lightweight
+dependent type system.</p>
+<p>Plover also aims to make use of sparse structure present in many
+real-world linear algebra problems to generate more efficient code.</p>
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
@@ -381,18 +1196,9 @@ ul.auto-toc {
 </li>
 </ul>
 </div>
-<div class="section" id="introduction">
-<h1><a class="toc-backref" href="#id1">Introduction</a></h1>
-<p>Plover is a programming language designed for compiling linear algebra
-into robust, efficient C code suitable for running on embedded systems.</p>
-<p>Plover generates code free of dynamic memory allocation and provides
-compile-time checking of matrix and vector shapes using a lightweight
-dependent type system.</p>
-<p>Plover also aims to make use of sparse structure present in many
-real-world linear algebra problems to generate more efficient code.</p>
 </div>
 <div class="section" id="installation">
-<h1><a class="toc-backref" href="#id2">Installation</a></h1>
+<h1>Installation</h1>
 <p>First, install the <a class="reference external" href="https://www.haskell.org/platform/">Haskell Platform</a> (recommended) or another GHC
 7.10+ toolchain of your choice.</p>
 <p>Check out the <tt class="docutils literal">plover</tt> source:</p>
@@ -416,7 +1222,7 @@ $ cabal test --show-details=streaming
 </pre>
 </div>
 <div class="section" id="usage">
-<h1><a class="toc-backref" href="#id3">Usage</a></h1>
+<h1>Usage</h1>
 <p>Plover may be used both as a traditional compilation pass or by using
 Haskell as a macro language.</p>
 <p>For help,</p>
@@ -425,20 +1231,20 @@ $ plover -h
 </pre>
 </div>
 <div class="section" id="tutorial">
-<h1><a class="toc-backref" href="#id4">Tutorial</a></h1>
+<h1>Tutorial</h1>
 </div>
 <div class="section" id="reference">
-<h1><a class="toc-backref" href="#id5">Reference</a></h1>
+<h1>Reference</h1>
 <div class="section" id="syntax">
-<h2><a class="toc-backref" href="#id6">Syntax</a></h2>
+<h2>Syntax</h2>
 <div class="section" id="sequencing">
-<h3><a class="toc-backref" href="#id7">Sequencing</a></h3>
+<h3>Sequencing</h3>
 <p>Unlike C, everything in Plover is an expression with a value (possibly
 <tt class="docutils literal">void</tt>).  Like C, the semicolon is the expression sequencing
 operator.  Plover treats the final expression in a sequence as the
 value of the sequence.  Hence,</p>
 <pre class="literal-block">
-a; b; c
+(a; b; c)
 </pre>
 <p>has value <tt class="docutils literal">c</tt>, after evaluating <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> (in that order).
 Like other operators, parentheses are used to delimit sequences of
@@ -446,11 +1252,11 @@ expressions (not curly braces, which are instead used to delimit
 implicit function arguments).</p>
 </div>
 <div class="section" id="iteration-constructs">
-<h3><a class="toc-backref" href="#id8">Iteration constructs</a></h3>
+<h3>Iteration constructs</h3>
 <p>There are three basic iteration constructs in Plover: the <tt class="docutils literal">for</tt>
 loop, the <tt class="docutils literal">vec</tt> constructor, and the <tt class="docutils literal">while</tt> loop</p>
 <div class="section" id="for-loop">
-<h4><a class="toc-backref" href="#id9"><tt class="docutils literal">for</tt> loop</a></h4>
+<h4><tt class="docutils literal">for</tt> loop</h4>
 <p>The <tt class="docutils literal">for</tt> loop has the following basic syntax:</p>
 <pre class="literal-block">
 for ${i} in ${range} -&gt; ${body}
@@ -482,7 +1288,7 @@ for i in n, j in m -&gt; printf &quot;(i,j) = (%d,%d)\n&quot; i j;
 result of <tt class="docutils literal">for</tt> is always void.</p>
 </div>
 <div class="section" id="vec-constructor">
-<h4><a class="toc-backref" href="#id10"><tt class="docutils literal">vec</tt> constructor</a></h4>
+<h4><tt class="docutils literal">vec</tt> constructor</h4>
 <p>The <tt class="docutils literal">vec</tt> constructor has the same syntax as <tt class="docutils literal">for</tt>, and it
 accumulates the values of the iteration as a location.  No guarantee
 is made on the number of times any of the expressions in a <tt class="docutils literal">vec</tt>
@@ -495,7 +1301,7 @@ I := vec i in n, j in n -&gt; if i == j then 1 else 0;
 </pre>
 </div>
 <div class="section" id="while-loop">
-<h4><a class="toc-backref" href="#id11"><tt class="docutils literal">while</tt> loop</a></h4>
+<h4><tt class="docutils literal">while</tt> loop</h4>
 <p>The <tt class="docutils literal">while</tt> loop is for iterating while a boolean condition remains
 true.  There are two forms:</p>
 <pre class="literal-block">
@@ -513,7 +1319,7 @@ expression.</p>
 <p>For instance, to binary search an array for a <tt class="docutils literal">u8</tt> key:</p>
 <pre class="literal-block">
 binary_search {n} (A :: u8[n]) (key :: u8) :: int
-  := ( imin := 0; imax := 0;
+  := ( imin := 0; imax := n;
        while (imax &gt;= imin) -&gt; (
          imid := imin + (imax - imin) / 2;
          if A[imid] == key then
@@ -547,17 +1353,17 @@ rand_normal() :: double
 </div>
 </div>
 <div class="section" id="value-and-type-holes">
-<h3><a class="toc-backref" href="#id12">Value and type holes</a></h3>
+<h3>Value and type holes</h3>
 <p>The Plover language supports introducing holes into a program which,
 depending on context, may in some circumstances be filled during
 normal typechecking.  This feature allows a programmer some
 flexibility when prototyping and debugging.  The holes come in two
 flavors: quiet and noisy.  The difference between the two is that
-noisy holes will cause an error while typechecking which will describe
-what the type system believes to may be substituted for the holes,
-whereas quiet holes will not cause an error so long as a valid
-substitution is found.  The syntax for a quiet hole is a single
-underscore (<tt class="docutils literal">_</tt>) and for a noisy hole a double underscore (<tt class="docutils literal">__</tt>).</p>
+noisy holes will cause an error which will describe what the type
+system believes may be a valid substitution for the holes, whereas
+quiet holes will not cause an error so long as a valid substitution is
+found.  The syntax for a quiet hole is a single underscore (<tt class="docutils literal">_</tt>) and
+for a noisy hole a double underscore (<tt class="docutils literal">__</tt>).</p>
 <p>A common example is in function parameter lists.  One may drop off the
 types as in the following:</p>
 <pre class="literal-block">
@@ -574,22 +1380,56 @@ For instance,</p>
 <pre class="literal-block">
 B :: __  := (G^T * G :: __)^(-1) * G^T;
 </pre>
+<p>to get the types of <tt class="docutils literal">B</tt> and of <tt class="docutils literal">G^T * G</tt>.</p>
 </div>
 </div>
 <div class="section" id="type-system">
-<h2><a class="toc-backref" href="#id13">Type system</a></h2>
+<h2>Type system</h2>
 <p>The void type is the same as the type of empty tuples.</p>
 <div class="section" id="vector-types">
-<h3><a class="toc-backref" href="#id14">Vector types</a></h3>
+<h3>Vector types</h3>
+<p>Compute <span class="math">\(v^TAv\)</span></p>
+<p>This is a math block</p>
+<div class="math">
+\begin{equation*}
+\alpha_t(i) = 2t+i
+\end{equation*}
+</div>
 </div>
 </div>
 <div class="section" id="modules">
-<h2><a class="toc-backref" href="#id15">Modules</a></h2>
+<h2>Modules</h2>
 </div>
 <div class="section" id="compiler-options">
-<h2><a class="toc-backref" href="#id16">Compiler options</a></h2>
+<h2>Compiler options</h2>
+<p>There are options to the compiler, which you may discover with</p>
+<pre class="literal-block">
+$ plover -h
+</pre>
 </div>
 </div>
+
+  </section>
+</div>
+
+<div id="footer_wrap" class="outer">
+  <footer class="inner">
+    <!-- docinfo -->
+    <table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Authors:</th>
+<td>Scott Kovach
+<br />Kyle Miller</td></tr>
+<tr class="field"><th class="docinfo-name">Modified:</th><td class="field-body">August 2015</td>
+</tr>
+</tbody>
+</table>
+  </footer>
+</div>
+
+<!-- body suffix -->
 </div>
 </body>
 </html>
