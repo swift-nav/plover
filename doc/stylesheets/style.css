@@ -147,8 +147,8 @@ blockquote {
 }
 
 ul, ol, dl {
-  margin: 0 0 15px 0;
-  padding-left: 20px;
+/*  margin: 0 0 15px 0;*/
+  padding-left: 35px;
 }
 
 dl dt {
@@ -306,7 +306,7 @@ Small Device Styles
   code, pre {
     min-width: 320px;
     max-width: 480px;
-    font-size: 11px;
+    font-size: 9px;
   }
 }
 
