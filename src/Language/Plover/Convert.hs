@@ -17,10 +17,12 @@ data ConvertError = ConvertError !SourcePos [String]
 
 makePos :: Expr -> SourcePos
 makePos (PExpr tag _) = makePos' tag
-  where makePos' NoTag = newPos "<unknown>" (-1) (-1)
-        makePos' (Tag a _) = a
-        makePos' (ProvTag _ mt) = makePos' mt
-        makePos' (MergeTags {}) = error "Unexpected MergeTags in makePos (parser doesn't generate these)"
+
+makePos' :: Tag SourcePos -> SourcePos
+makePos' NoTag = newPos "<unknown>" (-1) (-1)
+makePos' (Tag a _) = a
+makePos' (ProvTag _ mt) = makePos' mt
+makePos' (MergeTags {}) = error "Unexpected MergeTags in makePos (parser doesn't generate these)"
 
 makeExpr :: Expr -> Either ConvertError T.CExpr
 makeExpr exp@(PExpr pos e') = case e' of
@@ -91,21 +93,10 @@ makeExpr exp@(PExpr pos e') = case e' of
   Tuple xs -> T.TupleLit pos <$> mapM makeExpr xs
   Range {} -> T.RangeVal pos <$> makeRange exp
 
-  App (PExpr _ (Ref v)) args | v `elem` ["not", "sum", "diag", "shape"] -> builtinFunc v args
-    where builtinFunc "not" args = do [a] <- exArgs (makePos exp) args 1
-                                      return $ T.Unary pos T.Not a
-          builtinFunc "sum" args = do [a] <- exArgs (makePos exp) args 1
-                                      return $ T.Unary pos T.Sum a
-          builtinFunc "diag" args = do [a] <- exArgs (makePos exp) args 1
-                                       return $ T.Unary pos T.Diag a
-          builtinFunc "shape" args = do [a] <- exArgs (makePos exp) args 1
-                                        return $ T.Unary pos T.Shape a
-  App f args -> case Left True of --makeType f
-    Left {} -> T.App pos <$> makeExpr f <*> (forM args' $ \arg -> case arg of
-                                               Arg a -> T.Arg <$> makeExpr a
-                                               ImpArg a -> T.ImpArg <$> makeExpr a)
-    Right ty -> do [a] <- exArgs (makePos exp) args 1
-                   return $ T.CastType pos a ty
+  App (PExpr _ (Ref v)) args | Just f <- lookup v builtinFuncs  -> f pos args
+  App f args -> T.App pos <$> makeExpr f <*> (forM args' $ \arg -> case arg of
+                                                Arg a -> T.Arg <$> makeExpr a
+                                                ImpArg a -> T.ImpArg <$> makeExpr a)
     where args' = filter novoid args
           novoid (Arg (PExpr _ VoidExpr)) = False
           novoid _ = True
@@ -126,6 +117,26 @@ exArgs pos args n = do args' <- forM args $ \arg ->
                          else Left $ ConvertError pos
                               ["Expecting " ++ show n ++ " argument(s) for builtin function."]
 
+type BuiltinFunc = Tag SourcePos -> [Expr] -> Either ConvertError T.CExpr
+
+builtinUFunc :: (Tag SourcePos -> T.CExpr -> Either ConvertError T.CExpr)
+                -> Tag SourcePos -> [Arg Expr] -> Either ConvertError T.CExpr
+builtinUFunc f pos args = do [a] <- exArgs (makePos' pos) args 1
+                             f pos a
+builtinBFunc :: (Tag SourcePos -> T.CExpr -> T.CExpr -> Either ConvertError T.CExpr)
+                -> Tag SourcePos -> [Arg Expr] -> Either ConvertError T.CExpr
+builtinBFunc f pos args = do [a, b] <- exArgs (makePos' pos) args 2
+                             f pos a b
+
+
+builtinFuncs = [ ("not", builtinUFunc (\pos arg -> return $ T.Unary pos T.Not arg))
+               , ("sum", builtinUFunc (\pos arg -> return $ T.Unary pos T.Sum arg))
+               , ("diag", builtinUFunc (\pos arg -> return $ T.Unary pos T.Diag arg))
+               , ("shape", builtinUFunc (\pos arg -> return $ T.Unary pos T.Shape arg))
+               , ("reshape", builtinBFunc (\pos a b -> return $ T.Binary pos T.Reshape a b))
+               ]
+               ++ [(v, builtinUFunc (\pos arg -> return $ T.Unary pos (T.VecCons st) arg))
+                  | (v, st) <- storageTypeMap]
 
 makeLocation :: Expr -> Either ConvertError (T.Location T.CExpr)
 makeLocation exp@(PExpr pos e') = case e' of
@@ -189,16 +200,20 @@ makeType exp@(PExpr pos e') = case e' of
   NoisyHole -> return $ T.NoisyTypeHole pos
   _ -> Left $ ConvertError (makePos exp) ["Expecting type"]
 
+storageTypeMap :: [(String, T.StorageType)]
+storageTypeMap = [ ("Dense", T.DenseMatrix)
+                 , ("Diagonal", T.DiagonalMatrix)
+                 , ("UpperTriangular", T.UpperTriangular)
+                 , ("UpperUnitTriangular", T.UpperUnitTriangular)
+                 , ("LowerTriangular", T.LowerTriangular)
+                 , ("LowerUnitTriangular", T.LowerUnitTriangular)
+                 , ("Symmetric", T.SymmetricMatrix)
+                 ]
+
 makeTypeFunc :: SourcePos -> String -> [Arg Expr] -> Either ConvertError T.Type
-makeTypeFunc pos v args = case v of
-  "Dense" -> vecStoreType T.DenseMatrix
-  "Diagonal" -> vecStoreType T.DiagonalMatrix
-  "UpperTriangular" -> vecStoreType T.UpperTriangular
-  "UpperUnitTriangular" -> vecStoreType T.UpperUnitTriangular
-  "LowerTriangular" -> vecStoreType T.LowerTriangular
-  "LowerUnitTriangular" -> vecStoreType T.LowerUnitTriangular
-  "Symmetric" -> vecStoreType T.SymmetricMatrix
-  _ -> Left $ ConvertError pos ["Unknown type-level function."]
+makeTypeFunc pos v args
+  | Just st <- lookup v storageTypeMap = vecStoreType st
+  | otherwise = Left $ ConvertError pos ["Unknown type-level function."]
 
   where vecStoreType st = case args of
           [Arg a] -> do aty <- makeType a

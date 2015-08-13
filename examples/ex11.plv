@@ -31,3 +31,8 @@ non_zero {n} (A :: double[n]) :: double
      );
 
 foo (x :: _) :: _ := x + 2.2;
+
+
+
+make_diag {n} (d :: double[n]) :: Diagonal double[n,n]
+  := Diagonal d;

@@ -809,6 +809,22 @@ typeCheck (Unary pos Shape a) = do
         doShape v@(TypeHoleJ _) = do unify pos v (FloatType defaultFloatType)
                                      return 0
         doShape _ = return 0
+typeCheck (Unary pos (VecCons st) a) = do
+  aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
+  case (st,aty) of
+    (DiagonalMatrix, VecType _ [i1] bty) ->
+      do bty' <- arithType pos bty bty -- since we must ensure it's not the next case
+         return $ VecType DiagonalMatrix [i1, i1] bty'
+    (_, VecType _ (i1:_:bnds) bty) ->
+      return $ VecType st [i1,i1] (VecType st bnds bty)
+    _ -> do idx <- HoleJ pos <$> gensym "idx"
+            base <- TypeHoleJ <$> gensym "base"
+            aty' <- unify pos aty (VecType DenseMatrix [idx,idx] base)
+            case aty' of
+              VecType _ (i1:_:bnds) bty -> return $ VecType st [i1,i1]
+                                           (VecType DenseMatrix bnds bty)
+              _ -> do addUError $ UError pos "Matrix constructor expecting vector."
+                      return aty'
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
   | op `elem` [Add, Sub, Hadamard, Div]  = do

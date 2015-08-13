@@ -1226,11 +1226,10 @@ compileStat v@(Unary pos Sum a) = comp
               aloc' <- apIndex aloc i
               compileSum bnds dest' aloc'
 
-compileStat v@(Unary pos Diag a) = defaultAsRValue $ return loc
-  where loc = CmLoc
-              { apIndex = \idx -> do aloc <- asLoc $ compileStat a
-                                     apIndices aloc (replicate numidxs idx)
-              , asArgument = defaultAsArgumentNoOut loc
+compileStat v@(Unary pos Diag a) = defaultAsRValue (loc <$> asLoc (compileStat a))
+  where loc aloc = CmLoc
+              { apIndex = \idx -> apIndices aloc (replicate numidxs idx)
+              , asArgument = defaultAsArgumentNoOut (loc aloc)
               , locType = getType v
               , asRValue = error "Cannot get vectorized unary operation as rvalue"
               , store = error "Cannot store into vectorized unary operation"
@@ -1239,6 +1238,19 @@ compileStat v@(Unary pos Diag a) = defaultAsRValue $ return loc
 
 compileStat v@(Unary pos Shape a) = compileStat $ VecLit pos (IntType defaultIntType) idxs
   where idxs = getIndices $ getType a
+
+compileStat v@(Unary pos (VecCons st) a) = case (st, normalizeTypes $ getType a) of
+  (DiagonalMatrix, VecType _ [i1] bty) -> fromDiagonal a
+  _ -> fromVec a
+
+  where fromDiagonal a = defaultAsRValue $ do aloc <- asLoc $ compileStat a
+                                              loc aloc
+          where loc aloc = deferLoc (getType v) 2 $ \_ [(_, idx), _] -> do
+                  apIndex aloc idx
+        fromVec a = defaultAsRValue $ do aloc <- asLoc $ compileStat a
+                                         loc aloc
+          where loc aloc = deferLoc (getType v) 2 $ \_ [(_, i1), (_, i2)] -> do
+                  apIndices aloc [i1, i2]
 
 -- -- binary
 

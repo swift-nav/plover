@@ -76,11 +76,15 @@ data UnOp = Pos | Neg | Not
           | Diag
           | Sum
           | Shape
+          | VecCons StorageType -- | constructs a vector of a
+                                -- particular storage type from
+                                -- another vector
           deriving (Show, Eq, Ord)
 data BinOp = Add | Sub | Mul | Div | Hadamard
            | Pow | Concat
            | And | Or
            | EqOp | NEqOp | LTOp | LTEOp
+           | Reshape -- | Reshapes the second vector according to the indices of the first
            deriving (Show, Eq, Ord)
 
 data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
@@ -884,6 +888,11 @@ getType (Unary pos Diag a) =
     VecType _ (i1:_) aty' -> VecType DenseMatrix [i1] aty'
     _ -> error "Unary diag not on vector."
 getType (Unary pos Shape a) = VecType DenseMatrix [fromIntegral $ length $ getIndices $ getType a] (IntType defaultIntType)
+getType (Unary pos (VecCons DiagonalMatrix) a) = case normalizeTypes $ getType a of
+  VecType _ [i1] aty -> VecType DiagonalMatrix [i1,i1] aty
+  VecType _ (i1:_:bnds) aty -> VecType DiagonalMatrix [i1,i1] (VecType DenseMatrix bnds aty)
+getType (Unary pos (VecCons st) a) = case normalizeTypes $ getType a of
+  VecType _ (i1:_:bnds) aty -> VecType st [i1,i1] (VecType DenseMatrix bnds aty)
 getType (Unary pos Not a) = BoolType
 getType (Binary pos op a b)
   | op `elem` [Add, Sub, Div, Hadamard] = getVectorizedType aty bty
