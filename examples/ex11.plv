@@ -36,3 +36,9 @@ foo (x :: _) :: _ := x + 2.2;
 
 make_diag {n} (d :: double[n]) :: Diagonal double[n,n]
   := Diagonal d;
+
+mul_diag {n} (A :: Diagonal double[n,n]) (B :: Diagonal double[n,n]) :: Diagonal double[n,n]
+  := Diagonal (A * B);
+
+test {n} (v :: double[n]) (w :: double[n]) :: double[n]
+  := (z := vec i in n -> (ww := 22; v - w;); z[0]);

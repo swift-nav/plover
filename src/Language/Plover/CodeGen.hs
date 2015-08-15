@@ -388,6 +388,10 @@ data CmLoc = CmLoc { apIndex :: C.Exp -> CM CmLoc
                      -- function.  The first is setup for an In
                      -- variable, the second is the expression to
                      -- pass, and the third is for an Out variable.
+                   , prepLoc :: CM CmLoc
+                     -- ^ Creates a location that ensures that each
+                     -- value in the location is evaluated no more
+                     -- than once.
                    , locType :: Type
                      -- ^ gets the type of this location. Every type
                      -- should know its location, and this helps for
@@ -395,7 +399,7 @@ data CmLoc = CmLoc { apIndex :: C.Exp -> CM CmLoc
                    }
 
 
--- | makes a location based on an expression
+-- | makes a location based on an expression.
 expLoc :: Type -> CM C.Exp -> CmLoc
 expLoc ty mexp = case normalizeTypes ty of
   ty'@(VecType {}) -> vecLoc ty'
@@ -408,6 +412,7 @@ expLoc ty mexp = case normalizeTypes ty of
                        , asRValue = compPureExpr ty mexp
                        , asArgument = do exp <- mexp
                                          return ([], exp, [])
+                       , prepLoc = return $ simpleLoc ty
                        , locType = ty
                        }
         vecLoc vty = CmLoc
@@ -417,8 +422,28 @@ expLoc ty mexp = case normalizeTypes ty of
                      , asRValue = error "Cannot get expLoc vector as R value"
                      , asArgument = do exp <- mexp
                                        asArgument (mkVecLoc vty exp)
+                     , prepLoc = do exp <- mexp
+                                    prepLoc (mkVecLoc vty exp)
                      , locType = ty
                      }
+
+-- | Creates a location like in expLoc, but will spill on prepLoc
+-- (useful for function calls)
+sensitiveExpLoc :: Type -> CM C.Exp -> CmLoc
+sensitiveExpLoc ty mexp = case normalizeTypes ty of
+  ty'@(VecType {}) -> expLoc ty mexp
+  ty' -> simpleLoc ty'
+
+  where simpleLoc ty = CmLoc
+                       { apIndex = error "Cannot apIndex simple sensitiveExpLoc"
+                       , store = \v -> do exp <- mexp
+                                          writeCode [citems| $exp = $v; |]
+                       , asRValue = compPureExpr ty mexp
+                       , asArgument = do exp <- mexp
+                                         return ([], exp, [])
+                       , prepLoc = spillLoc $ simpleLoc ty
+                       , locType = ty
+                       }
 
 -- | takes a C identifier and makes a simple-valued location
 refLoc :: Type -> String -> CmLoc
@@ -484,6 +509,7 @@ mkVecLoc' array offset vty@(VecType storageType bnds baseTy) = collectIdxs [] bn
           , store = \exp -> buildLoc acc >>= flip store exp
           , asRValue = defaultAsRValue (buildLoc acc)
           , asArgument = buildLoc acc >>= asArgument
+          , prepLoc = buildLoc acc >>= prepLoc
           , locType = baseTy
           }
         collectIdxs acc (bnd:bnds) = CmLoc {
@@ -495,6 +521,7 @@ mkVecLoc' array offset vty@(VecType storageType bnds baseTy) = collectIdxs [] bn
              [] -> do absOffset <- mabsOffset
                       return ([], applyOffsetAddr array absOffset, [])
              _ -> error "partial application asArgument unimplemented"
+          , prepLoc = return $ collectIdxs acc (bnd:bnds)
           , locType = case acc of
                         [] -> VecType storageType (bnd:bnds) baseTy
                         _ -> VecType DenseMatrix (bnd:bnds) baseTy
@@ -549,6 +576,29 @@ indexStorage SymmetricMatrix [(w, i), (_, j)] subLoc =
         bty = vecBaseType vty
         uninit = compileUninit bty
 
+castStorage st loc = deferLocPrep [loc] (locType loc) 2 (casted st)
+  where casted DenseMatrix [loc] vty [(_, i), (_, j)] =
+          apIndices loc [i, j]
+        casted DiagonalMatrix [loc] vty [(_, i), (_, j)] =
+          if i == j -- this check is so that storeLoc can give better code
+          then apIndices loc [i, i]
+          else do loc' <- apIndices loc [i, j]
+                  return $ condLoc [cexp| $i == $j |] loc' (zero vty)
+        casted LowerTriangular [loc] vty [(_, i), (_, j)] =
+          do loc' <- apIndices loc [i, j]
+             return $ condLoc [cexp| $i + 1 > $j|] loc' (zero vty)
+        casted UpperTriangular [loc] vty [(_, i), (_, j)] =
+          do loc' <- apIndices loc [i, j]
+             return $ condLoc [cexp| $j + 1 > $i|] loc' (zero vty)
+        casted SymmetricMatrix [loc] vty [(_, i), (_, j)] =
+          do loc' <- apIndices loc [i, j]
+             loc'' <- apIndices loc [j, i]
+             return $ condLoc [cexp| $i + 1 > $j|] loc' loc''
+
+        zero vty = let bty = vecBaseType vty
+                       uninit = compileUninit bty
+                   in constLoc vty uninit
+
 -- | A location which is a constant, pure value.  Accepts storing of
 -- simple values by ignoring.
 constLoc :: Type -> C.Exp -> CmLoc
@@ -561,12 +611,14 @@ constLoc ty exp = constLoc' ty
                       , store = error "no store in vec constLoc"
                       , asRValue = error "no asRValue in vec constLoc"
                       , asArgument = defaultAsArgument loc
+                      , prepLoc = return loc
                       , locType = vty }
         constLoc' ty = CmLoc
                        { apIndex = error "no apIndex in simple constLoc"
                        , store = \v -> return ()
                        , asRValue = compPureExpr ty (return exp)
                        , asArgument = return ([], exp, [])
+                       , prepLoc = return $ constLoc' ty
                        , locType = ty }
 
 -- | If the expression is true, then it's the first location.
@@ -584,6 +636,9 @@ condLoc cond cons alt = condLoc' (locType cons) cons alt
                       , store = error "no store in vec condLoc"
                       , asRValue = error "no asRValue in vec condLoc"
                       , asArgument = defaultAsArgument loc
+                      , prepLoc = do cons' <- prepLoc cons
+                                     alt' <- prepLoc alt
+                                     return $ condLoc' vty cons' alt'
                       , locType = vty }
         condLoc' ty cons alt = loc
           where loc = CmLoc {
@@ -593,6 +648,7 @@ condLoc cond cons alt = condLoc' (locType cons) cons alt
                                      mkIf cond consSt altSt
                   , asRValue = comp
                   , asArgument = defaultAsArgument loc
+                  , prepLoc = spillLoc loc
                   , locType = ty }
 
                 cons' = asRValue cons
@@ -622,6 +678,7 @@ partialLoc ty loc n f = return ploc
                , store = error $ "Cannot simple store into partialLoc"
                , asRValue = error "Cannot get partialLoc asRValue"
                , asArgument = defaultAsArgument ploc
+               , prepLoc = spillLoc ploc
                , locType = ty
                }
         VecType _ (bnd:bnds) bty = normalizeTypes ty
@@ -640,10 +697,30 @@ deferLoc ty n f = deferLoc' [] ty n
                        , store = error $ "Cannot simple store into deferLoc"
                        , asRValue = error $ "Cannot get deferLoc asRValue"
                        , asArgument = defaultAsArgument dloc
+                       , prepLoc = spillLoc dloc
                        , locType = ty
                        }
                 VecType _ (bnd:bnds) bty = normalizeTypes ty
                 ty' = normalizeTypes $ VecType DenseMatrix bnds bty
+
+-- | Like `deferLoc`, but takes a location which will be prepped when prepLoc is called.
+deferLocPrep :: [CmLoc] -> Type -> Int -> ([CmLoc] -> Type -> [(C.Exp, C.Exp)] -> CM CmLoc) -> CM CmLoc
+deferLocPrep loc ty n f = deferLoc' loc [] ty n
+  where deferLoc' loc acc ty 0 = f loc ty (reverse acc)
+        deferLoc' loc acc ty n = return dloc
+          where dloc = CmLoc
+                       { apIndex = \idx -> do bndex <- asExp $ compileStat bnd
+                                              deferLoc' loc ((bndex, idx):acc) ty' (n - 1)
+                       , store = error $ "Cannot simple store into deferLoc"
+                       , asRValue = error $ "Cannot get deferLoc asRValue"
+                       , asArgument = defaultAsArgument dloc
+                       , prepLoc = do loc' <- mapM prepLoc loc
+                                      deferLoc' loc acc ty n
+                       , locType = ty
+                       }
+                VecType _ (bnd:bnds) bty = normalizeTypes ty
+                ty' = normalizeTypes $ VecType DenseMatrix bnds bty
+
 
 -- | Applies a list of indices to a location.
 apIndices :: CmLoc -> [C.Exp] -> CM CmLoc
@@ -660,6 +737,8 @@ liftLoc ty loc (bnd:bnds) = lloc
                  , store = error "Cannot store into liftLoc"
                  , asRValue = error "Cannot get liftLoc asRValue"
                  , asArgument = defaultAsArgument lloc
+                 , prepLoc = do loc' <- prepLoc loc
+                                return $ liftLoc ty loc' (bnd:bnds)
                  , locType = VecType DenseMatrix (bnd:bnds) ty
                  }
 
@@ -671,6 +750,8 @@ offsetLoc ty loc offset = oloc
                  , store = error "Cannot store into offsetLoc"
                  , asRValue = error "Cannot get offsetLoc asRValue"
                  , asArgument = defaultAsArgument oloc
+                 , prepLoc = do loc' <- prepLoc loc
+                                return $ offsetLoc ty loc' offset
                  , locType = ty
                  }
 
@@ -702,7 +783,7 @@ defaultAsLoc ty comp = do loc <- freshLoc "loc" ty
 -- | uses asExp
 defaultAsLocFromAsExp :: Type -> Compiled -> CM CmLoc
 defaultAsLocFromAsExp ty comp = do exp <- asExp comp
-                                   return $ expLoc ty (return exp)
+                                   return $ sensitiveExpLoc ty (return exp)
 
 -- | uses asRValue and apIndex.  Just spills the thing into a new
 -- location.
@@ -719,16 +800,11 @@ defaultAsArgumentNoOut loc = do floc <- freshLoc "arg" (locType loc)
                                 (bef, exp, _) <- asArgument floc
                                 return (stbef ++ bef, exp, [])
 
+-- | Spills a location to a fresh location. Useful for prepLoc.
 spillLoc :: CmLoc -> CM CmLoc
 spillLoc loc = do sloc <- freshLoc "tmp" (locType loc)
                   storeLoc sloc loc
                   return sloc
-
-                  -- This doesn't work because `exp` does not expect
-                  -- being used more than once:
-                  --(bl, exp, _) <- asArgument loc
-                  --writeCode bl
-                  --return $ expLoc (locType loc) (return exp)
 
 storeExp :: CmLoc -> C.Exp -> CM ()
 storeExp dst exp = case normalizeTypes (locType dst) of
@@ -859,6 +935,7 @@ compileStat e@(Vec pos v range@(Range cstart cend cstep) exp) = comp
               , store = error "Cannot store into Vec"
               , asRValue = error "cannot asRValue Vec"
               , asArgument = defaultAsArgumentNoOut $ loc start step
+              , prepLoc = spillLoc $ loc start step
               , locType = ty
               }
           where idxexp idx = getOffset $ shiftOffset (Offset idx) step (Just start)
@@ -952,6 +1029,7 @@ compileStat exp@(RangeVal _ range) = comp
               , asRValue = error "cannot asRValue rangeval"
               , asArgument = do ex <- asExp comp
                                 return ([], ex, [])
+              , prepLoc = return loc
               , locType = ty
               }
 
@@ -1019,7 +1097,7 @@ compileStat (Let _ v val x) = comp
                { withDest = \dest -> makeLet $ withDest (compileStat x) dest
                , noValue = makeLet $ noValue $ compileStat x
                , asExp = makeLet $ asExp $ compileStat x
-               , asLoc = defaultAsLoc xty comp
+               , asLoc = makeLet $ asLoc $ compileStat x -- this will work because it is a blockless scope.
                }
         xty = normalizeTypes $ getType x
         makeLet m =
@@ -1124,7 +1202,7 @@ compileStat v@(Addr pos loc) = comp
                , noValue = defaultNoValue (getType v) comp
                , withDest = defaultWithDest (getType v) comp
                , asLoc = do ex <- asExp $ comp
-                            return $ expLoc (getType v) (return ex)
+                            return $ sensitiveExpLoc (getType v) (return ex)
                }
 
 compileStat (Set pos loc v) = comp
@@ -1163,6 +1241,8 @@ compileStat v@(Unary _ op a)
                        , asArgument = defaultAsArgumentNoOut loc2
                        , locType = normalizeTypes vty
                        , asRValue = error "Cannot get vectorized unary operation as rvalue"
+                       , prepLoc = do loc' <- prepLoc loc
+                                      asLoc $ compileVectorized vty loc'
                        , store = error "Cannot store into vectorized unary operation"
                        }
         compileVectorized vty loc = compPureExpr vty $ opExp <$> (asExp $ asRValue loc)
@@ -1193,13 +1273,15 @@ compileStat v@(Unary _ Transpose a) = defaultAsRValue $ case aty of
 
         makeRowVector (VecType _ [bnd] bty) a = do
           aloc <- asLoc $ compileStat a
-          deferLoc (VecType DenseMatrix [1, bnd] bty) 2 $ \_ [_, (_, idx)] -> do
-            apIndex aloc idx
+          deferLocPrep [aloc] (VecType DenseMatrix [1, bnd] bty) 2 $
+            \[aloc] _ [_, (_, idx)] -> do
+              apIndex aloc idx
 
         makeMatrixTranspose (VecType _ (bnd1:bnd2:bnds) bty) a = do
           aloc <- asLoc $ compileStat a
-          deferLoc (VecType DenseMatrix (bnd2:bnd1:bnds) bty) 2 $ \_ [(_, idx2), (_, idx1)] -> do
-            apIndices aloc [idx1, idx2]
+          deferLocPrep [aloc] (VecType DenseMatrix (bnd2:bnd1:bnds) bty) 2 $
+            \[aloc] _ [(_, idx2), (_, idx1)] -> do
+              apIndices aloc [idx1, idx2]
 
 compileStat v@(Unary pos Sum a) = comp
   where comp = Compiled
@@ -1230,6 +1312,7 @@ compileStat v@(Unary pos Diag a) = defaultAsRValue (loc <$> asLoc (compileStat a
   where loc aloc = CmLoc
               { apIndex = \idx -> apIndices aloc (replicate numidxs idx)
               , asArgument = defaultAsArgumentNoOut (loc aloc)
+              , prepLoc = spillLoc $ loc aloc
               , locType = getType v
               , asRValue = error "Cannot get vectorized unary operation as rvalue"
               , store = error "Cannot store into vectorized unary operation"
@@ -1239,18 +1322,16 @@ compileStat v@(Unary pos Diag a) = defaultAsRValue (loc <$> asLoc (compileStat a
 compileStat v@(Unary pos Shape a) = compileStat $ VecLit pos (IntType defaultIntType) idxs
   where idxs = getIndices $ getType a
 
+-- TODO make sure that the veccons output correctly masks entries (doesn't so far)
 compileStat v@(Unary pos (VecCons st) a) = case (st, normalizeTypes $ getType a) of
   (DiagonalMatrix, VecType _ [i1] bty) -> fromDiagonal a
   _ -> fromVec a
 
   where fromDiagonal a = defaultAsRValue $ do aloc <- asLoc $ compileStat a
-                                              loc aloc
-          where loc aloc = deferLoc (getType v) 2 $ \_ [(_, idx), _] -> do
+                                              castStorage DiagonalMatrix =<< loc aloc
+          where loc aloc = deferLocPrep [aloc] (getType v) 2 $ \[aloc] _ [(_, idx), _] -> do
                   apIndex aloc idx
-        fromVec a = defaultAsRValue $ do aloc <- asLoc $ compileStat a
-                                         loc aloc
-          where loc aloc = deferLoc (getType v) 2 $ \_ [(_, i1), (_, i2)] -> do
-                  apIndices aloc [i1, i2]
+        fromVec a = defaultAsRValue $ castStorage st =<< (asLoc $ compileStat a)
 
 -- -- binary
 
@@ -1266,7 +1347,7 @@ compileStat v@(Binary _ op a b)
         lifted :: Type -> CExpr -> CM CmLoc
         lifted xty x | null bnds = asLoc $ compileStat x
                      | otherwise = do loc <- asLoc $ compileStat x
-                                      loc' <- spillLoc loc
+                                      loc' <- prepLoc loc
                                       return $ liftLoc xty loc' bnds
           where xbnds = getIndices xty
                 bnds = take (length vbnds - length xbnds) vbnds
@@ -1287,6 +1368,9 @@ compileStat v@(Binary _ op a b)
                                                      (VecType DenseMatrix bnds ty)
                                                      aloc' bloc'
                       , asArgument = defaultAsArgumentNoOut loc
+                      , prepLoc = do aloc' <- prepLoc aloc
+                                     bloc' <- prepLoc bloc
+                                     asLoc $ compileVectorized vty aloc' bloc'
                       , locType = vty
                       , asRValue = error "Cannot get vectorized binary operation as rvalue"
                       , store = error "Cannot store into vectorized binary operation"
@@ -1314,60 +1398,108 @@ compileStat v@(Binary _ Pow a b) = case (aty, bty) of
                                                         return [cexp| pow($aex, $bex) |]
 
 compileStat v@(Binary pos Mul a b) = case (aty, bty) of
+  (VecType DiagonalMatrix [ia, ib] aty', VecType DiagonalMatrix [_, ic] bty') -> comp
+    where comp = Compiled
+                 { withDest = \dest -> storeLoc dest =<< asLoc comp
+                 , asExp = defaultAsExp (getType v) comp
+                 , noValue = return ()
+                 , asLoc = do aloc <- asLoc $ compileStat a
+                              bloc <- asLoc $ compileStat b
+                              deferLocPrep [aloc,bloc] (getType v) 2 $
+                                \[aloc,bloc] bty [(_, idx1), (_, idx2)] -> do
+                                  aex <- apIndices aloc [idx1, idx1] >>= asExp . asRValue
+                                  bex <- apIndices bloc [idx2, idx2] >>= asExp . asRValue
+
+                                  let prod = expLoc bty (return [cexp| $aex * $bex |])
+                                      zero = constLoc bty (compileUninit bty)
+
+                                  if idx1 == idx2
+                                    then return prod
+                                    else return $ condLoc [cexp| $idx1 == $idx2 |] prod zero
+                 }
+
+  (VecType _ [ia, ib] aty', VecType DiagonalMatrix [_, ic] bty') -> comp
+    where comp = Compiled
+                 { withDest = \dest -> storeLoc dest =<< asLoc comp
+                 , asExp = defaultAsExp (getType v) comp
+                 , noValue = return ()
+                 , asLoc = do aloc <- asLoc $ compileStat a
+                              bloc <- mprepLoc ia =<< (asLoc $ compileStat b)
+                              deferLocPrep [aloc,bloc] (getType v) 2 $ \[aloc,bloc] bty [(_, idx1), (_, idx2)] -> do
+                                aex <- apIndices aloc [idx1, idx2] >>= asExp . asRValue
+                                bex <- apIndices bloc [idx2, idx2] >>= asExp . asRValue
+                                return $ expLoc bty (return [cexp| $aex * $bex |])
+                 }
+  (VecType DiagonalMatrix [ia, ib] aty', VecType _ [_, ic] bty') -> comp
+    where comp = Compiled
+                 { withDest = \dest -> storeLoc dest =<< asLoc comp
+                 , asExp = defaultAsExp (getType v) comp
+                 , noValue = return ()
+                 , asLoc = do aloc <- mprepLoc ic =<< (asLoc $ compileStat a)
+                              bloc <- asLoc $ compileStat b
+                              deferLocPrep [aloc,bloc] (getType v) 2 $ \[aloc,bloc] bty [(_, idx1), (_, idx2)] -> do
+                                aex <- apIndices aloc [idx1, idx1] >>= asExp . asRValue
+                                bex <- apIndices bloc [idx1, idx2] >>= asExp . asRValue
+                                return $ expLoc bty (return [cexp| $aex * $bex |])
+                 }
   (VecType _ [ia, ib] aty', VecType _ [_, ic] bty') -> comp
     where comp = Compiled
-                 { withDest = \dest -> do aloc <- asLoc $ compileStat a
-                                          bloc <- asLoc $ compileStat b
-                                          makeFor ia $ \i -> do
-                                            aloc' <- apIndex aloc i
-                                            dest' <- apIndex dest i
-                                            makeFor ic $ \k -> do
-                                              sumname <- freshName "sum"
-                                              writeCode [citems| $ty:sumty $id:sumname = 0; |]
-                                              makeFor ib $ \j -> do
-                                                aex <- apIndex aloc' j >>= asExp . asRValue
-                                                bex <- apIndex bloc j >>= flip apIndex k >>= asExp . asRValue
-                                                writeCode [citems| $id:sumname += $aex * $bex; |]
-                                              dest'' <- apIndex dest' k
-                                              store dest'' [cexp| $id:sumname |]
+                 { withDest = \dest -> storeLoc dest =<< asLoc comp
                  , asExp = defaultAsExp (getType v) comp
-                 , noValue = defaultNoValue (getType v) comp
-                 , asLoc = defaultAsLoc (getType v) comp
+                 , noValue = return ()
+                 , asLoc = do aloc <- mprepLoc ic =<< (asLoc $ compileStat a)
+                              bloc <- mprepLoc ia =<< (asLoc $ compileStat b)
+                              deferLoc (getType v) 2 $ \bty [(_, idx1), (_, idx2)] -> do
+                                sumname <- freshName "sum"
+                                writeCode [citems| $ty:sumty $id:sumname = 0; |]
+                                makeFor ib $ \j -> do
+                                  aex <- apIndices aloc [idx1, j] >>= asExp . asRValue
+                                  bex <- apIndices bloc [j, idx2] >>= asExp . asRValue
+                                  writeCode [citems| $id:sumname += $aex * $bex; |]
+                                return $ expLoc bty (return [cexp| $id:sumname |])
                  }
 
   (VecType _ [ia] aty', VecType _ [_, ib] bty') -> -- left vector is (ia x 1) matrix, so right is (1 x ib) row vector (outer product)
     let comp = Compiled
-               { withDest = \dest -> do aloc <- asLoc $ compileStat a
-                                        bloc <- (asLoc $ compileStat b) >>= flip apIndex [cexp| 0 |]
-                                        makeFor ia $ \i -> do
-                                          aex <- apIndex aloc i >>= asExp . asRValue
-                                          dest' <- apIndex dest i
-                                          makeFor ib $ \j -> do
-                                            bex <- apIndex bloc j >>= asExp . asRValue
-                                            dest'' <- apIndex dest' j
-                                            store dest'' [cexp| $aex * $bex |]
+               { withDest = \dest -> storeLoc dest =<< asLoc comp
                , asExp = defaultAsExp (getType v) comp
-               , noValue = defaultNoValue (getType v) comp
-               , asLoc = defaultAsLoc (getType v) comp
+               , noValue = return ()
+               , asLoc = do aloc <- prepLoc =<< (asLoc $ compileStat a)
+                            bloc <- prepLoc =<< (asLoc $ compileStat b)
+                            bloc' <- apIndex bloc [cexp|0|]
+                            deferLocPrep [] (getType v) 2 $ \[] bty [(_, idx1), (_, idx2)] -> do
+                              aex <- apIndex aloc idx1 >>= asExp . asRValue
+                              bex <- apIndex bloc' idx2 >>= asExp . asRValue
+                              return $ expLoc bty (return [cexp| $aex * $bex |])
                }
     in comp
+  (VecType DiagonalMatrix [ia, _] aty', VecType _ [_] bty') -> comp
+    where comp = Compiled
+                 { withDest = \dest -> storeLoc dest =<< asLoc comp
+                 , asExp = defaultAsExp (getType v) comp
+                 , noValue = return ()
+                 , asLoc = do aloc <- asLoc $ compileStat a
+                              bloc <- asLoc $ compileStat b
+                              deferLocPrep [aloc,bloc] (getType v) 1 $ \[aloc,bloc] bty [(_, idx1)] -> do
+                                aex <- apIndices aloc [idx1, idx1] >>= asExp . asRValue
+                                bex <- apIndices bloc [idx1] >>= asExp . asRValue
+                                return $ expLoc bty (return [cexp| $aex * $bex |])
+                 }
   (VecType _ [ia, ib] aty', VecType _ [_] bty') ->
     let comp = Compiled
-               { withDest = \dest -> do aloc <- asLoc $ compileStat a
-                                        bloc <- asLoc $ compileStat b
-                                        makeFor ia $ \i -> do
-                                          aloc' <- apIndex aloc i
-                                          sumname <- freshName "sum"
-                                          writeCode [citems| $ty:sumty $id:sumname = 0; |]
-                                          makeFor ib $ \j -> do
-                                            aex <- apIndex aloc' j >>= asExp . asRValue
-                                            bex <- apIndex bloc j >>= asExp . asRValue
-                                            writeCode [citems| $id:sumname += $aex * $bex; |]
-                                          dest' <- apIndex dest i
-                                          store dest' [cexp| $id:sumname |]
+               { withDest = \dest -> storeLoc dest =<< asLoc comp
                , asExp = defaultAsExp (getType v) comp
-               , noValue = defaultNoValue (getType v) comp
-               , asLoc = defaultAsLoc (getType v) comp
+               , noValue = return ()
+               , asLoc = do aloc <- asLoc $ compileStat a
+                            bloc <- mprepLoc ia =<< (asLoc $ compileStat b)
+                            deferLoc (getType v) 1 $ \bty [(_, idx1)] -> do
+                              sumname <- freshName "sum"
+                              writeCode [citems| $ty:sumty $id:sumname = 0; |]
+                              makeFor ib $ \j -> do
+                                aex <- apIndices aloc [idx1, j] >>= asExp . asRValue
+                                bex <- apIndices bloc [j] >>= asExp . asRValue
+                                writeCode [citems| $id:sumname += $aex * $bex; |]
+                              return $ expLoc bty (return [cexp| $id:sumname |])
                }
     in comp
   (VecType _ [ia] aty', VecType _ [_] bty') -> -- dot product
@@ -1406,7 +1538,14 @@ compileStat v@(Binary pos Concat v1 v2) = comp
                     storeLoc (offsetLoc (VecType DenseMatrix (bnd1:dbnds) dbty) dest [cexp| 0 |]) v1loc
                     bnd1ex <- asExp $ compileStat bnd1
                     storeLoc (offsetLoc (VecType DenseMatrix (bnd2:dbnds) dbty) dest bnd1ex) v2loc
-               , asLoc = defaultAsLoc (getType v) comp
+               , asLoc = do v1loc <- asLoc $ compileStat v1
+                            v2loc <- asLoc $ compileStat v2
+                            bnd1ex <- asExp $ compileStat bnd1
+                            deferLocPrep [v1loc,v2loc] (getType v) 1 $
+                              \[v1loc,v2loc] vty [(_, i)] -> do
+                                v1loc' <- apIndex v1loc i
+                                v2loc' <- apIndex v2loc [cexp| $i - $bnd1ex |]
+                                return $ condLoc [cexp| $i < $bnd1ex |] v1loc' v2loc'
                , asExp = defaultAsExp (getType v) comp
                , noValue = defaultNoValue (getType v) comp
                }
@@ -1429,6 +1568,11 @@ compileStat v@(Binary pos op v1 v2) | op `elem` comparisonOps = comp
                       Or -> [cexp| $a || $b |]
         comparisonOps = [EqOp, NEqOp, LTOp, LTEOp, And, Or]
 compileStat v = error $ "compileStat not implemented: " ++ show v
+
+
+mprepLoc i = case reduceArithmetic i of
+  IntLit _ _ j | j <= 1 -> return
+  _ -> prepLoc
 
 compileLoc :: Location CExpr -> CM CmLoc
 compileLoc (Ref ty v) = case normalizeTypes ty of
