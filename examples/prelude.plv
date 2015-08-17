@@ -338,11 +338,11 @@ print_mat {n,m} (A :: double[n,m]) :: ()
 matrix_inverse {n} (A :: double[n,n]) (out B :: double[n, n]) :: int
   := specialize n (
        0 -> 0; -- then B is already set. it's technically an inverse
-       1 -> inv1 A B;
-       2 -> inv2 A B;
-       3 -> inv3 A B;
-       4 -> inv4 A B;
-       _ -> gen_inv_qr A B;
+       1 -> inv1 A (out B);
+       2 -> inv2 A (out B);
+       3 -> inv3 A (out B);
+       4 -> inv4 A (out B);
+       _ -> gen_inv_qr A (out B);
      );
 
 det {n} (A :: double[n,n]) :: double

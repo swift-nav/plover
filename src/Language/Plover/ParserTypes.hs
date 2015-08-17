@@ -9,6 +9,9 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Language.Plover.ParserTypes
+       (IntType(..), FloatType(..), ArgDir(..), Expr, pattern PExpr, wrapPos,
+        Variable, UnOp(..), BinOp(..), Expr'(..), Arg(..), pattern VoidExpr, integer, float,
+        )
        where
 
 import Text.ParserCombinators.Parsec
@@ -23,11 +26,11 @@ import Data.Foldable
 import Data.Typeable
 import Data.Data
 import Data.Ratio (numerator, denominator)
-import Text.PrettyPrint
+import Text.PrettyPrint hiding (integer, float)
 import Data.Tag
 import Data.Fix
 
-import Language.Plover.Types (IntType(..), FloatType, defaultIntType, defaultFloatType, PP(..))
+import Language.Plover.Types (IntType(..), FloatType(..), defaultIntType, defaultFloatType, ArgDir(..), PP(..))
 
 type Expr = FixTagged SourcePos Expr'
 pattern PExpr tag a = FTag tag a
@@ -120,7 +123,7 @@ data Expr' a = Vec [(Variable,a)] a
           deriving (Eq, Show, Functor, Traversable, Typeable, Foldable, Data)
 
 data Arg a = ImpArg a
-           | Arg a
+           | Arg ArgDir a
            deriving (Eq, Show, Functor, Traversable, Typeable, Foldable, Data)
 
 pattern VoidExpr = Tuple []
@@ -210,5 +213,5 @@ instance PP a => PP (Expr' a) where
   pretty (Antiquote s) = parens $ text "Antiquote" <+> text s
 
 instance PP a => PP (Arg a) where
-  pretty (Arg a) = pretty a
+  pretty (Arg dir a) = parens $ text (show dir) <+> pretty a
   pretty (ImpArg a) = braces $ pretty a

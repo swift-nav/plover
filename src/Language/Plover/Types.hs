@@ -93,7 +93,7 @@ data Range a = Range { rangeFrom :: a, rangeTo :: a, rangeStep :: a }
 rangeLength :: Tag SourcePos -> Range CExpr -> CExpr
 rangeLength pos (Range from to step) = reduceArithmetic $ Binary pos Div (Binary pos Sub to from) step
 
-data Arg a = Arg a
+data Arg a = Arg ArgDir a
            | ImpArg a
            deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
@@ -228,7 +228,7 @@ strippedFunctionType (FnT args mva ty) = (map (\(pos, v, b, dir, ty) -> (v, b, d
 
 -- Right now only works for vectors
 data ArgDir = ArgIn | ArgOut | ArgInOut
-            deriving (Show, Eq, Ord)
+            deriving (Show, Eq, Ord, Typeable, Data)
 
 -- | A struct contains external (C) and internal (Plover) types.  This
 -- is controlled using the 'storing' keyword.
@@ -350,6 +350,7 @@ pattern a :<= b = Set NoTag a b
 pattern a :=: b = Equal NoTag a b
 pattern a :# b = Binary NoTag Concat a b
 pattern a :+ b = Binary NoTag Add a b
+pattern a :- b = Binary NoTag Sub a b
 pattern a :* b = Binary NoTag Mul a b
 pattern a :/ b = Binary NoTag Div a b
 pattern a :> b = Seq NoTag a b
@@ -387,6 +388,7 @@ instance IsString CExpr where
 
 instance Num CExpr where
   x * y = x :* y
+  x + (Unary _ Neg y) = x :- y
   x + y = x :+ y
   fromInteger x = untagged $ IntLit' defaultIntType $ fromInteger x
   abs = undefined
@@ -449,7 +451,7 @@ instance TermMappable CExpr where
     Uninitialized pos ty -> Uninitialized pos <$> tty ty
     Seq pos p1 p2 -> Seq pos <$> texp p1 <*> texp p2
     App pos fn args -> App pos <$> texp fn <*> mapM targ args
-      where targ (Arg a) = Arg <$> texp a
+      where targ (Arg d a) = Arg d <$> texp a
             targ (ImpArg a) = ImpArg <$> texp a
     ConcreteApp pos fn args rty -> ConcreteApp pos <$> texp fn <*> mapM texp args <*> tty rty
     Hole {} -> return exp

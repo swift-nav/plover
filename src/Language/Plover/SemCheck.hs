@@ -552,13 +552,17 @@ matchArgs :: Tag SourcePos -> [Arg CExpr] -> FunctionType -> SemChecker [CExpr]
 matchArgs pos args (FnT fargs mva _) = matchArgs' 1 args fargs
   where
     -- A passed argument matches a required argument
-    matchArgs' i (Arg x : xs) ((vpos, v, True, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
+    matchArgs' i (Arg d1 x : xs) ((vpos, v, True, d0, ty) : fxs)
+      = do when (d1 /= d0) $ addError $ SemError (MergeTags [pos,vpos]) $
+             "Expecting " ++ dirName d0 ++ "-argument in position " ++ show i ++ "."
+           (x :) <$> matchArgs' (1 + i) xs fxs
     -- An omitted implicit argument is filled with a value hole
-    matchArgs' i xs@(Arg _ : _) ((vpos, v, False, _, ty) : fxs) = addImplicit i v ty xs fxs
+    matchArgs' i xs@(Arg {} : _) ((vpos, v, False, _, ty) : fxs) = addImplicit i v ty xs fxs
     matchArgs' i [] ((vpos, v, False, _, ty) : fxs) = addImplicit i v ty [] fxs
     -- (error) An implicit argument where a required argument is expected
     matchArgs' i (ImpArg x : xs) ((vpos, v, True, dir, ty) : fxs) = do
-      addError $ SemError vpos $ "Unexpected implicit argument in position " ++ show i ++ "."
+      addError $ SemError (MergeTags [pos,vpos]) $
+        "Unexpected implicit argument in position " ++ show i ++ "."
       matchArgs' (1 + i) xs ((vpos, v, True, dir, ty) : fxs)
     -- An implicit argument given where an implicit argument expected
     matchArgs' i (ImpArg x : xs) ((vpos, v, False, _, ty) : fxs) = (x :) <$> matchArgs' (1 + i) xs fxs
@@ -569,10 +573,15 @@ matchArgs pos args (FnT fargs mva _) = matchArgs' 1 args fargs
                                     (HoleJ pos name :) <$> matchArgs' i [] fxs
     -- Exactly the correct number of arguments
     matchArgs' i [] [] = return []
-    matchArgs' i (Arg x : xs) [] | isJust mva  = (x :) <$> matchArgs' (1 + i) xs []
-    matchArgs' i (ImpArg x : xs) [] | isJust mva = do addError $ SemError pos $
-                                                        "Implicit argument not allowed as vararg."
-                                                      return []
+    matchArgs' i (Arg d x : xs) []
+      | isJust mva  = do
+          when (d /= fromJust mva) $ addError $ SemError pos $
+            "Expecting " ++ dirName (fromJust mva) ++ "-argument as vararg."
+          (x :) <$> matchArgs' (1 + i) xs []
+    matchArgs' i (ImpArg x : xs) []
+      | isJust mva = do addError $ SemError pos $
+                          "Implicit argument not allowed as vararg."
+                        return []
     matchArgs' i xs [] = do addError $ SemError pos $
                               "Too many arguments.  Given " ++ show i ++ ", " ++ validRange ++ "."
                             return []
@@ -583,7 +592,9 @@ matchArgs pos args (FnT fargs mva _) = matchArgs' 1 args fargs
     addImplicit i v ty xs fxs = do name <- genUVarP v
                                    (HoleJ pos name :) <$> matchArgs' i xs fxs
 
-
+    dirName ArgIn = "in"
+    dirName ArgOut = "out"
+    dirName ArgInOut = "inout"
 
 -- | The unifier does not check type inequalities (like "float storage
 -- contains int"). We check them here.  We also check that all holes

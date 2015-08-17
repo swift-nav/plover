@@ -95,10 +95,10 @@ makeExpr exp@(PExpr pos e') = case e' of
 
   App (PExpr _ (Ref v)) args | Just f <- lookup v builtinFuncs  -> f pos args
   App f args -> T.App pos <$> makeExpr f <*> (forM args' $ \arg -> case arg of
-                                                Arg a -> T.Arg <$> makeExpr a
+                                                Arg d a -> T.Arg d <$> makeExpr a
                                                 ImpArg a -> T.ImpArg <$> makeExpr a)
     where args' = filter novoid args
-          novoid (Arg (PExpr _ VoidExpr)) = False
+          novoid (Arg _ (PExpr _ VoidExpr)) = False
           novoid _ = True
   SeqExpr xs -> makeSequence pos xs
   DefExpr _ _ -> Left $ ConvertError (makePos exp) ["Unexpected definition outside sequence."]
@@ -111,7 +111,8 @@ makeExpr exp@(PExpr pos e') = case e' of
 exArgs pos args n = do args' <- forM args $ \arg ->
                          case arg of
                            ImpArg _ -> Left $ ConvertError pos ["Unexpected implicit argument."]
-                           Arg a -> makeExpr a
+                           Arg ArgIn a -> makeExpr a
+                           Arg _ _ -> Left $ ConvertError pos ["Expecting in-argument."]
                        if length args' == n
                          then return args'
                          else Left $ ConvertError pos
@@ -216,10 +217,11 @@ makeTypeFunc pos v args
   | otherwise = Left $ ConvertError pos ["Unknown type-level function."]
 
   where vecStoreType st = case args of
-          [Arg a] -> do aty <- makeType a
-                        case aty of
-                          T.VecType _ bnds bty -> return $ T.VecType st bnds bty
-                          _ -> Left $ ConvertError (makePos a) ["Expecting matrix type."]
+          [Arg ArgIn a] -> do
+            aty <- makeType a
+            case aty of
+              T.VecType _ bnds bty -> return $ T.VecType st bnds bty
+              _ -> Left $ ConvertError (makePos a) ["Expecting matrix type."]
           _ -> Left $ ConvertError pos ["Expecting exactly one type argument to type-level function."]
 
 makeDefs :: Expr -> Either ConvertError [T.DefBinding]
@@ -267,21 +269,14 @@ funArgs :: ([(Tag SourcePos, Variable, Bool, T.ArgDir, T.Type)] -> Maybe T.ArgDi
 funArgs f args = funArgs' [] args
   where
     funArgs' acc [] = return $ f (reverse acc) Nothing
-    funArgs' acc ((Arg e@(PExpr apos pe)):args) = case pe of
+    funArgs' acc ((Arg dir e@(PExpr apos pe)):args) = case pe of
       Ref "__VARARGS__" -> case args of
-        [] -> return $ f (reverse acc) (Just T.ArgIn)
-        _ -> Left $ ConvertError (makePos e) ["No function parameters definitions may come after varargs."]
-      App (PExpr _ (Ref dir)) [Arg (PExpr pos (Ref "__VARARGS__"))] -> case args of
-        [] -> do dir <- decodeDir (makePos e) dir
-                 return $ f (reverse acc) (Just dir)
-        _ -> Left $ ConvertError (makePos e) ["No function parameters definitions may come after varargs."]
+        [] -> return $ f (reverse acc) (Just dir)
+        _ -> Left $ ConvertError (makePos e)
+             ["No function parameters definitions may come after varargs."]
       Ref v -> funArgs' ((apos, v, True, T.ArgIn, T.TypeHole Nothing):acc) args
       BinExpr Type (PExpr pos (Ref v)) b  -> do t <- makeType b
-                                                funArgs' ((pos, v, True, T.ArgIn, t):acc) args
-      BinExpr Type (PExpr _ (App (PExpr _ (Ref dir)) [Arg (PExpr pos (Ref v))])) b -> do
-        dir <- decodeDir (makePos e) dir
-        t <- makeType b
-        funArgs' ((pos, v, True, dir, t):acc) args
+                                                funArgs' ((pos, v, True, dir, t):acc) args
       VoidExpr -> funArgs' acc args
       _ -> Left $ ConvertError (makePos e) ["Bad argument definition."]
     funArgs' acc ((ImpArg e@(PExpr pos pe)):args) = case pe of
@@ -290,12 +285,6 @@ funArgs f args = funArgs' [] args
       BinExpr Type (PExpr pos' (Ref v)) b  -> do t <- makeType b
                                                  funArgs' ((pos', v, False, T.ArgIn, t):acc) args
       _ -> Left $ ConvertError (makePos e) ["Bad implicit argument definition."]
-
-decodeDir pos dir = case dir of
---  "in" -> Right T.ArgIn  -- Just kidding, "in" is taken by the For syntax
-  "out" -> Right T.ArgOut
-  "inout" -> Right T.ArgInOut
-  _ -> Left $ ConvertError pos ["Invalid argument direction specifier " ++ show dir]
 
 reportConvertErr :: ConvertError
                  -> IO String

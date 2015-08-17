@@ -19,8 +19,8 @@ static givens (a :: double) (b :: double) :: double[2,2] := (
     tau := -b/a; c <- 1/sqrt(1+tau*tau); s <- c*tau;
   );
 
-  vec(vec(c, s),
-      vec(-s, c));
+  mat( c, s ;
+      -s, c );
 );
 
 norm {n} (v :: double[n]) :: double := sqrt (v * v);
@@ -36,10 +36,10 @@ qr_solve {m, n}
 
   :: s8 := (
 
-  qr_update b A;
+  qr_update (inout b) (inout A);
 
   -- A is now upper triangular; backsolve it into b
-  code := backsolve A[0:n, 0:n] b[0:n];
+  code := backsolve A[0:n, 0:n] (inout b[0:n]);
 
   -- Solution stored in first n elements
   solution <- b[0:n];
@@ -95,10 +95,10 @@ static backsolve {n}
 -- "Unit test"
 main () :: s32 := (
   m :=
-   vec(vec(1.0, 0, 2),
-       vec(1,   1, -1),
-       vec(0,   0, 1),
-       vec(0,   0, 22));
+   mat(1.0, 0, 2;
+       1,   1, -1;
+       0,   0, 1;
+       0,   0, 22);
   A := m;
 
   b := vec(5.0, 4, 1.1, 22);
@@ -108,7 +108,7 @@ main () :: s32 := (
 
   solution :: double[3];
 
-  code := qr_solve m b solution residual;
+  code := qr_solve (inout m) (inout b) (out solution) (out residual);
 
   print_matrix m;
 

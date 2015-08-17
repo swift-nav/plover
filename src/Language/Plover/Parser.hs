@@ -32,7 +32,8 @@ languageDef =
            , Token.reservedNames = [
              "module", "import", "function", "declare", "define", "extern", "static", "inline",
              "struct", "type",
-             "mat", "vec", "for", "in", "while", "if", "then", "else", "specialize",
+             "mat", "vec", "for", "in", "out", "inout",
+             "while", "if", "then", "else", "specialize",
              "True", "False", "Void", "T", "_", "__",
              "array", "and", "or",
              "storing",
@@ -196,7 +197,7 @@ operators = buildExpressionParser ops application
                   return $ (wrapPos pos .) . BinExpr op
     dollar = do pos <- getPosition
                 reservedOp "$"
-                return $ \x y -> wrapPos pos $ App x [Arg y]
+                return $ \x y -> wrapPos pos $ App x [Arg ArgIn y]
 
 -- Parse a sequence of terms as a function application
 application :: Parser Expr
@@ -206,7 +207,13 @@ application = do pos <- getPosition
                  case args of
                   [] -> return f -- so not actually a function application
                   _ -> return $ wrapPos pos $ App f args
-  where parg = braces (ImpArg <$> expr) <|> (Arg <$> term)
+  where parg = braces (ImpArg <$> expr)
+               <|> (do try (lookAhead $ symbol "(" >> pdir)
+                       parens (Arg <$> pdir <*> expr))
+               <|> (Arg ArgIn <$> term)
+        pdir = (reserved "in" >> return ArgIn)
+               <|> (reserved "out" >> return ArgOut)
+               <|> (reserved "inout" >> return ArgInOut)
 
 term :: Parser Expr
 term = literal >>= doMember

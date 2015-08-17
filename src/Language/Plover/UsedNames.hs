@@ -56,7 +56,7 @@ instance NameContainer CExpr where
     Let _ v d x -> [v] ++ allNames d ++ allNames x
     Uninitialized _ ty -> allNames ty
     Seq _ a b -> allNames [a, b]
-    App _ f args -> let unarg (Arg x) = x
+    App _ f args -> let unarg (Arg _ x) = x
                         unarg (ImpArg x) = x
                     in allNames f ++ allNames (map unarg args)
     ConcreteApp _ f args rty -> allNames f ++ allNames args ++ allNames rty
