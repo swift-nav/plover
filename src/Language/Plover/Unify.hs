@@ -814,14 +814,14 @@ typeCheck (Unary pos (VecCons st) a) = do
   case (st,aty) of
     (DiagonalMatrix, VecType _ [i1] bty) ->
       do bty' <- arithType pos bty bty -- since we must ensure it's not the next case
-         return $ VecType DiagonalMatrix [i1, i1] bty'
+         typeCheckType pos $ VecType DiagonalMatrix [i1, i1] bty'
     (_, VecType _ (i1:_:bnds) bty) ->
-      return $ VecType st [i1,i1] (VecType st bnds bty)
+      typeCheckType pos $ VecType st [i1,i1] (VecType st bnds bty)
     _ -> do idx <- HoleJ pos <$> gensym "idx"
             base <- TypeHoleJ <$> gensym "base"
             aty' <- unify pos aty (VecType DenseMatrix [idx,idx] base)
             case aty' of
-              VecType _ (i1:_:bnds) bty -> return $ VecType st [i1,i1]
+              VecType _ (i1:_:bnds) bty -> typeCheckType pos $ VecType st [i1,i1]
                                            (VecType DenseMatrix bnds bty)
               _ -> do addUError $ UError pos "Matrix constructor expecting vector."
                       return aty'
