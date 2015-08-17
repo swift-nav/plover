@@ -1,0 +1,4 @@
+extern f (x :: double) (y :: double) :: double;
+
+foo (x :: double) (y :: double) :: double
+  := f x $ y + 1;

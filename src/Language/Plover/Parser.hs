@@ -186,7 +186,6 @@ operators = buildExpressionParser ops application
             ]
           , [ Infix (bin And (reserved "and")) AssocLeft ]
           , [ Infix (bin Or (reserved "or")) AssocLeft ]
-          , [ Infix dollar AssocRight ] -- TODO Should this be a real operator? or is App suff.?
           , [ Infix (bin Storing (reserved "storing")) AssocNone ]
           ]
     un op s = do pos <- getPosition
@@ -195,9 +194,6 @@ operators = buildExpressionParser ops application
     bin op s = do pos <- getPosition
                   s
                   return $ (wrapPos pos .) . BinExpr op
-    dollar = do pos <- getPosition
-                reservedOp "$"
-                return $ \x y -> wrapPos pos $ App x [Arg ArgIn y]
 
 -- Parse a sequence of terms as a function application
 application :: Parser Expr
@@ -227,7 +223,7 @@ term = literal >>= doMember
 literal :: Parser Expr
 literal = voidlit <|> holelit <|> noisyHoleLit
           <|> transposelit <|> numlit <|> binlit <|> strlit
-          <|> ref <|> parenGroup
+          <|> ref <|> parenGroup <|> dollarGroup
           <|> matlit <|> veclit <|> form <|> antiquote
   where ref = withPos $ Ref <$> identifier
         voidlit = withPos $ reserved "Void" >> return VoidExpr
@@ -245,6 +241,7 @@ literal = voidlit <|> holelit <|> noisyHoleLit
                         symbol "("
                         (symbol ")" >> (return $ wrapPos pos VoidExpr))
                           <|> (mstatements <* symbol ")")
+        dollarGroup = reservedOp "$" >> expr
         matlit = do
           pos <- getPosition
           reserved "mat"
