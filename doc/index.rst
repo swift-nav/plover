@@ -2,7 +2,7 @@
                     Plover
 ==============================================
 ----------------------------------------------
-A beautiful, responsive way to tie your shoes
+High-level embedded linear algebra programming
 ----------------------------------------------
 
 :Authors:  Scott Kovach, Kyle Miller

@@ -220,7 +220,17 @@ Full-Width Styles
 }
 
 #header_wrap {
-  background: #212121;
+    background: #212121;
+}
+
+#logo {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: -300px;
+    padding: 0; margin: 0;
+    width: 264px; height: 200px;
+    background: url("plover.w2.png") #212121 no-repeat left top;
 }
 
 #header_wrap .inner {

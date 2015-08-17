@@ -7,6 +7,7 @@
 <div id="header_wrap" class="outer">
   <header class="inner">
     <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
+    <div id="logo"></div>
     %(body_pre_docinfo)s
   </header>
 </div>
