@@ -1,0 +1,10 @@
+foo (x :: double) (out y :: double) :: ()
+  := (y <- x);
+
+foo2 () :: double
+  :=  ( z :: double;
+        A :: double[5];
+        foo 22 z;
+        foo 22 A[2];
+        z
+        );

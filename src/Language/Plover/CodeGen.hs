@@ -35,6 +35,7 @@ strace x = trace ("@@@ " ++ show x) x
 
 data CodeGenState = CodeGenState
                     { bindings :: M.Map String String
+                    , bindingReference :: M.Map String Bool -- ^ True/False means reference/value (for out variables)
                     , usedNames :: [String]
                     , genCode :: [C.BlockItem]
                     , inhibitGenCode :: Bool -- ^ used to "abort the continuation", (e.g. return)
@@ -57,6 +58,7 @@ doCompile defs = runCM $ do (header, code) <- compileTopLevel defs
 runCM :: CM a -> a
 runCM m = evalState m (CodeGenState
                        { bindings = M.empty
+                       , bindingReference = M.empty
                        , usedNames = []
                        , genCode = []
                        , inhibitGenCode = False
@@ -111,9 +113,13 @@ mkIf' aexp bbl cbl = writeCode [citems| if ($aexp) { $items:bbl } else { $items:
 
 newScope :: CM a -> CM a
 newScope m = do bs <- bindings <$> get
+                bd <- bindingReference <$> get
                 un <- usedNames <$> get
                 v <- m
-                modify $ \state -> state { bindings = bs, usedNames = un }
+                modify $ \state -> state
+                                   { bindings = bs
+                                   , bindingReference = bd
+                                   , usedNames = un }
                 return v
 
 -- | Creates a new scope, but any names used cannot be used after the
@@ -162,6 +168,14 @@ newName :: String -> String -> CM String
 newName def v = do v' <- freshName (getOkIdentifier def v)
                    modify $ \state -> state { bindings = M.insert v v' (bindings state) }
                    return v'
+
+-- | Marks the direction of an argument (True means it is a reference variable)
+addBindingReference :: String -> Bool -> CM ()
+addBindingReference v r = modify $ \state ->
+  state { bindingReference = M.insert v r (bindingReference state) }
+getBindingReference :: String -> CM (Maybe Bool)
+getBindingReference v = do br <- gets bindingReference
+                           return $ M.lookup v br
 
 compileTopLevel :: [DefBinding] -> CM ([C.Definition], [C.Definition])
 compileTopLevel defbs = do let defbs' = filter (not . extern) defbs
@@ -275,9 +289,16 @@ compileParams = mapM compileParam
 compileParam :: (Variable, ArgDir, Type) -> CM C.Param
 compileParam (v, dir, ty) = do v' <- lookupName "arg" v
                                case dir of -- TODO figure out how to document directions.
-                                 ArgIn -> return [cparam| const $ty:(compileType ty) $id:(v') |]
-                                 ArgOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
-                                 ArgInOut -> return [cparam| $ty:(compileType ty) $id:(v') |]
+                                 ArgIn -> do addBindingReference v False
+                                             return [cparam| const $ty:(compileType ty) $id:(v') |]
+                                 ArgOut -> do addBindingReference v True
+                                              return [cparam| $ty:(compileOutType ty) $id:(v') |]
+                                 ArgInOut -> do addBindingReference v True
+                                                return [cparam| $ty:(compileOutType ty) $id:(v') |]
+
+  where compileOutType ty = case normalizeTypes ty of
+          VecType {} -> compileType ty
+          _ -> [cty| $ty:(compileType ty) * const |]
 
 compileType :: Type -> C.Type
 compileType = compileType' -- . normalizeTypes
@@ -1129,13 +1150,19 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args retty) = comp
   where (FnT params mva _, mret) = getEffectiveFunType ft
         dirs = map (\(_,_,_,dir,_) -> dir) params ++ (repeat (fromMaybe ArgIn mva))
 
-        -- Compiled forms for the arguments
-        margs' :: CM [([C.BlockItem],C.Exp,[C.BlockItem])]
-        margs' = forM args $ \a -> (asLoc $ compileStat a) >>= asArgument
+        makeArg loc = case normalizeTypes $ locType loc of
+          VecType {} -> do (b,e,a) <- asArgument loc
+                           return (False,b,e,a)
+          _ -> do (b,e,a) <- asArgument loc
+                  return (True,b,e,a)
+
+        -- Compiled forms for the arguments.  The boolean is whether the value is scalar.
+        margs' :: CM [(Bool,[C.BlockItem],C.Exp,[C.BlockItem])]
+        margs' = forM args $ \a -> (asLoc $ compileStat a) >>= makeArg
         -- if the result is complex, the compiled arguments along with the destination
         margs'' dest = do args' <- margs'
                           (b,e,a) <- asArgument $ dest
-                          return $ take (length params) args' ++ [(b,e,a)] ++ drop (length params) args' -- TODO tuple dest
+                          return $ take (length params) args' ++ [(False,b,e,a)] ++ drop (length params) args' -- TODO tuple dest
         -- if the result is complex, an ArgOut is inserted between the normal args and varargs
         dirs' = map (\(_,_,_,dir,_) -> dir) params ++ [ArgOut] ++ (repeat (fromMaybe ArgIn mva))
 
@@ -1177,17 +1204,22 @@ compileStat (ConcreteApp pos (Get _ (Ref (FnType ft) f)) args retty) = comp
                            }
 
         -- | Returns what to do before the call, the argument, and what to do after the call
-        theCall :: String -> [(ArgDir, ([C.BlockItem], C.Exp, [C.BlockItem]))] -> ([C.BlockItem], C.Exp, [C.BlockItem])
+        theCall :: String -> [(ArgDir, (Bool, [C.BlockItem], C.Exp, [C.BlockItem]))] -> ([C.BlockItem], C.Exp, [C.BlockItem])
         theCall f args = (before, [cexp| $id:f($args:(exps)) |], after)
-            where before = concat $ flip map args $ \(dir, (bef, argex, aft)) -> case dir of
-                                                                                   ArgIn -> bef
-                                                                                   ArgOut -> []
-                                                                                   ArgInOut -> bef
-                  exps = map (\(dir, (bef, argex, aft)) -> argex) args
-                  after = concat $ flip map args $ \(dir, (bef, argex, aft)) -> case dir of
-                                                                                  ArgIn -> []
-                                                                                  ArgOut -> aft
-                                                                                  ArgInOut -> aft
+            where before = concat $ flip map args $
+                    \(dir, (scalar, bef, argex, aft)) -> case dir of
+                      ArgIn -> bef
+                      ArgOut -> []
+                      ArgInOut -> bef
+                  exps = flip map args $ \(dir, (scalar, bef, argex, aft)) ->
+                    if dir `elem` [ArgOut, ArgInOut] && scalar
+                    then [cexp| &$argex |]
+                    else argex
+                  after = concat $ flip map args $
+                    \(dir, (scalar, bef, argex, aft)) -> case dir of
+                      ArgIn -> []
+                      ArgOut -> aft
+                      ArgInOut -> aft
 
 compileStat (Hole {}) = error "No holes allowed"
 
@@ -1579,7 +1611,10 @@ compileLoc (Ref ty v) = case normalizeTypes ty of
   vty@(VecType {}) -> do v <- lookupName "v" v
                          return $ mkVecLoc vty [cexp| $id:v |]
   _ -> do v' <- lookupName "v" v
-          return $ refLoc ty v'
+          mr <- getBindingReference v
+          case mr of
+            Just True -> return $ expLoc ty (return [cexp| *$id:(v')|])
+            _ -> return $ refLoc ty v'
 
 compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
                                    cidxs' <- mapM mkIndex idxs

@@ -32,7 +32,7 @@ qr_solve {m, n}
   (inout b :: double[m])
 
   (out solution :: double[n])
-  (out residual :: *double)
+  (out residual :: double)
 
   :: s8 := (
 
@@ -45,7 +45,7 @@ qr_solve {m, n}
   solution <- b[0:n];
 
   -- Norm of error = norm of last m-n elements
-  *residual <- norm b[n:m];
+  residual <- norm b[n:m];
 
   return code;
 );
@@ -108,7 +108,7 @@ main () :: s32 := (
 
   solution :: double[3];
 
-  code := qr_solve m b solution (&residual);
+  code := qr_solve m b solution residual;
 
   print_matrix m;
 
