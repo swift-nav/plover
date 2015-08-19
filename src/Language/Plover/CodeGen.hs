@@ -1357,7 +1357,7 @@ compileStat v@(Unary pos Diag a) = defaultAsRValue (loc <$> asLoc (compileStat a
 compileStat v@(Unary pos Shape a) = compileStat $ VecLit pos (IntType defaultIntType) idxs
   where idxs = getIndices $ getType a
 
--- TODO make sure that the veccons output correctly masks entries (doesn't so far)
+-- TODO really make sure that the veccons output correctly masks entries
 compileStat v@(Unary pos (VecCons st) a) = case (st, normalizeTypes $ getType a) of
   (DiagonalMatrix, VecType _ [i1] bty) -> fromDiagonal a
   _ -> fromVec a
@@ -1367,6 +1367,22 @@ compileStat v@(Unary pos (VecCons st) a) = case (st, normalizeTypes $ getType a)
           where loc aloc = deferLocPrep [aloc] (getType v) 2 $ \[aloc] _ [(_, idx), _] -> do
                   apIndex aloc idx
         fromVec a = defaultAsRValue $ castStorage st =<< (asLoc $ compileStat a)
+
+compileStat (Unary pos NoSpill a) = comp
+  where comp = Compiled
+               { noValue = noValue $ compileStat a
+               , withDest = withDest $ compileStat a
+               , asExp = asExp $ compileStat a
+               , asLoc = nsloc <$> asLoc (compileStat a)
+               }
+        nsloc loc = CmLoc
+                    { apIndex = apIndex loc
+                    , store = store loc
+                    , asRValue = comp
+                    , asArgument = asArgument loc
+                    , prepLoc = return loc -- This is where the NoSpill hint is used
+                    , locType = locType loc
+                    }
 
 -- -- binary
 

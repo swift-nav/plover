@@ -825,6 +825,7 @@ typeCheck (Unary pos (VecCons st) a) = do
                                            (VecType DenseMatrix bnds bty)
               _ -> do addUError $ UError pos "Matrix constructor expecting vector."
                       return aty'
+typeCheck (Unary pos NoSpill a) = typeCheck a
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
   | op `elem` [Add, Sub, Hadamard, Div]  = do
