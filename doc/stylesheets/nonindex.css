@@ -1,0 +1,11 @@
+#logo {
+    top: 20px; left: -100px;
+    width: 132px; height: 100px;
+    background-size: 132px 100px;
+}
+#header_wrap .inner {
+    padding-top: 35px;
+}
+#header_wrap {
+    min-height: 120px;
+}

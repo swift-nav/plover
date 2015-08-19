@@ -32,7 +32,7 @@ id: '{\\mathrm{id}}'
 
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
-<title>Plover</title>
+<title>Plover Language Reference</title>
 <meta name="authors" content="Scott Kovach  Kyle Miller" />
 <style type="text/css">
 
@@ -1209,17 +1209,30 @@ ul.auto-toc {
 }
 
 </style>
+<style type="text/css">
+
+#logo {
+    top: 20px; left: -100px;
+    width: 132px; height: 100px;
+    background-size: 132px 100px;
+}
+#header_wrap .inner {
+    padding-top: 35px;
+}
+#header_wrap {
+    min-height: 120px;
+}
+</style>
 <!-- body prefix -->
 </head>
 <body>
-<div class="document" id="plover">
+<div class="document" id="plover-language-reference">
 <!-- body pre docinfo  -->
 <div id="header_wrap" class="outer">
   <header class="inner">
     <div id="logo"></div>
     <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
-    <h1 class="title">Plover</h1>
-<h2 class="subtitle" id="high-level-embedded-linear-algebra-programming">High-level embedded linear algebra programming</h2>
+    <h1 class="title">Plover Language Reference</h1>
     <ul id="toptoc">
       <li><a href="index.html">About</a></li>
       <li><a href="guide.html">Guide</a></li>
@@ -1232,30 +1245,186 @@ ul.auto-toc {
 <div id="main_content_wrap" class="outer">
   <section id="main_content" class="inner">
     <!-- body -->
-    <p>Plover is a programming language designed for compiling linear algebra
-into robust, efficient C code suitable for running on embedded systems.</p>
-<p>Plover generates code free of dynamic memory allocation and provides
-compile-time checking of matrix and vector shapes using a lightweight
-dependent type system.</p>
-<p>Plover also aims to make use of sparse structure present in many
-real-world linear algebra problems to generate more efficient code.</p>
-<div class="section" id="documentation">
-<h1>Documentation</h1>
-<p>The Plover documentation is split into the following parts:</p>
+    <p>This part of the documentation describes in more detail the various
+features of the Plover language.</p>
+<div class="contents topic" id="table-of-contents">
+<p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li>The <a class="reference external" href="guide.html">Plover User Guide</a> gives installation
-instructions and general information about using the Plover
-compiler.</li>
-<li>The <a class="reference external" href="tutorials.html">Plover Tutorials</a> gives worked examples of
-programming algorithms and applications in Plover.</li>
-<li>The <a class="reference external" href="reference.html">Plover Language Reference</a> gives a more
-in-depth treatment of the language itself.</li>
+<li><a class="reference internal" href="#syntax" id="id1">Syntax</a><ul>
+<li><a class="reference internal" href="#sequencing" id="id2">Sequencing</a></li>
+<li><a class="reference internal" href="#iteration-constructs" id="id3">Iteration constructs</a><ul>
+<li><a class="reference internal" href="#for-loop" id="id4"><tt class="docutils literal">for</tt> loop</a></li>
+<li><a class="reference internal" href="#vec-constructor" id="id5"><tt class="docutils literal">vec</tt> constructor</a></li>
+<li><a class="reference internal" href="#while-loop" id="id6"><tt class="docutils literal">while</tt> loop</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id7">Value and type holes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#type-system" id="id8">Type system</a><ul>
+<li><a class="reference internal" href="#vector-types" id="id9">Vector types</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#modules" id="id10">Modules</a></li>
 </ul>
 </div>
-<div class="section" id="in-the-real-world">
-<h1>In the real world</h1>
-<p><a class="reference external" href="http://www.swiftnav.com/">Swift Navigation</a> uses Plover for
-implementing GPS algorithms in <a class="reference external" href="https://github.com/swift-nav/libswiftnav">libswiftnav</a>.</p>
+<div class="section" id="syntax">
+<h1>Syntax</h1>
+<div class="section" id="sequencing">
+<h2>Sequencing</h2>
+<p>Unlike C, everything in Plover is an expression with a value (possibly
+<tt class="docutils literal">void</tt>).  Like C, the semicolon is the expression sequencing
+operator.  Plover treats the final expression in a sequence as the
+value of the sequence.  Hence,</p>
+<pre class="literal-block">
+(a; b; c)
+</pre>
+<p>has value <tt class="docutils literal">c</tt>, after evaluating <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> (in that order).
+Like other operators, parentheses are used to delimit sequences of
+expressions (not curly braces, which are instead used to delimit
+implicit function arguments).</p>
+</div>
+<div class="section" id="iteration-constructs">
+<h2>Iteration constructs</h2>
+<p>There are three basic iteration constructs in Plover: the <tt class="docutils literal">for</tt>
+loop, the <tt class="docutils literal">vec</tt> constructor, and the <tt class="docutils literal">while</tt> loop</p>
+<div class="section" id="for-loop">
+<h3><tt class="docutils literal">for</tt> loop</h3>
+<p>The <tt class="docutils literal">for</tt> loop has the following basic syntax:</p>
+<pre class="literal-block">
+for ${i} in ${range} -&gt; ${body}
+</pre>
+<p>where <tt class="docutils literal">i</tt> is the iteration variable, <tt class="docutils literal">range</tt> is a range of some
+type, and <tt class="docutils literal">body</tt> is an expression to evaluate for each <tt class="docutils literal">i</tt> in the
+given range.  For instance,</p>
+<pre class="literal-block">
+for i in 0:n -&gt; printf &quot;The variable i is currently %d\n&quot; i;
+</pre>
+<p>Since multidimensional loops show up often enough, there is a special
+syntax for specifying multiple indices in the same <tt class="docutils literal">for</tt> construct.
+For instance,</p>
+<pre class="literal-block">
+for i in 0:n, j in 0:m -&gt; printf &quot;(i,j) = (%d,%d)\n&quot; i j;
+</pre>
+<p>is equivalent to</p>
+<pre class="literal-block">
+for i in 0:n -&gt;
+  for j in 0:n -&gt;
+    printf &quot;(i,j) = (%d,%d)\n&quot; i j;
+</pre>
+<p>The lower bound of a range may be omitted with a default of <tt class="docutils literal">0</tt>, so
+the above may be shortend to</p>
+<pre class="literal-block">
+for i in n, j in m -&gt; printf &quot;(i,j) = (%d,%d)\n&quot; i j;
+</pre>
+<p>The value of the expressions in <tt class="docutils literal">for</tt> can be of any type, but the
+result of <tt class="docutils literal">for</tt> is always void.</p>
+</div>
+<div class="section" id="vec-constructor">
+<h3><tt class="docutils literal">vec</tt> constructor</h3>
+<p>The <tt class="docutils literal">vec</tt> constructor has the same syntax as <tt class="docutils literal">for</tt>, and it
+accumulates the values of the iteration as a location.  No guarantee
+is made on the number of times any of the expressions in a <tt class="docutils literal">vec</tt>
+will be computed, if the expressions are evaluated at all.  The type
+of a <tt class="docutils literal">vec</tt> expression is a dense matrix with base type the type of
+the iterated expression.</p>
+<p>This produces an identity matrix named <cite>I</cite>:</p>
+<pre class="literal-block">
+I := vec i in n, j in n -&gt; if i == j then 1 else 0;
+</pre>
+</div>
+<div class="section" id="while-loop">
+<h3><tt class="docutils literal">while</tt> loop</h3>
+<p>The <tt class="docutils literal">while</tt> loop is for iterating while a boolean condition remains
+true.  There are two forms:</p>
+<pre class="literal-block">
+while ${test} -&gt; ${body};
+while ${test};
+</pre>
+<p>If the body is omitted, the body is assumed to be the empty
+expression.</p>
+<p>The <tt class="docutils literal">while</tt> construct will</p>
+<ol class="arabic simple">
+<li>Evaluate the <tt class="docutils literal">test</tt> expression;</li>
+<li>If it is true, evaluate the <tt class="docutils literal">body</tt> expression and return to step 1;</li>
+<li>Otherwise, finish with the void value.</li>
+</ol>
+<p>For instance, to binary search an array for a <tt class="docutils literal">u8</tt> key:</p>
+<pre class="literal-block">
+binary_search {n} (A :: u8[n]) (key :: u8) :: int
+  := ( imin := 0; imax := n;
+       while (imax &gt;= imin) -&gt; (
+         imid := imin + (imax - imin) / 2;
+         if A[imid] == key then
+           return imid;
+         else if A[imid] &lt; key then
+           imin &lt;- imid + 1;
+         else
+           imax &lt;- imid - 1;
+       );
+       return -1;
+     );
+</pre>
+<p>The test in the <tt class="docutils literal">while</tt> loop may be a sequence of statements, and so
+the loop becomes like the do-while loop in C; the final expression in
+the test sequence is the value used to determine whether another loop
+iteration will occur.  For instance, here is an implementation of the
+Box-Muller transform for normally distributed random numbers:</p>
+<pre class="literal-block">
+rand_normal() :: double
+  := ( x1 :: double; x2 :: double;
+       w :: double;
+       while (x1 &lt;- 2 * rand_uniform() - 1.0;
+              x2 &lt;- 2 * rand_uniform() - 1.0;
+              w &lt;- x1 ^ 2 + x2 ^ 2;
+
+              w &gt;= 1.0);
+       w &lt;- sqrt( -2 * log w / w );
+       return x1 * w;
+     );
+</pre>
+</div>
+</div>
+<div class="section" id="value-and-type-holes">
+<h2>Value and type holes</h2>
+<p>The Plover language supports introducing holes into a program which,
+depending on context, may in some circumstances be filled during
+normal typechecking.  This feature allows a programmer some
+flexibility when prototyping and debugging.  The holes come in two
+flavors: quiet and noisy.  The difference between the two is that
+noisy holes will cause an error which will describe what the type
+system believes may be a valid substitution for the holes, whereas
+quiet holes will not cause an error so long as a valid substitution is
+found.  The syntax for a quiet hole is a single underscore (<tt class="docutils literal">_</tt>) and
+for a noisy hole a double underscore (<tt class="docutils literal">__</tt>).</p>
+<p>A common example is in function parameter lists.  One may drop off the
+types as in the following:</p>
+<pre class="literal-block">
+foo (x :: _) :: _  := x + 1;
+</pre>
+<p>and because of defaulting rules, <tt class="docutils literal">x</tt> will be <tt class="docutils literal">int</tt>, as is the
+return type of <tt class="docutils literal">foo</tt>.</p>
+<p>The following is the same as the above example:</p>
+<pre class="literal-block">
+foo x :: _ := x + 1;
+</pre>
+<p>Noisy holes let a programmer see the type of intermediate results.
+For instance,</p>
+<pre class="literal-block">
+B :: __  := (G^T * G :: __)^(-1) * G^T;
+</pre>
+<p>to get the types of <tt class="docutils literal">B</tt> and of <tt class="docutils literal">G^T * G</tt>.</p>
+</div>
+</div>
+<div class="section" id="type-system">
+<h1>Type system</h1>
+<p>The void type is the same as the type of empty tuples.</p>
+<div class="section" id="vector-types">
+<h2>Vector types</h2>
+</div>
+</div>
+<div class="section" id="modules">
+<h1>Modules</h1>
 </div>
 
   </section>

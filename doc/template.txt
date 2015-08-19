@@ -34,9 +34,15 @@ id: '{\\mathrm{id}}'
 <!-- body pre docinfo  -->
 <div id="header_wrap" class="outer">
   <header class="inner">
-    <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
     <div id="logo"></div>
+    <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
     %(body_pre_docinfo)s
+    <ul id="toptoc">
+      <li><a href="index.html">About</a></li>
+      <li><a href="guide.html">Guide</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="reference.html">Reference</a></li>
+    </ul>
   </header>
 </div>
 

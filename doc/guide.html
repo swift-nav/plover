@@ -32,7 +32,7 @@ id: '{\\mathrm{id}}'
 
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
-<title>Plover</title>
+<title>Plover User Guide</title>
 <meta name="authors" content="Scott Kovach  Kyle Miller" />
 <style type="text/css">
 
@@ -1209,17 +1209,30 @@ ul.auto-toc {
 }
 
 </style>
+<style type="text/css">
+
+#logo {
+    top: 20px; left: -100px;
+    width: 132px; height: 100px;
+    background-size: 132px 100px;
+}
+#header_wrap .inner {
+    padding-top: 35px;
+}
+#header_wrap {
+    min-height: 120px;
+}
+</style>
 <!-- body prefix -->
 </head>
 <body>
-<div class="document" id="plover">
+<div class="document" id="plover-user-guide">
 <!-- body pre docinfo  -->
 <div id="header_wrap" class="outer">
   <header class="inner">
     <div id="logo"></div>
     <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
-    <h1 class="title">Plover</h1>
-<h2 class="subtitle" id="high-level-embedded-linear-algebra-programming">High-level embedded linear algebra programming</h2>
+    <h1 class="title">Plover User Guide</h1>
     <ul id="toptoc">
       <li><a href="index.html">About</a></li>
       <li><a href="guide.html">Guide</a></li>
@@ -1232,30 +1245,55 @@ ul.auto-toc {
 <div id="main_content_wrap" class="outer">
   <section id="main_content" class="inner">
     <!-- body -->
-    <p>Plover is a programming language designed for compiling linear algebra
-into robust, efficient C code suitable for running on embedded systems.</p>
-<p>Plover generates code free of dynamic memory allocation and provides
-compile-time checking of matrix and vector shapes using a lightweight
-dependent type system.</p>
-<p>Plover also aims to make use of sparse structure present in many
-real-world linear algebra problems to generate more efficient code.</p>
-<div class="section" id="documentation">
-<h1>Documentation</h1>
-<p>The Plover documentation is split into the following parts:</p>
+    <p>This part of the documentation describes how to install and use the
+Plover compiler.</p>
+<div class="contents topic" id="table-of-contents">
+<p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li>The <a class="reference external" href="guide.html">Plover User Guide</a> gives installation
-instructions and general information about using the Plover
-compiler.</li>
-<li>The <a class="reference external" href="tutorials.html">Plover Tutorials</a> gives worked examples of
-programming algorithms and applications in Plover.</li>
-<li>The <a class="reference external" href="reference.html">Plover Language Reference</a> gives a more
-in-depth treatment of the language itself.</li>
+<li><a class="reference internal" href="#installation" id="id1">Installation</a></li>
+<li><a class="reference internal" href="#usage" id="id2">Usage</a></li>
+<li><a class="reference internal" href="#compiler-options" id="id3">Compiler options</a></li>
 </ul>
 </div>
-<div class="section" id="in-the-real-world">
-<h1>In the real world</h1>
-<p><a class="reference external" href="http://www.swiftnav.com/">Swift Navigation</a> uses Plover for
-implementing GPS algorithms in <a class="reference external" href="https://github.com/swift-nav/libswiftnav">libswiftnav</a>.</p>
+<div class="section" id="installation">
+<h1>Installation</h1>
+<p>First, install the <a class="reference external" href="https://www.haskell.org/platform/">Haskell Platform</a> (recommended) or another GHC
+7.10+ toolchain of your choice.</p>
+<p>Check out the <tt class="docutils literal">plover</tt> source:</p>
+<pre class="literal-block">
+$ git clone https://github.com/swift-nav/plover.git
+$ cd plover
+</pre>
+<p>Next, create a cabal sandbox. This keeps any dependencies isolated so
+you don't have to worry about conflicts with other versions you may
+have on your system.</p>
+<pre class="literal-block">
+$ cabal sandbox init
+</pre>
+<p>Install the dependencies into the sandbox:</p>
+<pre class="literal-block">
+$ cabal install --only-dependencies --enable-tests
+</pre>
+<p>Run the test suite (requires <tt class="docutils literal">gcc</tt>):</p>
+<pre class="literal-block">
+$ cabal test --show-details=streaming
+</pre>
+</div>
+<div class="section" id="usage">
+<h1>Usage</h1>
+<p>Plover may be used both as a traditional compilation pass or by using
+Haskell as a macro language.</p>
+<p>For help,</p>
+<pre class="literal-block">
+$ plover -h
+</pre>
+</div>
+<div class="section" id="compiler-options">
+<h1>Compiler options</h1>
+<p>There are options to the compiler, which you may discover with</p>
+<pre class="literal-block">
+$ plover -h
+</pre>
 </div>
 
   </section>

@@ -1,16 +1,24 @@
+PAGES := index.html reference.html guide.html tutorials.html
+
 index.html: index.rst template.txt
-	rst2html.py index.rst index.html --math-output=MathJax --template=template.txt --stylesheet=stylesheets/normalize.css,stylesheets/pygment_trac.css,stylesheets/style.css --no-toc-backlinks --section-numbering
+	rst2html.py $< $@ --math-output=MathJax --template=template.txt --stylesheet=stylesheets/normalize.css,stylesheets/pygment_trac.css,stylesheets/style.css --no-toc-backlinks --section-numbering
+
+%.html: %.rst template.txt
+	rst2html.py $< $@ --math-output=MathJax --template=template.txt --stylesheet=stylesheets/normalize.css,stylesheets/pygment_trac.css,stylesheets/style.css,stylesheets/nonindex.css --no-toc-backlinks --section-numbering
 
 .PHONY: clean
 clean:
-	-rm index.html
+	-rm -f $(PAGES)
+
+.PHONY: pages
+pages: $(PAGES)
 
 CURR_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 GIT_TOP := $(shell git rev-parse --show-toplevel)
 TMP_DOC_DIR := $(shell mktemp -d /tmp/gh_pages.XXXXXX)
 
 .PHONY: publish gh-pages
-gh-pages: index.html
+gh-pages: $(PAGES)
 	@echo This will cause some noise
 	git stash
 	-git branch -D gh-pages

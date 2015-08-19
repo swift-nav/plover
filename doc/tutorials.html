@@ -32,8 +32,9 @@ id: '{\\mathrm{id}}'
 
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
-<title>Plover</title>
+<title>Plover Tutorials</title>
 <meta name="authors" content="Scott Kovach  Kyle Miller" />
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
 <style type="text/css">
 
 /*! normalize.css v2.1.3 | MIT License | git.io/normalize */
@@ -1209,17 +1210,30 @@ ul.auto-toc {
 }
 
 </style>
+<style type="text/css">
+
+#logo {
+    top: 20px; left: -100px;
+    width: 132px; height: 100px;
+    background-size: 132px 100px;
+}
+#header_wrap .inner {
+    padding-top: 35px;
+}
+#header_wrap {
+    min-height: 120px;
+}
+</style>
 <!-- body prefix -->
 </head>
 <body>
-<div class="document" id="plover">
+<div class="document" id="plover-tutorials">
 <!-- body pre docinfo  -->
 <div id="header_wrap" class="outer">
   <header class="inner">
     <div id="logo"></div>
     <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
-    <h1 class="title">Plover</h1>
-<h2 class="subtitle" id="high-level-embedded-linear-algebra-programming">High-level embedded linear algebra programming</h2>
+    <h1 class="title">Plover Tutorials</h1>
     <ul id="toptoc">
       <li><a href="index.html">About</a></li>
       <li><a href="guide.html">Guide</a></li>
@@ -1232,30 +1246,141 @@ ul.auto-toc {
 <div id="main_content_wrap" class="outer">
   <section id="main_content" class="inner">
     <!-- body -->
-    <p>Plover is a programming language designed for compiling linear algebra
-into robust, efficient C code suitable for running on embedded systems.</p>
-<p>Plover generates code free of dynamic memory allocation and provides
-compile-time checking of matrix and vector shapes using a lightweight
-dependent type system.</p>
-<p>Plover also aims to make use of sparse structure present in many
-real-world linear algebra problems to generate more efficient code.</p>
-<div class="section" id="documentation">
-<h1>Documentation</h1>
-<p>The Plover documentation is split into the following parts:</p>
+    <p>This part of the documentation gives worked examples of using Plover.</p>
+<div class="contents topic" id="table-of-contents">
+<p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li>The <a class="reference external" href="guide.html">Plover User Guide</a> gives installation
-instructions and general information about using the Plover
-compiler.</li>
-<li>The <a class="reference external" href="tutorials.html">Plover Tutorials</a> gives worked examples of
-programming algorithms and applications in Plover.</li>
-<li>The <a class="reference external" href="reference.html">Plover Language Reference</a> gives a more
-in-depth treatment of the language itself.</li>
+<li><a class="reference internal" href="#programming-a-qr-least-squares-solver" id="id2">Programming a QR Least Squares Solver</a></li>
+<li><a class="reference internal" href="#citations" id="id3">Citations</a></li>
 </ul>
 </div>
-<div class="section" id="in-the-real-world">
-<h1>In the real world</h1>
-<p><a class="reference external" href="http://www.swiftnav.com/">Swift Navigation</a> uses Plover for
-implementing GPS algorithms in <a class="reference external" href="https://github.com/swift-nav/libswiftnav">libswiftnav</a>.</p>
+<div class="section" id="programming-a-qr-least-squares-solver">
+<h1>Programming a QR Least Squares Solver</h1>
+<p>We're going to step through the implementation of a textbook algorithm: a QR
+least squares solver for overdetermined systems. That is, given <span class="math">\(A\in
+\R^{m\times n}\)</span> and <span class="math">\(b\in \R^m\)</span> with <span class="math">\(m \geq n\)</span>, we want to find a
+vector <span class="math">\(x\in\R^n\)</span> such that the squared error <span class="math">\(\norm{Ax-b}\)</span> is
+minimized.</p>
+<p>The essential steps are:</p>
+<ol class="arabic simple">
+<li>Apply orthogonal transformations to <span class="math">\(A\)</span> and <span class="math">\(b\)</span> until
+<span class="math">\(A\)</span>'s first <span class="math">\(n\)</span> rows are upper triangular.</li>
+<li>Backsolve the triangular system.</li>
+<li>Return the solution and the error (the norm of the last <span class="math">\(n-m\)</span> entries
+of <span class="math">\(b\)</span>).</li>
+</ol>
+<p>We will attempt to mindlessly follow the implementation given in <a class="citation-reference" href="#mc2013" id="id1">[MC2013]</a>.</p>
+<p>First we apply a sequence of Givens rotations to introduce zeroes into our matrix <span class="math">\(A\)</span>.
+A Givens rotation is a pair <span class="math">\(c=\cos(\theta)\)</span> and <span class="math">\(s=\sin(\theta)\)</span> such that</p>
+<div class="math">
+\begin{equation*}
+\begin{bmatrix}
+  c &amp; s \\
+  -s &amp; c
+\end{bmatrix}^T
+\begin{bmatrix}
+a \\ b
+\end{bmatrix}
+=
+\begin{bmatrix}
+r \\ 0
+\end{bmatrix}
+.
+\end{equation*}
+</div>
+<p>Pseudocode to calculate such a pair follows:</p>
+<div class="line-block">
+<div class="line">givens(a, b) <strong>returns</strong> [<span class="math">\(c, s\)</span>]</div>
+<div class="line"><strong>if</strong> <span class="math">\(b = 0\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(c = 1; s = 0\)</span></div>
+</div>
+<div class="line"><strong>else if</strong> <span class="math">\(\abs{b} &gt; \abs{a}\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(\tau = -a/b; s = 1/\sqrt{1+\tau^2}; c = s\tau\)</span></div>
+</div>
+<div class="line"><strong>else</strong></div>
+<div class="line-block">
+<div class="line"><span class="math">\(\tau = -b/a; c = 1/\sqrt{1+\tau^2}; s = c\tau\)</span></div>
+</div>
+</div>
+<p>The plover version is below. We will step through it line by line.</p>
+<pre class="literal-block">
+static givens (a :: double) (b :: double) :: double[2,2] := (
+  c :: double;
+  s :: double;
+  if b == 0 then (
+    c &lt;- 1; s &lt;- 0
+  ) else if fabs b &gt; fabs a then (
+    tau := -a/b; s &lt;- 1/sqrt(1+tau^2); c &lt;- s*tau
+  ) else (
+    tau := -b/a; c &lt;- 1/sqrt(1+tau^2); s &lt;- c*tau;
+  );
+
+  mat( c, s ;
+      -s, c );
+);
+</pre>
+<p>breaking it down:</p>
+<pre class="literal-block">
+static givens (a :: double) (b :: double) :: double[2,2] := (
+  ...
+);
+</pre>
+<p>Plover is statically typed, and all functions require a type signature,
+although in many cases types can be inferred (see the section on type holes).
+The function signature indicates that the function <tt class="docutils literal">givens</tt> is <tt class="docutils literal">static</tt>
+(not exported in the header) takes two arguments <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> of type
+<tt class="docutils literal">double</tt>, and returns a 2-by-2 matrix of doubles.  Function declarations and
+variable initializations use the <tt class="docutils literal">:=</tt> operator, and blocks are encosed within
+parentheses. The statements of a block are separated by semicolons. Function
+declarations must also be terminated by a semicolon.</p>
+<pre class="literal-block">
+c :: double;
+s :: double;
+</pre>
+<p>A new local variable may either be declared with a type or with an initial
+value, in which case the type will be inferred.  In this case, <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt>
+will be set by some branch of the <tt class="docutils literal">if</tt> statement below, so we simply declare
+them with a type.</p>
+<pre class="literal-block">
+if b == 0 then (
+  c &lt;- 1; s &lt;- 0
+)
+</pre>
+<p>The condition of an <tt class="docutils literal">if</tt> statement does not need enclosing parentheses. The
+condition must be followed by the keyword <tt class="docutils literal">then</tt> and an expression or
+statement. In this case, we have a block which updates the values of <tt class="docutils literal">c</tt> and
+<tt class="docutils literal">s</tt>.  Updating variables must be done with <tt class="docutils literal">&lt;-</tt> .</p>
+<pre class="literal-block">
+else if fabs b &gt; fabs a then (
+  tau := -a/b; s &lt;- 1/sqrt(1+tau*tau); c &lt;- s*tau
+) else (
+  tau := -b/a; c &lt;- 1/sqrt(1+tau*tau); s &lt;- c*tau
+);
+</pre>
+<p><tt class="docutils literal">if</tt> statements are optionally followed by an <tt class="docutils literal">else</tt> clause and another
+expression or block. Here, the <tt class="docutils literal">fabs</tt> function is called on <tt class="docutils literal">b</tt> and <tt class="docutils literal">a</tt>,
+and these values are compared to choose the branch.  The local <tt class="docutils literal">tau</tt> is
+initialized, and <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt> are updated as shown in the pseudocode above.
+The <tt class="docutils literal">fabs</tt> and <tt class="docutils literal">sqrt</tt> functions are included in Plover's <tt class="docutils literal">prelude</tt>
+module.</p>
+<pre class="literal-block">
+mat( c, s ;
+    -s, c );
+</pre>
+<p>The final expression in a block is treated as the value for that block. Here,
+the function returns a 2-by-2 matrix literal containing the values we've just computed.</p>
+<p>Let's take a look at the C code generated so far:</p>
+</div>
+<div class="section" id="citations">
+<h1>Citations</h1>
+<table class="docutils citation" frame="void" id="mc2013" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id1">[MC2013]</a></td><td>G.H. Golub and C.F. Van Loan (2013). <em>Matrix Computations, 4th ed.</em> The Johns Hopkins University Press, Baltimore, MD.</td></tr>
+</tbody>
+</table>
 </div>
 
   </section>
