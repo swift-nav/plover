@@ -1317,7 +1317,10 @@ compileStat v@(Unary _ Inverse a) = comp
                                         (_, dex, daf) <- asArgument dest
                                         nex <- asExp $ compileStat n
                                         writeCode bl
-                                        writeCode [citems|matrix_inverse($nex,$aex,$dex);|]
+                                        err <- freshLoc "err" (IntType S32)
+                                        store err [cexp|matrix_inverse($nex,$aex,$dex)|]
+                                        errex <- asExp $ asRValue err
+                                        writeCode [citems|assert(0 == $errex);|]
                                         writeCode daf
                , asExp = defaultAsExp (getType v) comp
                , noValue = defaultNoValue (getType v) comp
