@@ -80,7 +80,7 @@
      ;;  "\\b\\(\\(?:\\sw\\|\\s_\\)+\\)\\s-*=\\_>"
      ;;  '(1 font-lock-variable-name-face)
      ;;  )
-     '("\\_<\\(?:extern\\|static\\|inline\\|struct\\|vec\\|mat\\|for\\|sum\\|in\\|out\\|inout\\|if\\|then\\|else\\|True\\|False\\|Void\\|T\\|_\\|and\\|or\\|not\\|storing\\|assert\\)\\_>" . font-lock-keyword-face)
+     '("\\_<\\(?:import\\|extern\\|static\\|inline\\|struct\\|vec\\|mat\\|for\\|sum\\|in\\|out\\|inout\\|if\\|then\\|else\\|True\\|False\\|Void\\|T\\|_\\|and\\|or\\|not\\|storing\\|assert\\)\\_>" . font-lock-keyword-face)
      '("\\_<error\\_>" . font-lock-warning-face)
 ;     '("@\\sw+" . font-lock-constant-face)
      '("~" . font-lock-preprocessor-face)
