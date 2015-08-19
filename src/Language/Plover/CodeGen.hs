@@ -328,7 +328,9 @@ compileType' (FloatType Float) = [cty|float|]
 compileType' (FloatType Double) = [cty|double|]
 compileType' StringType = [cty|char*|]
 compileType' BoolType = [cty|typename bool|]
-compileType' (PtrType ty) = [cty|$ty:(compileType ty)*|]
+compileType' (PtrType ty) = case normalizeTypes ty of
+  VecType {} -> compileType ty
+  _ -> [cty|$ty:(compileType ty)*|]
 compileType' (TypedefType ty v) = [cty|typename $id:v|]
 compileType' (StructType v _) = [cty|typename $id:v|]
 compileType' (TypeHole _) = error "No type holes allowed."
@@ -542,7 +544,7 @@ mkVecLoc' array offset vty@(VecType storageType bnds baseTy) = collectIdxs [] bn
              [] -> do absOffset <- mabsOffset
                       return ([], applyOffsetAddr array absOffset, [])
              _ -> error "partial application asArgument unimplemented"
-          , prepLoc = return $ collectIdxs acc (bnd:bnds)
+          , prepLoc = return $ collectIdxs acc (bnd:bnds) -- What is a thing but what it's called?
           , locType = case acc of
                         [] -> VecType storageType (bnd:bnds) baseTy
                         _ -> VecType DenseMatrix (bnd:bnds) baseTy
@@ -694,8 +696,7 @@ partialLoc ty loc 0 f = f loc
 partialLoc ty loc n f = return ploc
   where ploc = CmLoc
                { apIndex = \idx -> do loc' <- apIndex loc idx
-                                      ploc' <- partialLoc ty' loc' (n - 1) f
-                                      return ploc'
+                                      partialLoc ty' loc' (n - 1) f
                , store = error $ "Cannot simple store into partialLoc"
                , asRValue = error "Cannot get partialLoc asRValue"
                , asArgument = defaultAsArgument ploc
@@ -736,7 +737,7 @@ deferLocPrep loc ty n f = deferLoc' loc [] ty n
                        , asRValue = error $ "Cannot get deferLoc asRValue"
                        , asArgument = defaultAsArgument dloc
                        , prepLoc = do loc' <- mapM prepLoc loc
-                                      deferLoc' loc acc ty n
+                                      deferLoc' loc' acc ty n
                        , locType = ty
                        }
                 VecType _ (bnd:bnds) bty = normalizeTypes ty
@@ -1230,7 +1231,9 @@ compileStat v@(Addr pos loc) = comp
   where comp = Compiled
                { asExp = do (bef, exp, _) <- compileLoc loc >>= asArgument
                             writeCode bef
-                            return [cexp| & $exp |]
+                            case normalizeTypes (getLocType loc) of
+                              VecType {} -> return exp
+                              _ -> return [cexp| & $exp |]
                , noValue = defaultNoValue (getType v) comp
                , withDest = defaultWithDest (getType v) comp
                , asLoc = do ex <- asExp $ comp
@@ -1622,9 +1625,9 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
                                    mkLoc ty cidxs' aloc
   where mkIndex :: CExpr -> CM (Either (Int, CmLoc) C.Exp) -- TODO tuple
         mkIndex idx = case normalizeTypes (getType idx) of
-          VecType _ ibnds ibty -> do
+          vty@(VecType {}) -> do
             idxloc <- asLoc $ compileStat idx
-            return $ Left (length ibnds, idxloc)
+            return $ Left (length $ getIndices vty, idxloc)
           ty -> do
             idxex <- asExp $ compileStat idx
             return $ Right idxex
@@ -1634,10 +1637,11 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
         mkLoc ty ((Right exp):idxs) aloc = apIndex aloc exp >>= mkLoc ty idxs
         mkLoc ty ((Left (n, iloc)):idxs) aloc = partialLoc ty iloc n $ \iloc' -> do -- TODO tuples
           ilocex <- asExp $ asRValue iloc'
-          apIndex aloc ilocex >>= mkLoc (strip n ty) idxs
+          apIndex aloc ilocex >>= mkLoc (strip n ty) idxs -- remove n indices since we just applied n
 
         strip :: Int -> Type -> Type
         strip 0 ty = ty
+        strip n (VecType _ [] bty) = strip n bty
         strip n (VecType _ (bnd:bnds) bty) = strip (n - 1) (VecType DenseMatrix bnds bty)
 
 compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
@@ -1656,5 +1660,5 @@ compileLoc l@(Deref a) = do
   sex <- asExp $ compileStat a
   case normalizeTypes (getLocType l) of
     vty@(VecType {}) -> do
-      return $ mkVecLoc vty [cexp| *$sex|]
+      return $ mkVecLoc vty [cexp| $sex|]
     ty -> return $ expLoc ty (return [cexp| *$sex|])

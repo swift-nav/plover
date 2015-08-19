@@ -763,8 +763,8 @@ instance PP Type where
   pretty v@(VecType {}) = case normalizeTypes v of
                            VecType st bnds ty -> pst $ pretty ty <> brackets (sep $ punctuate comma (map pretty bnds))
                              where pst = case st of
-                                     DenseMatrix -> id
-                                     _ -> \x -> text (show st) <+> x
+                                     DenseMatrix -> parens
+                                     _ -> \x -> parens $ text (show st) <+> x
                            ty' -> pretty ty'
   pretty (TupleType xs) = parens $ sep $ punctuate (text ",") $ map pretty xs
   pretty (FnType (FnT args mva retty)) = parens $ hang (text "func") 5 (sep $ map prarg args)
@@ -924,17 +924,19 @@ getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ g
   where getTypeIdx [] aty = aty
         getTypeIdx (idx:idxs) aty@(VecType {}) = getTypeIdxty (getType idx) idxs aty
 
-        getTypeIdxty idxty idxs (VecType st ibnds bty) =
+        getTypeIdxty idxty idxs vty@(VecType {}) =
           case normalizeTypes idxty of
-            VecType st' idxs' idxtybase -> VecType st' idxs' (getTypeIdxty idxtybase idxs
-                                                              (VecType st ibnds bty))
-            ty -> getTypeIdx idxs
-                  (VecType DenseMatrix (drop (iSize ty) ibnds) bty)
+            VecType st' idxs' idxtybase -> VecType st' idxs' (getTypeIdxty idxtybase idxs vty)
+            ty -> getTypeIdx idxs $ strip (iSize ty) vty
 
         iSize (IntType {}) = 1
         iSize (TupleType tys) = sum $ map iSize tys
 
-getLocType (Field a field) = case stripPtr (normalizeTypes $ getType a) of -- TODO need to replace dependent fields which show up b/c of Storing
+        strip 0 ty = ty
+        strip n (VecType _ [] bty) = strip n bty
+        strip n (VecType _ (bnd:bnds) bty) = strip (n - 1) (VecType DenseMatrix bnds bty)
+
+getLocType (Field a field) = case stripPtr (normalizeTypes $ getType a) of
   StructType v (ST fields) -> case lookup field fields of
     Just (_, _ ,fieldTy) -> structField fields a fieldTy
   ty -> error $ show ty

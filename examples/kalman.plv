@@ -45,7 +45,7 @@ struct KF (
        storing Symmetric double[obs_dim, obs_dim];
 );
 
-kalman_update (inout kf :: *KF) (obs :: double[kf.obs_dim]) :: ()
+kalman_update (inout kf :: KF) (obs :: double[kf.obs_dim]) :: ()
   := ( -- predict
        xp := kf.f * kf.x;
        pp := kf.f * kf.p * kf.f^T + kf.q;

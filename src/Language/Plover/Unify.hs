@@ -947,6 +947,7 @@ typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLo
                         -> Type -- ^ type of 'a' (recursively destructured)
                         -> UM Type -- ^ type after indexing
         typeCheckIdx oty [] aty = normalizeTypesM aty
+        typeCheckIdx oty idxs (VecType _ [] bty) = typeCheckIdx oty idxs bty
         typeCheckIdx oty (idx:idxs) aty@(VecType _ (ibnd:_) _) = do
           unifyRangeIndex pos idx ibnd
           idxty <- typeCheck idx
@@ -956,19 +957,24 @@ typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLo
           return ty
 
         typeCheckIdxty :: Type -> Type -> [CExpr] -> Type -> UM Type
-        typeCheckIdxty oty idxty idxs (VecType st ibnds bty) =
+        typeCheckIdxty oty idxty idxs vty@(VecType {}) =
           case normalizeTypes idxty of
            VecType st' idxs' idxtybase -> -- result shape equals shape of index
-             VecType st' idxs' <$> (typeCheckIdxty oty idxtybase idxs $ VecType st ibnds bty)
+             VecType st' idxs' <$> (typeCheckIdxty oty idxtybase idxs vty)
            ty -> do nidxs <- iSize ty
-                    when (nidxs > length ibnds) $
-                      addUError $ UGenTyError pos oty "Too many indices on expression of type"
-                    typeCheckIdx oty idxs (VecType DenseMatrix (drop nidxs ibnds) bty)
+                    typeCheckIdx oty idxs =<< strip nidxs vty
 
         iSize :: Type -> UM Int
         iSize (IntType {}) = return 1
         iSize (TupleType tys) = sum <$> mapM iSize tys
         iSize ty = iSize . IntType =<< expectInt pos ty -- Default to int
+
+        strip :: Int -> Type -> UM Type
+        strip 0 ty = return ty
+        strip n (VecType _ [] bty) = strip n bty
+        strip n (VecType _ (bnd:bnds) bty) = strip (n - 1) (VecType DenseMatrix bnds bty)
+        strip n ty = do addUError $ UGenTyError pos ty "Too many indices on expression of type"
+                        return ty
 
         unifyRangeIndex pos idx ibound = do
           case idx of

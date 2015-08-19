@@ -1,3 +1,5 @@
+import prelude;
+
 -- Test having a prototype:
 foo1 {n :: s32} (A :: Diagonal double[n,n]) (v :: double[n]) :: double;
 
@@ -9,4 +11,13 @@ foo2 {n :: s32} (A :: Symmetric double[n,n]) (v :: double[n]) :: double
   := (v^T * A * v)[0];
 
 foo0 {n} (A :: double[n,n]) (v :: double[n]) :: double
+  := v * (A * v);
+
+foo01 {n} (A :: double[n,n]) (v :: double[n]) :: double
   := (v^T * A * v)[0];
+
+foo00 {m,n} (A :: double[n,n]) (v :: double[n,m]) :: double[m,m]
+  := (v^T * A * v);
+
+huh {n} (A :: double[n,n]) :: _
+  := (*(&(A[:,22])))[2];
