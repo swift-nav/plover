@@ -364,6 +364,7 @@ storageTypeSize UpperUnitTriangular [m, _] = m * (m - 1) / 2
 storageTypeSize LowerTriangular bnds = storageTypeSize UpperTriangular bnds
 storageTypeSize LowerUnitTriangular bnds = storageTypeSize UpperUnitTriangular bnds
 storageTypeSize SymmetricMatrix [m, _] = m * (m + 1) / 2
+storageTypeSize ScalarMatrix _ = 1
 
 -- | Returns the compiled number of elements for a vector type
 typeSize :: Type -> CM (C.Exp, Type)
@@ -598,6 +599,14 @@ indexStorage SymmetricMatrix [(w, i), (_, j)] subLoc =
         vty = locType sl1
         bty = vecBaseType vty
         uninit = compileUninit bty
+indexStorage ScalarMatrix [(w, i), (_, j)] subLoc =
+  if i == j -- this check is so that storeLoc can give better code
+  then return sl
+  else return $ condLoc [cexp| $i == $j |] sl (constLoc vty uninit)
+  where sl = subLoc w [cexp|0|]
+        vty = locType sl
+        bty = vecBaseType vty
+        uninit = compileUninit bty
 
 castStorage st loc = deferLocPrep [loc] (locType loc) 2 (casted st)
   where casted DenseMatrix [loc] vty [(_, i), (_, j)] =
@@ -617,6 +626,11 @@ castStorage st loc = deferLocPrep [loc] (locType loc) 2 (casted st)
           do loc' <- apIndices loc [i, j]
              loc'' <- apIndices loc [j, i]
              return $ condLoc [cexp| $i + 1 > $j|] loc' loc''
+        casted ScalarMatrix [loc] vty [(_, i), (_, j)] =
+          if i == j -- this check is so that storeLoc can give better code
+          then apIndices loc [[cexp|0|], [cexp|0|]]
+          else do loc' <- apIndices loc [[cexp|0|],[cexp|0|]]
+                  return $ condLoc [cexp| $i == $j |] loc' (zero vty)
 
         zero vty = let bty = vecBaseType vty
                        uninit = compileUninit bty
@@ -836,29 +850,33 @@ storeExp dst exp = case normalizeTypes (locType dst) of
 storeLoc :: CmLoc -> CmLoc -> CM ()
 storeLoc dst src = case denormalizeTypes (locType dst) of
   VecType DiagonalMatrix [bnd, _] bty -> makeFor bnd $ \i -> do
-    dst'' <- apIndex dst i >>= flip apIndex i
-    src'' <- apIndex src i >>= flip apIndex i
+    dst'' <- apIndices dst [i,i]
+    src'' <- apIndices src [i,i]
     storeLoc dst'' src''
   VecType LowerTriangular [bnd, _] bty ->
     makeFor bnd $ \i -> do
       makeFor' (compileBoundType $ getType bnd) [cexp|0|] [cexp|$i+1|] $ \j -> do
-        dst'' <- apIndex dst i >>= flip apIndex j
-        src'' <- apIndex src i >>= flip apIndex j
+        dst'' <- apIndices dst [i,j]
+        src'' <- apIndices src [i,j]
         storeLoc dst'' src''
   VecType UpperTriangular [bnd, _] bty -> do
     let tp = compileBoundType $ getType bnd
     upperEx <- asExp $ compileStat bnd
     makeFor' tp [cexp|0|] upperEx $ \i -> do
       makeFor' tp [cexp|$i|] upperEx $ \j -> do
-        dst'' <- apIndex dst i >>= flip apIndex j
-        src'' <- apIndex src i >>= flip apIndex j
+        dst'' <- apIndices dst [i,j]
+        src'' <- apIndices src [i,j]
         storeLoc dst'' src''
   VecType SymmetricMatrix [bnd, _] bty ->
     makeFor bnd $ \i -> do
       makeFor' (compileBoundType $ getType bnd) [cexp|0|] [cexp|$i+1|] $ \j -> do
-        dst'' <- apIndex dst i >>= flip apIndex j
-        src'' <- apIndex src i >>= flip apIndex j
+        dst'' <- apIndices dst [i,j]
+        src'' <- apIndices src [i,j]
         storeLoc dst'' src''
+  VecType ScalarMatrix _ bty -> do
+    dst'' <- apIndices dst [[cexp|0|],[cexp|0|]]
+    src'' <- apIndices src [[cexp|0|],[cexp|0|]]
+    storeLoc dst'' src''
   VecType _ (bnd:bnds) bty -> makeFor bnd $ \i -> do
     dst' <- apIndex dst i
     src' <- apIndex src i
@@ -1113,6 +1131,13 @@ compileStat v@(VecLit pos ty xs) = comp
                , asLoc = defaultAsLoc vty comp
                }
         vty = normalizeTypes $ getType v
+
+compileStat v@(ScalarMatLit pos n s) = defaultAsRValue $ do
+  sloc <- asLoc $ compileStat s
+  deferLocPrep [sloc] (getType v) 2 $ \[sloc] ty [(_,i),(_,j)] -> do
+    if i == j
+      then return sloc
+      else return $ condLoc [cexp| $i == $j |] sloc (constLoc ty $ compileUninit (vecBaseType ty))
 
 compileStat (Let _ v val x) = comp
   where comp = Compiled

@@ -51,6 +51,7 @@ data StorageType = DenseMatrix -- ^ See note [Dense matrix rules]
                  | LowerTriangular
                  | LowerUnitTriangular
                  | SymmetricMatrix
+                 | ScalarMatrix
 --                 | BlockMatrix [[Type]]
                  deriving (Eq, Ord, Show)
 
@@ -122,6 +123,7 @@ data Expr a
   | BoolLit' Bool
   | VecLit' Type [a] -- the type is the base type of the vector (for 0-element case)
   | TupleLit' [a]
+  | ScalarMatLit' a a -- dimension and constant (represents a matrix with the constant along the diagonal)
 
   | Let' Variable a a
   | Uninitialized' Type -- Only for using Let to create a new variable to be used as a return value from a function
@@ -327,6 +329,7 @@ pattern StrLit tag s = PExpr tag (StrLit' s)
 pattern BoolLit tag s = PExpr tag (BoolLit' s)
 pattern VecLit tag ty s = PExpr tag (VecLit' ty s)
 pattern TupleLit tag s = PExpr tag (TupleLit' s)
+pattern ScalarMatLit tag dim c = PExpr tag (ScalarMatLit' dim c)
 pattern Return tag ty x = PExpr tag (Return' ty x)
 pattern Assert tag x = PExpr tag (Assert' x)
 pattern App tag f args = PExpr tag (App' f args)
@@ -449,6 +452,7 @@ instance TermMappable CExpr where
     BoolLit {} -> return exp
     VecLit pos ty exprs -> VecLit pos <$> tty ty <*> mapM texp exprs
     TupleLit pos exprs -> TupleLit pos <$> mapM texp exprs
+    ScalarMatLit pos dim c -> ScalarMatLit pos <$> texp dim <*> texp c
     Let pos v val expr -> Let pos v <$> texp val <*> texp expr
     Uninitialized pos ty -> Uninitialized pos <$> tty ty
     Seq pos p1 p2 -> Seq pos <$> texp p1 <*> texp p2
@@ -794,6 +798,7 @@ instance PP Type where
 
 instance (Show a, PP a) => PP (Expr a) where
   pretty (TupleLit' xs) = parens $ sep $ punctuate (text ",") $ map pretty xs
+  pretty (ScalarMatLit' n s) = parens $ text "scalar" <+> braces (pretty n) <+> pretty s
   pretty (IntLit' _ x) = text $ show x
   pretty (FloatLit' _ x) = text $ show x
   pretty (StrLit' x) = text $ show x
@@ -860,6 +865,7 @@ getType (StrLit {}) = StringType
 getType (BoolLit {}) = BoolType
 getType (VecLit pos ty xs) = VecType DenseMatrix [IntLit pos IDefault (fromIntegral $ length xs)] ty
 getType (TupleLit pos xs) = TupleType $ map getType xs
+getType (ScalarMatLit pos n s) = VecType ScalarMatrix [n,n] (getType s)
 getType (Let pos v x body) = getType body
 getType (Uninitialized pos ty) = ty
 getType (Seq pos a b) = getType b

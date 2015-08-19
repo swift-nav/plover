@@ -54,5 +54,5 @@ kalman_update (inout kf :: KF) (obs :: double[kf.obs_dim]) :: ()
        s := kf.h * pp * kf.h^T + kf.r; -- variance of prediction error
        k := pp * kf.h^T * s^(-1); -- kalman gain
        kf.x <- xp + k * y;
-       kf.p <- pp - k * kf.h * pp; -- (I - k * kf.h) * pp
-     );
+       kf.p <- (scalar 1.0 - k * kf.h) * pp;
+  );

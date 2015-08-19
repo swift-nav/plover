@@ -631,6 +631,7 @@ typeCheckType pos (VecType st idxs ty) = do
     LowerTriangular -> checkSqrType idxs >> return ()
     LowerUnitTriangular -> checkSqrType idxs >> return ()
     SymmetricMatrix -> checkSqrType idxs >> return ()
+    ScalarMatrix -> checkSqrType idxs >> return ()
   return $ VecType st idxs' ty'
   where checkSqrType [m, n] = do unifyArithmetic pos m n
                                  return ()
@@ -710,6 +711,8 @@ typeCheck (VecLit pos ty xs) = do
   ty' <- foldM (unify pos) (head xtys) $ tail xtys ++ [ty]
   return $ normalizeTypes $ VecType DenseMatrix [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
 typeCheck (TupleLit pos xs) = TupleType <$> mapM typeCheck xs
+typeCheck (ScalarMatLit pos n s) = do _ <- expectInt pos =<< typeCheck n
+                                      VecType ScalarMatrix [n,n] <$> typeCheck s
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
   addBinding pos v tyx -- alpha renamed, so ok

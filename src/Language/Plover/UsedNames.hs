@@ -53,6 +53,7 @@ instance NameContainer CExpr where
     BoolLit {} -> []
     VecLit _ ty xs -> allNames ty ++ allNames xs
     TupleLit _ xs -> allNames xs
+    ScalarMatLit _ n s -> allNames [n,s]
     Let _ v d x -> [v] ++ allNames d ++ allNames x
     Uninitialized _ ty -> allNames ty
     Seq _ a b -> allNames [a, b]

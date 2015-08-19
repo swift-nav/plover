@@ -118,16 +118,26 @@ exArgs pos args n = do args' <- forM args $ \arg ->
                          else Left $ ConvertError pos
                               ["Expecting " ++ show n ++ " argument(s) for builtin function."]
 
-type BuiltinFunc = Tag SourcePos -> [Expr] -> Either ConvertError T.CExpr
+type BuiltinFunc = Tag SourcePos -> [Arg Expr] -> Either ConvertError T.CExpr
 
 builtinUFunc :: (Tag SourcePos -> T.CExpr -> Either ConvertError T.CExpr)
-                -> Tag SourcePos -> [Arg Expr] -> Either ConvertError T.CExpr
+                -> BuiltinFunc
 builtinUFunc f pos args = do [a] <- exArgs (makePos' pos) args 1
                              f pos a
 builtinBFunc :: (Tag SourcePos -> T.CExpr -> T.CExpr -> Either ConvertError T.CExpr)
-                -> Tag SourcePos -> [Arg Expr] -> Either ConvertError T.CExpr
+                -> BuiltinFunc
 builtinBFunc f pos args = do [a, b] <- exArgs (makePos' pos) args 2
                              f pos a b
+
+builtinScalarFunc :: BuiltinFunc
+builtinScalarFunc pos args = do [n,a] <- scalarArgs args
+                                return $ T.ScalarMatLit pos n a
+  where scalarArgs [Arg ArgIn a] = do a' <- makeExpr a
+                                      return [T.Hole pos Nothing, a']
+        scalarArgs [ImpArg n, Arg ArgIn a] = do n' <- makeExpr n
+                                                a' <- makeExpr a
+                                                return [n', a']
+        scalarArgs _ = Left $ ConvertError (makePos' pos) ["Expecting maybe an implicit argument and an in-argument."]
 
 
 builtinFuncs = [ ("not", builtinUFunc (\pos arg -> return $ T.Unary pos T.Not arg))
@@ -136,6 +146,7 @@ builtinFuncs = [ ("not", builtinUFunc (\pos arg -> return $ T.Unary pos T.Not ar
                , ("shape", builtinUFunc (\pos arg -> return $ T.Unary pos T.Shape arg))
                , ("nospill", builtinUFunc (\pos arg -> return $ T.Unary pos T.NoSpill arg))
                , ("reshape", builtinBFunc (\pos a b -> return $ T.Binary pos T.Reshape a b))
+               , ("scalar", builtinScalarFunc)
                ]
                ++ [(v, builtinUFunc (\pos arg -> return $ T.Unary pos (T.VecCons st) arg))
                   | (v, st) <- storageTypeMap]
@@ -210,6 +221,7 @@ storageTypeMap = [ ("Dense", T.DenseMatrix)
                  , ("LowerTriangular", T.LowerTriangular)
                  , ("LowerUnitTriangular", T.LowerUnitTriangular)
                  , ("Symmetric", T.SymmetricMatrix)
+                 , ("Scalar", T.ScalarMatrix)
                  ]
 
 makeTypeFunc :: SourcePos -> String -> [Arg Expr] -> Either ConvertError T.Type
