@@ -8,6 +8,7 @@ import Control.Applicative ((<$>), (<*>), (<*))
 import Data.Tag
 import Data.Maybe
 import Data.List
+import Data.Char (digitToInt)
 import qualified Data.Map as M
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Error
@@ -78,7 +79,43 @@ parens = Token.parens lexer
 symbol = Token.symbol lexer
 brackets = Token.brackets lexer
 braces = Token.braces lexer
-naturalOrFloat = Token.naturalOrFloat lexer
+-- | We implement our own naturalOrFloat (derived from the Parsec
+-- `Token.naturalOrFloat lexer`) since we do not want ".." to be
+-- consumed by this parser.
+naturalOrFloat = lexeme natFloat <?> "number"
+  where natFloat = (char '0' >> zeroNumFloat)
+                   <|> decimalFloat
+        zeroNumFloat = (Left <$> (hexadecimal <|> octal))
+                       <|> decimalFloat
+                       <|> (Right <$> fractExponent 0)
+                       <|> return (Left 0)
+        decimalFloat = do n <- decimal
+                          option (Left n)
+                                 (Right <$> fractExponent n)
+        fractExponent n = (do fract <- fraction
+                              expo <- option 1.0 exponent'
+                              return $ (fromInteger n + fract) * expo)
+                          <|> ((fromInteger n *) <$> exponent')
+        fraction = (do try $ char '.' >> notFollowedBy (char '.') -- for ".." range
+                       digits <- many1 digit <?> "fraction"
+                       return $ foldr op 0.0 digits) <?> "fraction"
+          where op d f = (f + fromIntegral (digitToInt d))/10.0
+        exponent' = (do oneOf "eE"
+                        f <- sign
+                        e <- decimal <?> "exponent"
+                        return $ power (f e)) <?> "exponent"
+          where power e | e < 0     = 1.0/power(-e)
+                        | otherwise = fromInteger (10^e)
+        sign = (char '-' >> return negate)
+               <|> (char '+' >> return id)
+               <|> return id
+        decimal = number 10 digit
+        hexadecimal = oneOf "xX" >> number 16 hexDigit
+        octal = oneOf "oO" >> number 8 octDigit
+        number base baseDigit = do
+          digits <- many1 baseDigit
+          let n = foldl (\x d -> base * x + toInteger (digitToInt d)) 0 digits
+          seq n $ return n
 stringLiteral = Token.stringLiteral lexer
 semi = Token.semi lexer
 whiteSpace = Token.whiteSpace lexer
