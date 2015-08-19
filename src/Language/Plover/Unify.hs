@@ -829,6 +829,8 @@ typeCheck (Unary pos (VecCons st) a) = do
               _ -> do addUError $ UError pos "Matrix constructor expecting vector."
                       return aty'
 typeCheck (Unary pos NoSpill a) = typeCheck a
+typeCheck (Unary pos ToVoid a) = do _ <- typeCheck a
+                                    return Void
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
   | op `elem` [Add, Sub, Hadamard, Div]  = do

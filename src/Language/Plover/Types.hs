@@ -82,6 +82,7 @@ data UnOp = Pos | Neg | Not
                                 -- another vector
           | NoSpill -- | Indicates the expression's outermost operator
                     -- should not spill to stack space. (Essentially no-op)
+          | ToVoid -- | drops the result of a computation
           deriving (Show, Eq, Ord)
 data BinOp = Add | Sub | Mul | Div | Hadamard
            | Pow | Concat
@@ -904,6 +905,7 @@ getType (Unary pos (VecCons DiagonalMatrix) a) = case normalizeTypes $ getType a
 getType (Unary pos (VecCons st) a) = case normalizeTypes $ getType a of
   VecType _ (i1:_:bnds) aty -> VecType st [i1,i1] (VecType DenseMatrix bnds aty)
 getType (Unary pos NoSpill a) = getType a
+getType (Unary pos ToVoid a) = Void
 getType (Unary pos Not a) = BoolType
 getType (Binary pos op a b)
   | op `elem` [Add, Sub, Div, Hadamard] = getVectorizedType aty bty

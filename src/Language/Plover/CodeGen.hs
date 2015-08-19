@@ -1409,6 +1409,14 @@ compileStat (Unary pos NoSpill a) = comp
                     , locType = locType loc
                     }
 
+compileStat (Unary pos ToVoid a) = comp
+  where comp = Compiled
+               { noValue = noValue $ compileStat a
+               , withDest = error "Cannot withDest ToVoid"
+               , asExp = error "Cannot asExp ToVoid"
+               , asLoc = error "Cannot asLoc ToVoid"
+               }
+
 -- -- binary
 
 compileStat v@(Binary _ op a b)
