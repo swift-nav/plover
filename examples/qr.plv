@@ -9,8 +9,8 @@ print_matrix {n, m} (A :: double[n,m]) :: ()
   := ( for i in n -> (for j in m -> printf "%f " A[i,j]; newline()) );
 
 static givens (a :: double) (b :: double) :: double[2,2] := (
-  c := 0.0;
-  s := 0.0;
+  c :: double;
+  s :: double;
   if b == 0 then (
     c <- 1; s <- 0
   ) else if fabs b > fabs a then (
