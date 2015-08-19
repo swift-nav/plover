@@ -1380,7 +1380,7 @@ compileStat (Unary pos NoSpill a) = comp
                     , store = store loc
                     , asRValue = comp
                     , asArgument = asArgument loc
-                    , prepLoc = return loc -- This is where the NoSpill hint is used
+                    , prepLoc = return $ nsloc loc -- This is where the NoSpill hint is used
                     , locType = locType loc
                     }
 
