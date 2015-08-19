@@ -2,6 +2,34 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+config: ["MMLorHTML.js"],
+jax: ["input/TeX", "output/HTML-CSS", "output/NativeMML", "output/CommonHTML"],
+extensions: ["MathMenu.js", "MathZoom.js", "CHTML-preview.js"],
+TeX: {
+extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js",
+"AMScd.js"],
+Macros: {
+del: '\\partial',
+R: '{\\mathbb{R}}',
+C: '{\\mathbb{C}}',
+Z: '{\\mathbb{Z}}',
+Q: '{\\mathbb{Q}}',
+RP: '{\\mathbb{R}\\mathrm{P}}',
+CP: '{\\mathbb{C}\\mathrm{P}}',
+Hom: '\\operatorname{Hom}',
+im: '\\operatorname{im}',
+coker: '\\operatorname{coker}',
+abs: ['{\\lvert #1 \\rvert}', 1],
+norm: ['{\\lVert #1 \\rVert}', 1],
+gen: ['{\\langle #1 \\rangle}', 1],
+id: '{\\mathrm{id}}'
+}
+},
+});
+</script>
+
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
 <title>Plover</title>
@@ -1181,30 +1209,31 @@ real-world linear algebra problems to generate more efficient code.</p>
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#introduction" id="id1">Introduction</a></li>
-<li><a class="reference internal" href="#installation" id="id2">Installation</a></li>
-<li><a class="reference internal" href="#usage" id="id3">Usage</a></li>
-<li><a class="reference internal" href="#tutorial" id="id4">Tutorial</a></li>
-<li><a class="reference internal" href="#reference" id="id5">Reference</a><ul>
-<li><a class="reference internal" href="#syntax" id="id6">Syntax</a><ul>
-<li><a class="reference internal" href="#sequencing" id="id7">Sequencing</a></li>
-<li><a class="reference internal" href="#iteration-constructs" id="id8">Iteration constructs</a><ul>
-<li><a class="reference internal" href="#for-loop" id="id9"><tt class="docutils literal">for</tt> loop</a></li>
-<li><a class="reference internal" href="#vec-constructor" id="id10"><tt class="docutils literal">vec</tt> constructor</a></li>
-<li><a class="reference internal" href="#while-loop" id="id11"><tt class="docutils literal">while</tt> loop</a></li>
+<li><a class="reference internal" href="#introduction" id="id2">Introduction</a></li>
+<li><a class="reference internal" href="#installation" id="id3">Installation</a></li>
+<li><a class="reference internal" href="#usage" id="id4">Usage</a></li>
+<li><a class="reference internal" href="#tutorial" id="id5">Tutorial</a></li>
+<li><a class="reference internal" href="#reference" id="id6">Reference</a><ul>
+<li><a class="reference internal" href="#syntax" id="id7">Syntax</a><ul>
+<li><a class="reference internal" href="#sequencing" id="id8">Sequencing</a></li>
+<li><a class="reference internal" href="#iteration-constructs" id="id9">Iteration constructs</a><ul>
+<li><a class="reference internal" href="#for-loop" id="id10"><tt class="docutils literal">for</tt> loop</a></li>
+<li><a class="reference internal" href="#vec-constructor" id="id11"><tt class="docutils literal">vec</tt> constructor</a></li>
+<li><a class="reference internal" href="#while-loop" id="id12"><tt class="docutils literal">while</tt> loop</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#value-and-type-holes" id="id12">Value and type holes</a></li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id13">Value and type holes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#type-system" id="id13">Type system</a><ul>
-<li><a class="reference internal" href="#vector-types" id="id14">Vector types</a></li>
+<li><a class="reference internal" href="#type-system" id="id14">Type system</a><ul>
+<li><a class="reference internal" href="#vector-types" id="id15">Vector types</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id15">Modules</a></li>
-<li><a class="reference internal" href="#compiler-options" id="id16">Compiler options</a></li>
+<li><a class="reference internal" href="#modules" id="id16">Modules</a></li>
+<li><a class="reference internal" href="#compiler-options" id="id17">Compiler options</a></li>
 </ul>
 </li>
+<li><a class="reference internal" href="#citations" id="id18">Citations</a></li>
 </ul>
 </div>
 </div>
@@ -1243,6 +1272,122 @@ $ plover -h
 </div>
 <div class="section" id="tutorial">
 <h1>Tutorial</h1>
+<p>We're going to step through the implementation of a textbook algorithm: a QR
+least squares solver for overdetermined systems. That is, given <span class="math">\(A\in
+\R^{m\times n}\)</span> and <span class="math">\(b\in \R^m\)</span> with <span class="math">\(m \geq n\)</span>, we want to find a
+vector <span class="math">\(x\in\R^n\)</span> such that the squared error <span class="math">\(\norm{Ax-b}\)</span> is
+minimized.</p>
+<p>The essential steps are:</p>
+<ol class="arabic simple">
+<li>Apply orthogonal transformations to <span class="math">\(A\)</span> and <span class="math">\(b\)</span> until
+<span class="math">\(A\)</span>'s first <span class="math">\(n\)</span> rows are upper triangular.</li>
+<li>Backsolve the triangular system.</li>
+<li>Return the solution and the error (the norm of the last <span class="math">\(n-m\)</span> entries
+of <span class="math">\(b\)</span>).</li>
+</ol>
+<p>We will attempt to mindlessly follow the implementation given in <a class="citation-reference" href="#mc2013" id="id1">[MC2013]</a>.</p>
+<p>First we apply a sequence of Givens rotations to introduce zeroes into our matrix <span class="math">\(A\)</span>.
+A Givens rotation is a pair <span class="math">\(c=\cos(\theta)\)</span> and <span class="math">\(s=\sin(\theta)\)</span> such that</p>
+<div class="math">
+\begin{equation*}
+\begin{bmatrix}
+  c &amp; s \\
+  -s &amp; c
+\end{bmatrix}^T
+\begin{bmatrix}
+a \\ b
+\end{bmatrix}
+=
+\begin{bmatrix}
+r \\ 0
+\end{bmatrix}
+.
+\end{equation*}
+</div>
+<p>Pseudocode to calculate such a pair follows:</p>
+<div class="line-block">
+<div class="line">givens(a, b) <strong>returns</strong> [<span class="math">\(c, s\)</span>]</div>
+<div class="line"><strong>if</strong> <span class="math">\(b = 0\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(c = 1; s = 0\)</span></div>
+</div>
+<div class="line"><strong>else if</strong> <span class="math">\(\abs{b} &gt; \abs{a}\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(\tau = -a/b; s = 1/\sqrt{1+\tau^2}; c = s\tau\)</span></div>
+</div>
+<div class="line"><strong>else</strong></div>
+<div class="line-block">
+<div class="line"><span class="math">\(\tau = -b/a; c = 1/\sqrt{1+\tau^2}; s = c\tau\)</span></div>
+</div>
+</div>
+<p>The plover version is below. We will step through it line by line.</p>
+<pre class="literal-block">
+static givens (a :: double) (b :: double) :: double[2,2] := (
+  c :: double;
+  s :: double;
+  if b == 0 then (
+    c &lt;- 1; s &lt;- 0
+  ) else if fabs b &gt; fabs a then (
+    tau := -a/b; s &lt;- 1/sqrt(1+tau^2); c &lt;- s*tau
+  ) else (
+    tau := -b/a; c &lt;- 1/sqrt(1+tau^2); s &lt;- c*tau;
+  );
+
+  mat( c, s ;
+      -s, c );
+);
+</pre>
+<p>breaking it down:</p>
+<pre class="literal-block">
+static givens (a :: double) (b :: double) :: double[2,2] := (
+  ...
+);
+</pre>
+<p>Plover is statically typed, and all functions require a type signature,
+although in many cases types can be inferred (see the section on type holes).
+The function signature indicates that the function <tt class="docutils literal">givens</tt> is <tt class="docutils literal">static</tt>
+(not exported in the header) takes two arguments <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> of type
+<tt class="docutils literal">double</tt>, and returns a 2-by-2 matrix of doubles.  Function declarations and
+variable initializations use the <tt class="docutils literal">:=</tt> operator, and blocks are encosed within
+parentheses. The statements of a block are separated by semicolons. Function
+declarations must also be terminated by a semicolon.</p>
+<pre class="literal-block">
+c :: double;
+s :: double;
+</pre>
+<p>A new local variable may either be declared with a type or with an initial
+value, in which case the type will be inferred.  In this case, <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt>
+will be set by some branch of the <tt class="docutils literal">if</tt> statement below, so we simply declare
+them with a type.</p>
+<pre class="literal-block">
+if b == 0 then (
+  c &lt;- 1; s &lt;- 0
+)
+</pre>
+<p>The condition of an <tt class="docutils literal">if</tt> statement does not need enclosing parentheses. The
+condition must be followed by the keyword <tt class="docutils literal">then</tt> and an expression or
+statement. In this case, we have a block which updates the values of <tt class="docutils literal">c</tt> and
+<tt class="docutils literal">s</tt>.  Updating variables must be done with <tt class="docutils literal">&lt;-</tt> .</p>
+<pre class="literal-block">
+else if fabs b &gt; fabs a then (
+  tau := -a/b; s &lt;- 1/sqrt(1+tau*tau); c &lt;- s*tau
+) else (
+  tau := -b/a; c &lt;- 1/sqrt(1+tau*tau); s &lt;- c*tau
+);
+</pre>
+<p><tt class="docutils literal">if</tt> statements are optionally followed by an <tt class="docutils literal">else</tt> clause and another
+expression or block. Here, the <tt class="docutils literal">fabs</tt> function is called on <tt class="docutils literal">b</tt> and <tt class="docutils literal">a</tt>,
+and these values are compared to choose the branch.  The local <tt class="docutils literal">tau</tt> is
+initialized, and <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt> are updated as shown in the pseudocode above.
+The <tt class="docutils literal">fabs</tt> and <tt class="docutils literal">sqrt</tt> functions are included in Plover's <tt class="docutils literal">prelude</tt>
+module.</p>
+<pre class="literal-block">
+mat( c, s ;
+    -s, c );
+</pre>
+<p>The final expression in a block is treated as the value for that block. Here,
+the function returns a 2-by-2 matrix literal containing the values we've just computed.</p>
+<p>Let's take a look at the C code generated so far:</p>
 </div>
 <div class="section" id="reference">
 <h1>Reference</h1>
@@ -1399,13 +1544,6 @@ B :: __  := (G^T * G :: __)^(-1) * G^T;
 <p>The void type is the same as the type of empty tuples.</p>
 <div class="section" id="vector-types">
 <h3>Vector types</h3>
-<p>Compute <span class="math">\(v^TAv\)</span></p>
-<p>This is a math block</p>
-<div class="math">
-\begin{equation*}
-\alpha_t(i) = 2t+i
-\end{equation*}
-</div>
 </div>
 </div>
 <div class="section" id="modules">
@@ -1418,6 +1556,15 @@ B :: __  := (G^T * G :: __)^(-1) * G^T;
 $ plover -h
 </pre>
 </div>
+</div>
+<div class="section" id="citations">
+<h1>Citations</h1>
+<table class="docutils citation" frame="void" id="mc2013" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id1">[MC2013]</a></td><td>G.H. Golub and C.F. Van Loan (2013). <em>Matrix Computations, 4th ed.</em> The Johns Hopkins University Press, Baltimore, MD.</td></tr>
+</tbody>
+</table>
 </div>
 
   </section>

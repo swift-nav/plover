@@ -1,4 +1,32 @@
 %(head_prefix)s
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+config: ["MMLorHTML.js"],
+jax: ["input/TeX", "output/HTML-CSS", "output/NativeMML", "output/CommonHTML"],
+extensions: ["MathMenu.js", "MathZoom.js", "CHTML-preview.js"],
+TeX: {
+extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js",
+"AMScd.js"],
+Macros: {
+del: '\\partial',
+R: '{\\mathbb{R}}',
+C: '{\\mathbb{C}}',
+Z: '{\\mathbb{Z}}',
+Q: '{\\mathbb{Q}}',
+RP: '{\\mathbb{R}\\mathrm{P}}',
+CP: '{\\mathbb{C}\\mathrm{P}}',
+Hom: '\\operatorname{Hom}',
+im: '\\operatorname{im}',
+coker: '\\operatorname{coker}',
+abs: ['{\\lvert #1 \\rvert}', 1],
+norm: ['{\\lVert #1 \\rVert}', 1],
+gen: ['{\\langle #1 \\rangle}', 1],
+id: '{\\mathrm{id}}'
+}
+},
+});
+</script>
+
 %(head)s
 %(stylesheet)s
 <!-- body prefix -->
