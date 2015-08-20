@@ -329,6 +329,12 @@ norm {n} (v :: double[n]) :: double
 normalize {n} (v :: double[n]) :: double[n]
   := v / norm v;
 
+matrix_norm {n,m} (A :: double[n,m]) :: double :=
+  sqrt ( s := 0.0;
+         for i in n, j in m ->
+           s <- s + A[i,j] * A[i,j];
+         s );
+
 print_vec {n} (v :: double[n]) :: () := (
   printf "vec(";
   for i in n -> (
