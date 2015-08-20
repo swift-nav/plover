@@ -1396,7 +1396,7 @@ compileStat v@(Unary pos (VecCons st) a) = case (st, normalizeTypes $ getType a)
                   apIndex aloc idx
         fromVec a = defaultAsRValue $ castStorage st =<< (asLoc $ compileStat a)
 
-compileStat (Unary pos NoSpill a) = comp
+compileStat (Unary pos NoMemo a) = comp
   where comp = Compiled
                { noValue = noValue $ compileStat a
                , withDest = withDest $ compileStat a
@@ -1408,7 +1408,7 @@ compileStat (Unary pos NoSpill a) = comp
                     , store = store loc
                     , asRValue = comp
                     , asArgument = asArgument loc
-                    , prepLoc = return $ nsloc loc -- This is where the NoSpill hint is used
+                    , prepLoc = return $ nsloc loc -- This is where the NoMemo hint is used
                     , locType = locType loc
                     }
 

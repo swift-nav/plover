@@ -37,7 +37,7 @@ languageDef =
              "while", "if", "then", "else", "specialize",
              "True", "False", "Void", "T", "_", "__",
              "and", "or",
-             "return", "assert",
+             "return", "assert"
              ]
            , caseSensitive = True
            }

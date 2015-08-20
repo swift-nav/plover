@@ -144,7 +144,7 @@ builtinFuncs = [ ("not", builtinUFunc (\pos arg -> return $ T.Unary pos T.Not ar
                , ("sum", builtinUFunc (\pos arg -> return $ T.Unary pos T.Sum arg))
                , ("diag", builtinUFunc (\pos arg -> return $ T.Unary pos T.Diag arg))
                , ("shape", builtinUFunc (\pos arg -> return $ T.Unary pos T.Shape arg))
-               , ("nospill", builtinUFunc (\pos arg -> return $ T.Unary pos T.NoSpill arg))
+               , ("nomemo", builtinUFunc (\pos arg -> return $ T.Unary pos T.NoMemo arg))
                , ("void", builtinUFunc (\pos arg -> return $ T.Unary pos T.ToVoid arg))
                , ("reshape", builtinBFunc (\pos a b -> return $ T.Binary pos T.Reshape a b))
                , ("scalar", builtinScalarFunc)
