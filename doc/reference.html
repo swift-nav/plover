@@ -661,11 +661,17 @@ pre.code {
 }
 
 blockquote {
-  color: #666;
+  color: #333;
   margin: 0 0 20px 2px;
   padding-left: 20px;
+  padding-bottom: 7px;
   border-left: 3px solid #bbb;
-  font-style: italic;
+  background: white;
+  /*font-style: italic;*/
+}
+
+blockquote div.line-block {
+  margin-bottom: 0;
 }
 
 ul, ol, dl {
@@ -781,7 +787,8 @@ Full-Width Styles
 }
 
 #main_content_wrap {
-  background: #f2f2f2;
+    background: #f2f2f2;
+    background: #f9f8f7;
   border-top: 1px solid #111;
   border-bottom: 1px solid #111;
 }
@@ -1199,6 +1206,9 @@ ul.auto-toc {
     margin-right: -200px;
 }
 */
+.contents {
+    font-size: 90%;
+}
 .contents .topic-title {
     margin-bottom: 5px;
 }
@@ -1245,33 +1255,380 @@ ul.auto-toc {
 <div id="main_content_wrap" class="outer">
   <section id="main_content" class="inner">
     <!-- body -->
-    <p>This part of the documentation describes in more detail the various
-features of the Plover language.</p>
+    <div class="section" id="overview">
+<h1>Overview</h1>
+<p>This is a reference manual for the Plover programming language.
+Plover was designed for describing matrix algebra on embedded systems,
+but it has some capacity for systems programming.</p>
+<p>The language targets C and aims to be compatible with C conventions
+for ease of integration in existing projects.  Unlike LAPACK, Plover
+has embedded systems in mind and gives some care to stack utilization.</p>
+<p>The reference manual covers the language itself.  See the <a class="reference external" href="guide.html">User Guide</a> for documentation about Plover the toolchain.</p>
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#syntax" id="id1">Syntax</a><ul>
-<li><a class="reference internal" href="#sequencing" id="id2">Sequencing</a></li>
-<li><a class="reference internal" href="#iteration-constructs" id="id3">Iteration constructs</a><ul>
-<li><a class="reference internal" href="#for-loop" id="id4"><tt class="docutils literal">for</tt> loop</a></li>
-<li><a class="reference internal" href="#vec-constructor" id="id5"><tt class="docutils literal">vec</tt> constructor</a></li>
-<li><a class="reference internal" href="#while-loop" id="id6"><tt class="docutils literal">while</tt> loop</a></li>
+<li><a class="reference internal" href="#overview" id="id1">Overview</a></li>
+<li><a class="reference internal" href="#syntax-elements" id="id2">Syntax Elements</a><ul>
+<li><a class="reference internal" href="#identifiers" id="id3">Identifiers</a></li>
+<li><a class="reference internal" href="#reserved-names" id="id4">Reserved names</a></li>
+<li><a class="reference internal" href="#operators" id="id5">Operators</a></li>
+<li><a class="reference internal" href="#constant-literals" id="id6">Constant Literals</a><ul>
+<li><a class="reference internal" href="#integers" id="id7">Integers</a></li>
+<li><a class="reference internal" href="#floating-point-numbers" id="id8">Floating-Point Numbers</a></li>
+<li><a class="reference internal" href="#booleans" id="id9">Booleans</a></li>
+<li><a class="reference internal" href="#void" id="id10">Void</a></li>
+<li><a class="reference internal" href="#strings" id="id11">Strings</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#value-and-type-holes" id="id7">Value and type holes</a></li>
+<li><a class="reference internal" href="#whitespace" id="id12">Whitespace</a><ul>
+<li><a class="reference internal" href="#comments" id="id13">Comments</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#type-system" id="id8">Type system</a><ul>
-<li><a class="reference internal" href="#vector-types" id="id9">Vector types</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id10">Modules</a></li>
+<li><a class="reference internal" href="#types" id="id14">Types</a><ul>
+<li><a class="reference internal" href="#integer-types" id="id15">Integer Types</a></li>
+<li><a class="reference internal" href="#floating-point-types" id="id16">Floating-Point Types</a></li>
+<li><a class="reference internal" href="#boolean-type" id="id17">Boolean Type</a></li>
+<li><a class="reference internal" href="#string-type" id="id18">String Type</a></li>
+<li><a class="reference internal" href="#pointer-types" id="id19">Pointer Types</a></li>
+<li><a class="reference internal" href="#vector-types" id="id20">Vector Types</a></li>
+<li><a class="reference internal" href="#tuple-types" id="id21">Tuple Types</a></li>
+<li><a class="reference internal" href="#function-types" id="id22">Function Types</a></li>
+<li><a class="reference internal" href="#struct-types" id="id23">Struct Types</a></li>
+<li><a class="reference internal" href="#type-holes" id="id24">Type Holes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#expressions-and-operators" id="id25">Expressions and Operators</a><ul>
+<li><a class="reference internal" href="#syntax" id="id26">Syntax</a><ul>
+<li><a class="reference internal" href="#sequencing" id="id27">Sequencing</a></li>
+<li><a class="reference internal" href="#iteration-constructs" id="id28">Iteration constructs</a><ul>
+<li><a class="reference internal" href="#for-loop" id="id29"><tt class="docutils literal">for</tt> loop</a></li>
+<li><a class="reference internal" href="#vec-constructor" id="id30"><tt class="docutils literal">vec</tt> constructor</a></li>
+<li><a class="reference internal" href="#while-loop" id="id31"><tt class="docutils literal">while</tt> loop</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id32">Value and type holes</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#top-level-definitions" id="id33">Top-level Definitions</a><ul>
+<li><a class="reference internal" href="#functions" id="id34">Functions</a></li>
+<li><a class="reference internal" href="#structs" id="id35">Structs</a></li>
+<li><a class="reference internal" href="#typedefs" id="id36">Typedefs</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#modules" id="id37">Modules</a></li>
 </ul>
 </div>
+</div>
+<div class="section" id="syntax-elements">
+<h1>Syntax Elements</h1>
+<div class="section" id="identifiers">
+<h2>Identifiers</h2>
+<p>Identifiers are sequences of characters for naming variables,
+functions, and data types.  They are a nonempty sequences of letters,
+digits, underscores, and single quotes, where the first character must
+be a letter or underscore.</p>
+<p>In short: they are C identifiers which may also contain single quotes
+after the first character.</p>
+<p>Identifiers which name top-level definitions must also be valid as C
+identifiers.</p>
+<p>The single quote allows identifiers such as <tt class="docutils literal">x'</tt> (pronounced &quot;ex
+prime&quot;), which can be convenient in mathematical expressions.</p>
+</div>
+<div class="section" id="reserved-names">
+<h2>Reserved names</h2>
+<p>Reserved names are special identifiers which are reserved for the
+programming language, and may not be used for any other purpose.</p>
+<p>This is the list of reserved names:</p>
+<pre class="literal-block">
+module import extern static inline __C__
+struct type storing
+mat vec for in out inout
+while if then else specialize
+True False Void T _ __
+and or return assert
+</pre>
+</div>
+<div class="section" id="operators">
+<h2>Operators</h2>
+<p>An operator is a special sequence of symbols which represents an
+operation, such as addition or multiplication, on one or two operands.
+Operators are parsed greedily, so <tt class="docutils literal"><span class="pre">x&lt;-2</span></tt> is <em>not</em> the comparison
+between <tt class="docutils literal">x</tt> and <tt class="docutils literal"><span class="pre">-2</span></tt>, but rather storing <tt class="docutils literal">2</tt> into <tt class="docutils literal">x</tt>.</p>
+<p>Operators will described in more detail later.</p>
+</div>
+<div class="section" id="constant-literals">
+<h2>Constant Literals</h2>
+<p>Like in C, Plover provides syntax for basic data such as numbers and
+strings.  The syntax for literals is derived from Haskell.</p>
+<div class="section" id="integers">
+<h3>Integers</h3>
+<p>Integer literals are given by a sequence of digits, possibly with
+prefixed base specifier.</p>
+<p>Hexadecimal literals are prefixed by <tt class="docutils literal">0x</tt> or <tt class="docutils literal">0X</tt>, and octal
+literals are prefixed by <tt class="docutils literal">0o</tt> or <tt class="docutils literal">0O</tt>.  Unlike C, a <tt class="docutils literal">0</tt> prefix
+by itself does not designate an octal base, so <tt class="docutils literal">022</tt> is equal to
+<tt class="docutils literal">22</tt> (rather than <tt class="docutils literal">18</tt>).</p>
+<p>The type of an integer literal defaults to <tt class="docutils literal">s32</tt> if otherwise
+unspecified by context.</p>
+<p>These are examples of integer literals:</p>
+<pre class="literal-block">
+22
+0x16
+0o26
+</pre>
+</div>
+<div class="section" id="floating-point-numbers">
+<h3>Floating-Point Numbers</h3>
+<p>A floating-point number is a nonempty sequence of digits, followed by
+at least a fractional part, an exponent, or both a fractional part and
+an exponent:</p>
+<ol class="arabic simple">
+<li>A fractional part is a dot (<tt class="docutils literal">.</tt>) followed by a nonempty sequence of digits.</li>
+<li>An exponent is either <tt class="docutils literal">e</tt> or <tt class="docutils literal">E</tt>, optionally followed by a sign, and then a
+nonempty sequence of digits.</li>
+</ol>
+<p>The type of a floating-point literal defaults to <tt class="docutils literal">double</tt> if
+otherwise unspecified by context.</p>
+<p>These are examples of floating-point literals:</p>
+<pre class="literal-block">
+22.2
+2.22e1
+222e-1
+</pre>
+</div>
+<div class="section" id="booleans">
+<h3>Booleans</h3>
+<p>The Boolean literals are <tt class="docutils literal">True</tt> and <tt class="docutils literal">False</tt> for the concepts of
+being true and of being false, respectively.</p>
+</div>
+<div class="section" id="void">
+<h3>Void</h3>
+<p>The void literal, which is the sole value inhabiting the void type, is
+represented equivalently by either <tt class="docutils literal">Void</tt> or <tt class="docutils literal">()</tt>.</p>
+</div>
+<div class="section" id="strings">
+<h3>Strings</h3>
+<p>String literals use the Haskell definition in <a class="reference external" href="https://www.haskell.org/onlinereport/lexemes.html#sect2.6">section 2.6</a> of the
+Haskell 98 Report.  This is similar to C, but with the addition that
+strings may have a &quot;gap&quot; of ignored backslash-enclosed whitespace.
+For instance, <tt class="docutils literal">&quot;hello, \ \world!&quot;</tt> is equivalent to <tt class="docutils literal">&quot;hello,
+world!</tt>.  Gaps may contain newlines, so the following is also
+equivalent:</p>
+<pre class="literal-block">
+&quot;hello, \
+     \world!&quot;
+</pre>
+</div>
+</div>
+<div class="section" id="whitespace">
+<h2>Whitespace</h2>
+<p>Whitespace is not significant except for the purpose of separating
+identifiers and reserved names.</p>
+<div class="section" id="comments">
+<h3>Comments</h3>
+<p>Comments are treated as whitespace and have the same syntax as in
+Haskell.</p>
+<p>End-of-line-terminated comments are initiated with a double hyphen
+(<tt class="docutils literal"><span class="pre">--</span></tt>), and are the equivalent of C-style double forward slash.  The
+new line in such a comment cannot be escaped as they may in C.</p>
+<p>Nested comments are delimited by <tt class="docutils literal">{-</tt> and <tt class="docutils literal"><span class="pre">-}</span></tt> (the equivalent of
+<tt class="docutils literal">/*</tt> and <tt class="docutils literal">*/</tt> in C).  Nested comments may be nested to any depth.
+In an ordinary comment, <tt class="docutils literal">{-</tt> and <tt class="docutils literal"><span class="pre">-}</span></tt> have no special
+significance.</p>
+<pre class="literal-block">
+-- this is a comment at the beginning of the line
+x := 22; -- this is a comment later in the line
+{- this is a nested comment
+   -- ordinary comments have no special significance inside a nested comment -}
+y := 23; -- this is outside the nested comment
+{- nested comments {- may be {- nested -} -} -}
+
+---
+--- Multiple hyphens may be used
+---
+
+{--- in nested comments as well ---}
+</pre>
+<div class="warning">
+<p class="first admonition-title">Warning</p>
+<p>When commenting out a section of code with ordinary
+comments, any nested comment symbols which may occur in the
+ordinary comments may interfere with the nesting.  For instance,
+the following is a likely error:</p>
+<pre class="last literal-block">
+{-
+  x := 22;
+  y := 23; -- Usually -} is ok in an ordinary comment
+-}
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="section" id="types">
+<h1>Types</h1>
+<p>Every value in Plover has an associated type.  The type system is able
+to accommodate parts of the C type system as well as a richer set of
+vector/matrix types.</p>
+<div class="section" id="integer-types">
+<h2>Integer Types</h2>
+<p>Integers can be signed or unsigned of the standard bit widths 8, 16,
+32, and 64.  They are denoted by <tt class="docutils literal">s8</tt>, <tt class="docutils literal">u8</tt>, <tt class="docutils literal">s16</tt>, <tt class="docutils literal">u16</tt>,
+<tt class="docutils literal">s32</tt>, <tt class="docutils literal">u32</tt>, <tt class="docutils literal">s64</tt>, and <tt class="docutils literal">u64</tt>.  The type <tt class="docutils literal">int</tt> is also
+available, and it represents the default integer type, which defaults
+to <tt class="docutils literal">s32</tt> unless otherwise constrained.</p>
+<p>Plover expects these types to be defined in the C environment, and
+there are implementations in the default <tt class="docutils literal">prelude.plv</tt>.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">The standard C arithmetic rules apply, and Plover assumes
+the target system has a 32-bit <tt class="docutils literal">int</tt>.</p>
+</div>
+</div>
+<div class="section" id="floating-point-types">
+<h2>Floating-Point Types</h2>
+<p>There are two floating-point types, <tt class="docutils literal">float</tt> and <tt class="docutils literal">double</tt>, which
+represent the types of 32- and 64-bit IEEE floating-point numbers,
+respectively.  As in C, arithmetic defaults to <tt class="docutils literal">double</tt>.</p>
+</div>
+<div class="section" id="boolean-type">
+<h2>Boolean Type</h2>
+<p>The type of boolean values is <tt class="docutils literal">bool</tt>.  Plover uses <tt class="docutils literal">bool</tt> from
+<tt class="docutils literal">stdbool.h</tt> for the implementation.</p>
+</div>
+<div class="section" id="string-type">
+<h2>String Type</h2>
+<p>The string type is denoted by <tt class="docutils literal">string</tt>.  Plover uses <tt class="docutils literal">char *</tt> for
+their C implementation.</p>
+</div>
+<div class="section" id="pointer-types">
+<h2>Pointer Types</h2>
+<p>A pointer is a value which represents the location to a value.  The
+syntax for a pointer to something of type <tt class="docutils literal">T</tt> is written <tt class="docutils literal">*T</tt>
+(unlike in C, where the <tt class="docutils literal">*</tt> is written after the type; this is so
+that <tt class="docutils literal">*</tt> always is a prefix operator for both types and values).</p>
+<p>Since Plover treats the locations of vector and scalar types
+differently, the underlying implementation of pointers is treated
+differently in each case as well.  This will be discussed in the
+section on the <tt class="docutils literal">*</tt> and <tt class="docutils literal">&amp;</tt> operators.</p>
+</div>
+<div class="section" id="vector-types">
+<h2>Vector Types</h2>
+<p>A vector type, in its basic form, with base type <tt class="docutils literal">T</tt>, is written as
+<tt class="docutils literal"><span class="pre">T[n1,...,nm]</span></tt> to create a (dense) vector with <tt class="docutils literal">m</tt> indices (also
+known as bounds).  For instance, the type of a five by three dense
+matrix is written <tt class="docutils literal">double[5,3]</tt>.</p>
+<div class="warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">The type <tt class="docutils literal"><span class="pre">double[5][3]</span></tt> is not the same as
+<tt class="docutils literal">double[5,3]</tt>.  The former is a vector of three vectors
+of five, where the second is a vector of 5 vectors of 3.</p>
+</div>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">The brackets are syntactically an index applied to the base
+type.  In C it is more complicated.</p>
+</div>
+<p>Vectors may have different underlying storage formats to take
+advantage of properties of the vector or matrix.  For a given storage
+type <tt class="docutils literal">S</tt>, the syntax of vector with the given storage type is <tt class="docutils literal">S
+<span class="pre">T[n1,...,nm]</span></tt>.  This is parsed with the same precedence of function
+application.</p>
+<p>A matrix is simply a vector type with two indices.  When it is not
+otherwise confusing to say so, a vector is a vector type with one
+index.</p>
+<p>These are the known storage types:</p>
+<ul class="simple">
+<li><tt class="docutils literal">Dense</tt> is for dense matrices where every element is stored.  They
+are stored row-normal, and can have any number of indices.  This
+storage type is the default result of operations on vectors.</li>
+<li><tt class="docutils literal">Diagonal</tt> stores only the diagonal of a matrix, and it is
+presumed that every other non-diagonal element is zero.  Diagonal
+matrices <strong>must</strong> be square.</li>
+<li><tt class="docutils literal">UpperTriangular</tt> stores only the upper triangular portion of a
+matrix in packed column-normal form.  They <strong>must</strong> be square.  An
+<tt class="docutils literal">UpperTriangular T[n,n]</tt> is stored in a C array with <tt class="docutils literal">n * (n + 1) / 2</tt>
+entries.</li>
+<li><tt class="docutils literal">LowerTriangular</tt> stores only the lower triangular portion of a
+matrix in packed row-normal form.  It has the same storage
+considerations as <tt class="docutils literal">UpperTriangular</tt>.</li>
+<li><tt class="docutils literal">Symmetric</tt> stores the lower triangular portion of a symmetric
+matrix, where the upper triangular portion is derived from the lower
+portion.  The storage is the same as <tt class="docutils literal">LowerTriangular</tt>.</li>
+<li><tt class="docutils literal">Scalar</tt> stores a diagonal matrix whose diagonal is a single
+constant.  The underlying storage holds only a single element.  Such
+matrices are also known as <em>homotheties</em> or <em>dilations</em>.  These also
+<strong>must</strong> be square.</li>
+</ul>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">Generally speaking, the storage types may have <em>any</em> type
+for the base type of the vector, so, while questionable in
+utility, it is possible to have <tt class="docutils literal">Symmetric (Diagonal
+<span class="pre">(double[o,p])[n,n])[m,m]</span></tt> for an <tt class="docutils literal">m</tt> by <tt class="docutils literal">m</tt> symmetric
+matrix of <tt class="docutils literal">n</tt> by <tt class="docutils literal">n</tt> diagonal matrices of dense <tt class="docutils literal">o</tt> by
+<tt class="docutils literal">p</tt> matrices.</p>
+</div>
+<p>The effective type of a vector for the purposes of an arithmetic
+operation is the dense version with all of the indices concatenated
+appropriately, since the underlying storage is merely an
+implementation detail.  For instance, the effective type of the vector
+in the note is <tt class="docutils literal">double[m,m,n,n,o,p]</tt> (i.e., a 6-index tensor).</p>
+</div>
+<div class="section" id="tuple-types">
+<h2>Tuple Types</h2>
+<p>The type of a tuple uses the same syntax as a tuple value, but with
+some number of types.  So, <tt class="docutils literal">(double, int)</tt> is the type for pairs
+whose first element is a double and whose second element is an
+integer.</p>
+<div class="warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">Tuples have limited implementation in Plover at the
+moment.  For now, <tt class="docutils literal">struct</tt> can substitute some uses.</p>
+</div>
+<p>One particular tuple type is very important, and it is <tt class="docutils literal">()</tt> (with
+alias <tt class="docutils literal">Void</tt>), which is the tuple of no subtypes.  In the C
+implementation, this type is compiled as <tt class="docutils literal">void</tt>, and, like in C,
+does not actually have a reifiable value.</p>
+</div>
+<div class="section" id="function-types">
+<h2>Function Types</h2>
+<p>The type of a function cannot be written in Plover, though all
+functions have a type.  The type is the types of each of the
+parameters declared for the function, whether each is implicit or
+explicit, whether each is <tt class="docutils literal">in</tt>, <tt class="docutils literal">out</tt>, or <tt class="docutils literal">inout</tt>, what the type
+of the variadic parts are (if the function is variadic), and the
+return type of the function.  See the section on top-level function
+definitions for more information.</p>
+</div>
+<div class="section" id="struct-types">
+<h2>Struct Types</h2>
+<p>Structures are named types with a collection of fields (also known as
+members) with types.</p>
+<p>Since Plover is meant to interoperate with C, each field has an
+internal and external type.  The external type describes to C how the
+object should be represented in memory, and the internal type
+describes to Plover how to interact with the value.  This separation
+is mainly useful for vector types.  See the section on dependent types
+and the <tt class="docutils literal">storing</tt> reserved name.</p>
+</div>
+<div class="section" id="type-holes">
+<h2>Type Holes</h2>
+<p>Type holes are unknown types which are solved by the unification
+algorithm in the plover compiler.  See the section on type and value
+holes.</p>
+</div>
+</div>
+<div class="section" id="expressions-and-operators">
+<h1>Expressions and Operators</h1>
 <div class="section" id="syntax">
-<h1>Syntax</h1>
+<h2>Syntax</h2>
 <div class="section" id="sequencing">
-<h2>Sequencing</h2>
+<h3>Sequencing</h3>
 <p>Unlike C, everything in Plover is an expression with a value (possibly
 <tt class="docutils literal">void</tt>).  Like C, the semicolon is the expression sequencing
 operator.  Plover treats the final expression in a sequence as the
@@ -1285,11 +1642,11 @@ expressions (not curly braces, which are instead used to delimit
 implicit function arguments).</p>
 </div>
 <div class="section" id="iteration-constructs">
-<h2>Iteration constructs</h2>
+<h3>Iteration constructs</h3>
 <p>There are three basic iteration constructs in Plover: the <tt class="docutils literal">for</tt>
 loop, the <tt class="docutils literal">vec</tt> constructor, and the <tt class="docutils literal">while</tt> loop</p>
 <div class="section" id="for-loop">
-<h3><tt class="docutils literal">for</tt> loop</h3>
+<h4><tt class="docutils literal">for</tt> loop</h4>
 <p>The <tt class="docutils literal">for</tt> loop has the following basic syntax:</p>
 <pre class="literal-block">
 for ${i} in ${range} -&gt; ${body}
@@ -1321,7 +1678,7 @@ for i in n, j in m -&gt; printf &quot;(i,j) = (%d,%d)\n&quot; i j;
 result of <tt class="docutils literal">for</tt> is always void.</p>
 </div>
 <div class="section" id="vec-constructor">
-<h3><tt class="docutils literal">vec</tt> constructor</h3>
+<h4><tt class="docutils literal">vec</tt> constructor</h4>
 <p>The <tt class="docutils literal">vec</tt> constructor has the same syntax as <tt class="docutils literal">for</tt>, and it
 accumulates the values of the iteration as a location.  No guarantee
 is made on the number of times any of the expressions in a <tt class="docutils literal">vec</tt>
@@ -1334,7 +1691,7 @@ I := vec i in n, j in n -&gt; if i == j then 1 else 0;
 </pre>
 </div>
 <div class="section" id="while-loop">
-<h3><tt class="docutils literal">while</tt> loop</h3>
+<h4><tt class="docutils literal">while</tt> loop</h4>
 <p>The <tt class="docutils literal">while</tt> loop is for iterating while a boolean condition remains
 true.  There are two forms:</p>
 <pre class="literal-block">
@@ -1386,7 +1743,7 @@ rand_normal() :: double
 </div>
 </div>
 <div class="section" id="value-and-type-holes">
-<h2>Value and type holes</h2>
+<h3>Value and type holes</h3>
 <p>The Plover language supports introducing holes into a program which,
 depending on context, may in some circumstances be filled during
 normal typechecking.  This feature allows a programmer some
@@ -1416,11 +1773,17 @@ B :: __  := (G^T * G :: __)^(-1) * G^T;
 <p>to get the types of <tt class="docutils literal">B</tt> and of <tt class="docutils literal">G^T * G</tt>.</p>
 </div>
 </div>
-<div class="section" id="type-system">
-<h1>Type system</h1>
-<p>The void type is the same as the type of empty tuples.</p>
-<div class="section" id="vector-types">
-<h2>Vector types</h2>
+</div>
+<div class="section" id="top-level-definitions">
+<h1>Top-level Definitions</h1>
+<div class="section" id="functions">
+<h2>Functions</h2>
+</div>
+<div class="section" id="structs">
+<h2>Structs</h2>
+</div>
+<div class="section" id="typedefs">
+<h2>Typedefs</h2>
 </div>
 </div>
 <div class="section" id="modules">

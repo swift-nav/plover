@@ -143,11 +143,214 @@ equivalent:
    "hello, \
         \world!"
 
+
+Whitespace
+----------
+
+Whitespace is not significant except for the purpose of separating
+identifiers and reserved names.
+
+Comments
+~~~~~~~~
+
+Comments are treated as whitespace and have the same syntax as in
+Haskell.
+
+End-of-line-terminated comments are initiated with a double hyphen
+(``--``), and are the equivalent of C-style double forward slash.  The
+new line in such a comment cannot be escaped as they may in C.
+
+Nested comments are delimited by ``{-`` and ``-}`` (the equivalent of
+``/*`` and ``*/`` in C).  Nested comments may be nested to any depth.
+In an ordinary comment, ``{-`` and ``-}`` have no special
+significance.
+::
+
+   -- this is a comment at the beginning of the line
+   x := 22; -- this is a comment later in the line
+   {- this is a nested comment
+      -- ordinary comments have no special significance inside a nested comment -}
+   y := 23; -- this is outside the nested comment
+   {- nested comments {- may be {- nested -} -} -}
+   
+   ---
+   --- Multiple hyphens may be used
+   ---
+
+   {--- in nested comments as well ---}
+
+.. warning:: When commenting out a section of code with ordinary
+   comments, any nested comment symbols which may occur in the
+   ordinary comments may interfere with the nesting.  For instance,
+   the following is a likely error: ::
+
+     {-
+       x := 22;
+       y := 23; -- Usually -} is ok in an ordinary comment
+     -}
+
+
 Types
 =====
 
-The void type is the same as the type of empty tuples.
+Every value in Plover has an associated type.  The type system is able
+to accommodate parts of the C type system as well as a richer set of
+vector/matrix types.
 
+Integer Types
+-------------
+
+Integers can be signed or unsigned of the standard bit widths 8, 16,
+32, and 64.  They are denoted by ``s8``, ``u8``, ``s16``, ``u16``,
+``s32``, ``u32``, ``s64``, and ``u64``.  The type ``int`` is also
+available, and it represents the default integer type, which defaults
+to ``s32`` unless otherwise constrained.
+
+Plover expects these types to be defined in the C environment, and
+there are implementations in the default ``prelude.plv``.
+
+.. note:: The standard C arithmetic rules apply, and Plover assumes
+   the target system has a 32-bit ``int``.
+
+Floating-Point Types
+--------------------
+
+There are two floating-point types, ``float`` and ``double``, which
+represent the types of 32- and 64-bit IEEE floating-point numbers,
+respectively.  As in C, arithmetic defaults to ``double``.
+
+Boolean Type
+------------
+
+The type of boolean values is ``bool``.  Plover uses ``bool`` from
+``stdbool.h`` for the implementation.
+
+String Type
+-----------
+
+The string type is denoted by ``string``.  Plover uses ``char *`` for
+their C implementation.
+
+Pointer Types
+-------------
+
+A pointer is a value which represents the location to a value.  The
+syntax for a pointer to something of type ``T`` is written ``*T``
+(unlike in C, where the ``*`` is written after the type; this is so
+that ``*`` always is a prefix operator for both types and values).
+
+Since Plover treats the locations of vector and scalar types
+differently, the underlying implementation of pointers is treated
+differently in each case as well.  This will be discussed in the
+section on the ``*`` and ``&`` operators.
+
+Vector Types
+------------
+
+A vector type, in its basic form, with base type ``T``, is written as
+``T[n1,...,nm]`` to create a (dense) vector with ``m`` indices (also
+known as bounds).  For instance, the type of a five by three dense
+matrix is written ``double[5,3]``.
+
+.. warning:: The type ``double[5][3]`` is not the same as
+             ``double[5,3]``.  The former is a vector of three vectors
+             of five, where the second is a vector of 5 vectors of 3.
+
+.. note:: The brackets are syntactically an index applied to the base
+          type.  In C it is more complicated.
+
+Vectors may have different underlying storage formats to take
+advantage of properties of the vector or matrix.  For a given storage
+type ``S``, the syntax of vector with the given storage type is ``S
+T[n1,...,nm]``.  This is parsed with the same precedence of function
+application.
+
+A matrix is simply a vector type with two indices.  When it is not
+otherwise confusing to say so, a vector is a vector type with one
+index.
+
+These are the known storage types:
+
+- ``Dense`` is for dense matrices where every element is stored.  They
+  are stored row-normal, and can have any number of indices.  This
+  storage type is the default result of operations on vectors.
+- ``Diagonal`` stores only the diagonal of a matrix, and it is
+  presumed that every other non-diagonal element is zero.  Diagonal
+  matrices **must** be square.
+- ``UpperTriangular`` stores only the upper triangular portion of a
+  matrix in packed column-normal form.  They **must** be square.  An
+  ``UpperTriangular T[n,n]`` is stored in a C array with ``n * (n + 1) / 2``
+  entries.
+- ``LowerTriangular`` stores only the lower triangular portion of a
+  matrix in packed row-normal form.  It has the same storage
+  considerations as ``UpperTriangular``.
+- ``Symmetric`` stores the lower triangular portion of a symmetric
+  matrix, where the upper triangular portion is derived from the lower
+  portion.  The storage is the same as ``LowerTriangular``.
+- ``Scalar`` stores a diagonal matrix whose diagonal is a single
+  constant.  The underlying storage holds only a single element.  Such
+  matrices are also known as *homotheties* or *dilations*.  These also
+  **must** be square.
+
+.. note:: Generally speaking, the storage types may have *any* type
+          for the base type of the vector, so, while questionable in
+          utility, it is possible to have ``Symmetric (Diagonal
+          (double[o,p])[n,n])[m,m]`` for an ``m`` by ``m`` symmetric
+          matrix of ``n`` by ``n`` diagonal matrices of dense ``o`` by
+          ``p`` matrices.
+
+The effective type of a vector for the purposes of an arithmetic
+operation is the dense version with all of the indices concatenated
+appropriately, since the underlying storage is merely an
+implementation detail.  For instance, the effective type of the vector
+in the note is ``double[m,m,n,n,o,p]`` (i.e., a 6-index tensor).
+
+Tuple Types
+-----------
+
+The type of a tuple uses the same syntax as a tuple value, but with
+some number of types.  So, ``(double, int)`` is the type for pairs
+whose first element is a double and whose second element is an
+integer.
+
+.. warning:: Tuples have limited implementation in Plover at the
+             moment.  For now, ``struct`` can substitute some uses.
+
+One particular tuple type is very important, and it is ``()`` (with
+alias ``Void``), which is the tuple of no subtypes.  In the C
+implementation, this type is compiled as ``void``, and, like in C,
+does not actually have a reifiable value.
+
+Function Types
+--------------
+
+The type of a function cannot be written in Plover, though all
+functions have a type.  The type is the types of each of the
+parameters declared for the function, whether each is implicit or
+explicit, whether each is ``in``, ``out``, or ``inout``, what the type
+of the variadic parts are (if the function is variadic), and the
+return type of the function.  See the section on top-level function
+definitions for more information.
+
+Struct Types
+------------
+
+Structures are named types with a collection of fields (also known as
+members) with types.
+
+Since Plover is meant to interoperate with C, each field has an
+internal and external type.  The external type describes to C how the
+object should be represented in memory, and the internal type
+describes to Plover how to interact with the value.  This separation
+is mainly useful for vector types.  See the section on dependent types
+and the ``storing`` reserved name.
+
+Type Holes
+----------
+
+Type holes are unknown types which are solved by the unification
+algorithm in the plover compiler.  See the section on type and value
+holes.
 
 Expressions and Operators
 =========================

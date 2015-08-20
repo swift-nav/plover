@@ -19,5 +19,8 @@ foo01 {n} (A :: double[n,n]) (v :: double[n]) :: double
 foo00 {m,n} (A :: double[n,n]) (v :: double[n,m]) :: double[m,m]
   := (nospill (v^T * A) * v);
 
+foo000 {m,n} (A :: double[n,n]) (v :: double[n,m]) :: double[m,m]
+  := (v^T * A * v);
+
 huh {n} (A :: double[n,n]) :: _
   := (*(&(A[:,22])))[2];

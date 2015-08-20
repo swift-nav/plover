@@ -266,7 +266,7 @@ Full-Width Styles
 
 #main_content_wrap {
     background: #f2f2f2;
-    background: #f8f8f8;
+    background: #f9f8f7;
   border-top: 1px solid #111;
   border-bottom: 1px solid #111;
 }
@@ -684,6 +684,9 @@ ul.auto-toc {
     margin-right: -200px;
 }
 */
+.contents {
+    font-size: 90%;
+}
 .contents .topic-title {
     margin-bottom: 5px;
 }
