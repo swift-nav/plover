@@ -19,6 +19,7 @@ import Control.Applicative ((<$>), (<*>), (<*), pure)
 import Text.ParserCombinators.Parsec (SourcePos)
 
 data SemError = SemError (Tag SourcePos) String
+              | SemRebound (Tag SourcePos) Variable
               | SemUnbound (Tag SourcePos) Variable
               | SemUnboundType (Tag SourcePos) Variable
               | SemStorageError (Tag SourcePos) Type Type
@@ -31,6 +32,7 @@ reportSemErr :: SemError
 reportSemErr err
   = case err of
      SemError tag msg -> posStuff tag $ msg ++ "\n"
+     SemRebound tag v -> posStuff tag $ "Cannot redefine identifier " ++ show v ++ ".\n"
      SemUnbound tag v -> posStuff tag $ "Unbound identifier " ++ show v ++ ".\n"
      SemUnboundType tag v -> posStuff tag $ "Unbound type " ++ show v ++ ".\n"
      SemStorageError tag ty1 ty2 -> posStuff tag $ "Expecting\n"
@@ -474,7 +476,9 @@ alphaRenameTerms = scopedTraverseTerm alphatr
                   , stRng = \pos -> return
                   , stScope = \v pos withv -> withNewScope $
                                               do v' <- gensym v
-                                                 _ <- addNewLocalBinding pos v v'
+                                                 mbinding <- addNewLocalBinding pos v v'
+                                                 when (isJust mbinding) $
+                                                   addError $ SemRebound pos v
                                                  withv v'
                   }
 

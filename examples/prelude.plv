@@ -349,7 +349,7 @@ print_mat {n,m} (A :: double[n,m]) :: () := (
 );
 
 
-matrix_inverse {n} (A :: double[n,n]) (out B :: double[n, n]) :: int
+matrix_inv {n} (A :: double[n,n]) (out B :: double[n, n]) :: int
   := specialize n (
        0 -> 0; -- then B is already set. it's technically an inverse
        1 -> inv1 A (out B);

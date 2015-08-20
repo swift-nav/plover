@@ -1318,7 +1318,7 @@ compileStat v@(Unary _ Inverse a) = comp
                                         nex <- asExp $ compileStat n
                                         writeCode bl
                                         err <- freshLoc "err" (IntType S32)
-                                        store err [cexp|matrix_inverse($nex,$aex,$dex)|]
+                                        store err [cexp|matrix_inv($nex,$aex,$dex)|]
                                         errex <- asExp $ asRValue err
                                         writeCode [citems|assert(0 == $errex);|]
                                         writeCode daf
