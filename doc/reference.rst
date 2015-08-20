@@ -537,3 +537,16 @@ Typedefs
 
 Modules
 =======
+
+Language Proposals
+==================
+
+This is a short list of future language extensions which have not yet
+been implemented.
+
+- Block matrix storage types.  These would be given by
+  ``Block(T1,T2;T3,T4) T5`` to say that type ``T5`` is represented by
+  storing the components into submatrices of types ``T1`` through
+  ``T4``.  An example would be ``Block(LowerTriangular double[n,n],
+  Scalar double[n,n]; Scalar double[n,n], LowerTriangular double[n,n])
+  double[2*n,2*n]``.

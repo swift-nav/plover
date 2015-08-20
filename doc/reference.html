@@ -1320,6 +1320,7 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 </ul>
 </li>
 <li><a class="reference internal" href="#modules" id="id37">Modules</a></li>
+<li><a class="reference internal" href="#language-proposals" id="id38">Language Proposals</a></li>
 </ul>
 </div>
 </div>
@@ -1788,6 +1789,19 @@ B :: __  := (G^T * G :: __)^(-1) * G^T;
 </div>
 <div class="section" id="modules">
 <h1>Modules</h1>
+</div>
+<div class="section" id="language-proposals">
+<h1>Language Proposals</h1>
+<p>This is a short list of future language extensions which have not yet
+been implemented.</p>
+<ul class="simple">
+<li>Block matrix storage types.  These would be given by
+<tt class="docutils literal">Block(T1,T2;T3,T4) T5</tt> to say that type <tt class="docutils literal">T5</tt> is represented by
+storing the components into submatrices of types <tt class="docutils literal">T1</tt> through
+<tt class="docutils literal">T4</tt>.  An example would be <tt class="docutils literal">Block(LowerTriangular double[n,n],
+Scalar double[n,n]; Scalar double[n,n], LowerTriangular double[n,n])
+double[2*n,2*n]</tt>.</li>
+</ul>
 </div>
 
   </section>

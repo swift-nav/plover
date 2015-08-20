@@ -47,6 +47,10 @@ __C__
 __C__
   "\n#include <float.h>";
 
+extern (
+  INFINITY :: double;
+);
+
 ---
 --- stdio.h
 ---
