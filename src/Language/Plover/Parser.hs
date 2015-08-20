@@ -31,15 +31,13 @@ languageDef =
            , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", ".*", "&",
                                       "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
-             "module", "import", "function", "declare", "define", "extern", "static", "inline",
-             "struct", "type",
+             "module", "import", "extern", "static", "inline", "__C__",
+             "struct", "type", "storing",
              "mat", "vec", "for", "in", "out", "inout",
              "while", "if", "then", "else", "specialize",
              "True", "False", "Void", "T", "_", "__",
-             "array", "and", "or",
-             "storing",
+             "and", "or",
              "return", "assert",
-             "__C__"
              ]
            , caseSensitive = True
            }

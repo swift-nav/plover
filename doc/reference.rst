@@ -5,16 +5,158 @@
 :Authors:  Scott Kovach, Kyle Miller
 :Modified: August 2015
 
-This part of the documentation describes in more detail the various
-features of the Plover language.
+Overview
+========
+
+This is a reference manual for the Plover programming language.
+Plover was designed for describing matrix algebra on embedded systems,
+but it has some capacity for systems programming.
+
+The language targets C and aims to be compatible with C conventions
+for ease of integration in existing projects.  Unlike LAPACK, Plover
+has embedded systems in mind and gives some care to stack utilization.
+
+The reference manual covers the language itself.  See the `User Guide
+<guide.html>`_ for documentation about Plover the toolchain.
 
 .. contents:: Table of Contents
+
+Syntax Elements
+===============
+
+Identifiers
+-----------
+
+Identifiers are sequences of characters for naming variables,
+functions, and data types.  They are a nonempty sequences of letters,
+digits, underscores, and single quotes, where the first character must
+be a letter or underscore.
+
+In short: they are C identifiers which may also contain single quotes
+after the first character.
+
+Identifiers which name top-level definitions must also be valid as C
+identifiers.
+
+The single quote allows identifiers such as ``x'`` (pronounced "ex
+prime"), which can be convenient in mathematical expressions.
+
+Reserved names
+--------------
+
+Reserved names are special identifiers which are reserved for the
+programming language, and may not be used for any other purpose.
+
+This is the list of reserved names:
+
+::
+   
+   module import extern static inline __C__
+   struct type storing
+   mat vec for in out inout
+   while if then else specialize
+   True False Void T _ __
+   and or return assert
+
+Operators
+---------
+
+An operator is a special sequence of symbols which represents an
+operation, such as addition or multiplication, on one or two operands.
+Operators are parsed greedily, so ``x<-2`` is *not* the comparison
+between ``x`` and ``-2``, but rather storing ``2`` into ``x``.
+
+Operators will described in more detail later.
+
+Constant Literals
+-----------------
+
+Like in C, Plover provides syntax for basic data such as numbers and
+strings.  The syntax for literals is derived from Haskell.
+
+Integers
+~~~~~~~~
+
+Integer literals are given by a sequence of digits, possibly with
+prefixed base specifier.
+
+Hexadecimal literals are prefixed by ``0x`` or ``0X``, and octal
+literals are prefixed by ``0o`` or ``0O``.  Unlike C, a ``0`` prefix
+by itself does not designate an octal base, so ``022`` is equal to
+``22`` (rather than ``18``).
+
+The type of an integer literal defaults to ``s32`` if otherwise
+unspecified by context.
+
+These are examples of integer literals:
+::
+
+   22
+   0x16
+   0o26
+
+Floating-Point Numbers
+~~~~~~~~~~~~~~~~~~~~~~
+
+A floating-point number is a nonempty sequence of digits, followed by
+at least a fractional part, an exponent, or both a fractional part and
+an exponent:
+
+1. A fractional part is a dot (``.``) followed by a nonempty sequence of digits.
+2. An exponent is either ``e`` or ``E``, optionally followed by a sign, and then a
+   nonempty sequence of digits.
+
+The type of a floating-point literal defaults to ``double`` if
+otherwise unspecified by context.
+
+These are examples of floating-point literals:
+::
+
+   22.2
+   2.22e1
+   222e-1
+
+Booleans
+~~~~~~~~
+
+The Boolean literals are ``True`` and ``False`` for the concepts of
+being true and of being false, respectively.
+
+Void
+~~~~
+
+The void literal, which is the sole value inhabiting the void type, is
+represented equivalently by either ``Void`` or ``()``.
+
+Strings
+~~~~~~~
+
+String literals use the Haskell definition in `section 2.6
+<https://www.haskell.org/onlinereport/lexemes.html#sect2.6>`_ of the
+Haskell 98 Report.  This is similar to C, but with the addition that
+strings may have a "gap" of ignored backslash-enclosed whitespace.
+For instance, ``"hello, \ \world!"`` is equivalent to ``"hello,
+world!``.  Gaps may contain newlines, so the following is also
+equivalent:
+::
+
+   "hello, \
+        \world!"
+
+Types
+=====
+
+The void type is the same as the type of empty tuples.
+
+
+Expressions and Operators
+=========================
 
 Syntax
 ------
 
 Sequencing
-++++++++++
+~~~~~~~~~~
 
 Unlike C, everything in Plover is an expression with a value (possibly
 ``void``).  Like C, the semicolon is the expression sequencing
@@ -31,14 +173,14 @@ implicit function arguments).
 
 
 Iteration constructs
-++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~
 
 
 There are three basic iteration constructs in Plover: the ``for``
 loop, the ``vec`` constructor, and the ``while`` loop
 
 ``for`` loop
-~~~~~~~~~~~~
+++++++++++++
 
 The ``for`` loop has the following basic syntax:
 ::
@@ -75,7 +217,7 @@ The value of the expressions in ``for`` can be of any type, but the
 result of ``for`` is always void.
 
 ``vec`` constructor
-~~~~~~~~~~~~~~~~~~~
++++++++++++++++++++
 
 The ``vec`` constructor has the same syntax as ``for``, and it
 accumulates the values of the iteration as a location.  No guarantee
@@ -90,7 +232,7 @@ This produces an identity matrix named `I`:
    I := vec i in n, j in n -> if i == j then 1 else 0;
 
 ``while`` loop
-~~~~~~~~~~~~~~
+++++++++++++++
 
 The ``while`` loop is for iterating while a boolean condition remains
 true.  There are two forms:
@@ -145,7 +287,7 @@ Box-Muller transform for normally distributed random numbers: ::
 
 
 Value and type holes
-++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~
 
 The Plover language supports introducing holes into a program which,
 depending on context, may in some circumstances be filled during
@@ -177,14 +319,18 @@ For instance, ::
 
 to get the types of ``B`` and of ``G^T * G``.
 
-Type system
------------
 
-The void type is the same as the type of empty tuples.
+Top-level Definitions
+=====================
 
-Vector types
-++++++++++++
+Functions
+---------
 
+Structs
+-------
+
+Typedefs
+--------
 
 Modules
--------
+=======
