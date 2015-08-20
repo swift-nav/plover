@@ -2,7 +2,7 @@
 -- The standard library for plover
 
 
--- static __C__ "#include \"linear_algebra.h\"";
+__C__ "#include <assert.h>";
 
 ---
 --- Integers
