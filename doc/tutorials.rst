@@ -16,18 +16,43 @@ We're going to step through the implementation of a textbook algorithm: a QR
 least squares solver for overdetermined systems. That is, given :math:`A\in
 \R^{m\times n}` and :math:`b\in \R^m` with :math:`m \geq n`, we want to find a
 vector :math:`x\in\R^n` such that the squared error :math:`\norm{Ax-b}` is
-minimized.
+minimized. We give a brief explanation of the math first, following [MC2013]_.
+
+Suppose we can compute an orthogonal matrix :math:`Q\in\R^{m\times m}` such
+that
+
+.. math::
+
+  Q^T A = R = \begin{bmatrix}R_1 \\ 0 \end{bmatrix}
+  \begin{matrix} \scriptstyle n \\ \scriptstyle m-n \end{matrix}
+
+where :math:`R_1\in \R^{n\times n}` is upper triangular. Then we can write
+
+.. math::
+
+  Q^T b = \begin{bmatrix}c \\ d \end{bmatrix}
+  \begin{matrix} \scriptstyle n \\ \scriptstyle m-n \end{matrix}
+
+and we note that
+
+.. math::
+
+  \norm{Ax-b} = \norm{Q^TAx-Q^Tb} = \norm{R_1x-c}+\norm{d}
+
+If :math:`A` is full rank, we can solve the system :math:`R_1x=c` exactly, and
+the remaining error is :math:`d`.
 
 The essential steps are:
 
 1. Apply orthogonal transformations to :math:`A` and :math:`b` until
    :math:`A`'s first :math:`n` rows are upper triangular.
 2. Backsolve the triangular system.
-3. Return the solution and the error (the norm of the last :math:`n-m` entries
-   of :math:`b`).
+3. Return the solution and the error.
 
 We will attempt to mindlessly follow the implementation given in [MC2013]_.
 
+QR Factorization
+----------------
 First we apply a sequence of Givens rotations to introduce zeroes into our matrix :math:`A`.
 A Givens rotation is a pair :math:`c=\cos(\theta)` and :math:`s=\sin(\theta)` such that
 
@@ -47,13 +72,13 @@ A Givens rotation is a pair :math:`c=\cos(\theta)` and :math:`s=\sin(\theta)` su
 
 Pseudocode to calculate such a pair follows:
 
-| givens(a, b) **returns** [:math:`c, s`]
-| **if** :math:`b = 0`
-|   :math:`c = 1; s = 0`
-| **else if** :math:`\abs{b} > \abs{a}`
-|   :math:`\tau = -a/b; s = 1/\sqrt{1+\tau^2}; c = s\tau`
-| **else**
-|   :math:`\tau = -b/a; c = 1/\sqrt{1+\tau^2}; s = c\tau`
+ | **givens** (a, b) **returns** [:math:`c, s`]
+ | **if** :math:`b = 0`
+ |   :math:`c = 1; s = 0`
+ | **else if** :math:`\abs{b} > \abs{a}`
+ |   :math:`\tau = -a/b; s = 1/\sqrt{1+\tau^2}; c = s\tau`
+ | **else**
+ |   :math:`\tau = -b/a; c = 1/\sqrt{1+\tau^2}; s = c\tau`
 
 The plover version is below. We will step through it line by line.
 
@@ -74,7 +99,7 @@ The plover version is below. We will step through it line by line.
         -s, c );
   );
 
-breaking it down:
+-------
 
 ::
 
@@ -83,13 +108,13 @@ breaking it down:
   );
 
 Plover is statically typed, and all functions require a type signature,
-although in many cases types can be inferred (see the section on type holes).
-The function signature indicates that the function ``givens`` is ``static``
-(not exported in the header) takes two arguments ``a`` and ``b`` of type
-``double``, and returns a 2-by-2 matrix of doubles.  Function declarations and
-variable initializations use the ``:=`` operator, and blocks are encosed within
-parentheses. The statements of a block are separated by semicolons. Function
-declarations must also be terminated by a semicolon.
+although in many cases types can be inferred (see the language reference
+section on type holes).  This function signature indicates that the function
+``givens`` is ``static`` (decared ``static`` in the generated ``C``) takes two
+arguments ``a`` and ``b`` of type ``double``, and returns a 2-by-2 matrix of
+doubles.  Function declarations and variable initializations use the ``:=``
+operator and must be terminated by a semicolon.  Blocks are enclosed by
+parentheses, and the statements within a block are separated by semicolons.
 
 ::
 
@@ -97,10 +122,10 @@ declarations must also be terminated by a semicolon.
     s :: double;
 
 
-A new local variable may either be declared with a type or with an initial
-value, in which case the type will be inferred.  In this case, ``c`` and ``s``
-will be set by some branch of the ``if`` statement below, so we simply declare
-them with a type.
+A new local variable may either be declared with a type (``var :: type;``) or
+with an initial value (``var :: optional_type := value;``), in which case the
+type can be inferred.  In this case, ``c`` and ``s`` will be set by some branch
+of the ``if`` statement below, so we simply declare them with a type.
 
 ::
 
@@ -111,14 +136,15 @@ them with a type.
 The condition of an ``if`` statement does not need enclosing parentheses. The
 condition must be followed by the keyword ``then`` and an expression or
 statement. In this case, we have a block which updates the values of ``c`` and
-``s``.  Updating variables must be done with ``<-`` .
+``s``.  Updating variables must be done with ``<-`` .  An ``if`` should be
+terminated by a semicolon when used as a statement.
 
 ::
 
     else if fabs b > fabs a then (
-      tau := -a/b; s <- 1/sqrt(1+tau*tau); c <- s*tau
+      tau := -a/b; s <- 1/sqrt(1+tau^2); c <- s*tau
     ) else (
-      tau := -b/a; c <- 1/sqrt(1+tau*tau); s <- c*tau
+      tau := -b/a; c <- 1/sqrt(1+tau^2); s <- c*tau
     );
 
 ``if`` statements are optionally followed by an ``else`` clause and another
@@ -134,11 +160,281 @@ module.
         -s, c );
 
 The final expression in a block is treated as the value for that block. Here,
-the function returns a 2-by-2 matrix literal containing the values we've just computed.
+the function returns a 2-by-2 matrix literal containing the values we've just
+computed. The output code below shows how this is translated into C.
 
 
 Let's take a look at the C code generated so far:
 
+::
+
+  // excerpt, qr.c
+  static void givens (const double a, const double b, double * result);
+  void givens (const double a, const double b, double * result)
+  {
+      double c;
+      double s;
+
+      if (b == 0) {
+          c = 1;
+          s = 0;
+      } else {
+          if (fabs(a) < fabs(b)) {
+              double tau;
+
+              tau = -(a / b);
+              s = 1 / sqrt(1 + tau * tau);
+              c = s * tau;
+          } else {
+              double tau;
+
+              tau = -(b / a);
+              c = 1 / sqrt(1 + tau * tau);
+              s = c * tau;
+          }
+      }
+      result[2 * 0] = c;
+      result[2 * 0 + 1] = s;
+      result[2 * 1] = -s;
+      result[2 * 1 + 1] = c;
+  }
+
+We can see that Plover passes the result matrix as an extra argument, and
+stores the dense matrix in a flat array in row-major order. Arguments are by
+default passed ``const``, but modifications are allowed with the ``out`` and
+``inout`` parameter options; see the language reference. The rest of the code
+matches the input closely.
+
+
+Now we will use this routine to factor our matrix.  Starting at the lower left
+corner, we go up and then right, introducing zeros with one Givens rotation at
+a time. Pseudocode from [MC2013]_:
+
+
+ | **qr_factor** (m, n, A)
+ | **for** :math:`j = 1:n`
+ |   **for** :math:`i=m:-1:j+1`
+ |     :math:`R` = givens(:math:`A(i-1,j),A(i,j)`)
+ |     :math:`A(i-1:i,j:n) = R^T A(i-1:i, j:n)`
+
+We pick a rotation that introduces a zero at location :math:`(i,j)` and apply
+it to rows ``i`` and ``i-1`` of :math:`A`, updating them in-place. Note that
+the second loop counts down from :math:`m` to :math:`j+1`, and the arrays are
+one-indexed.
+
+The Plover code:
+
+::
+
+  qr_update {m, n}
+    (inout b :: double[m])
+    (inout A :: double[m, n])
+    :: Void := (
+
+      for j in 1 .. n,
+          i in m .. j+1 : -1 -> (
+
+        -- Givens rotation
+        rot := givens A[i-2,j-1] A[i-1,j-1];
+        -- Rotate one column at a time
+        for k in j..n -> (
+          v := A[i-2 .. i-1, k-1];
+          A[i-2 .. i-1, k-1] <- rot^T * v;
+        );
+
+        -- Rotate b vector
+        v := b[i-2 .. i-1];
+        b[i-2 .. i-1] <- rot^T * v;
+
+    );
+  );
+
+-------
+
+::
+
+  qr_update {m, n}
+    (inout b :: double[m])
+    (inout A :: double[m, n])
+
+We use ``inout`` variables, mutating ``b`` and ``A`` as we go along. This way,
+we never store the ``Q`` matrix and simply return the upper triangular rotation
+of ``A``.
+
+``{m, n}`` denotes that ``qr_update`` takes two implicit ``int``
+parameters.  The function qr_update can be called simply with the (explicit)
+``b`` and ``A`` arguments, and ``m`` and ``n`` will be inferred. If the
+dimensions of the explicit arguments don't match, Plover will report a type
+error. See the language reference for more details.
+
+::
+
+      for j in 1 .. n,
+          i in m .. j+1 : -1 -> (
+
+        -- Givens rotation
+        rot := givens A[i-2,j-1] A[i-1,j-1];
+        ...
+      );
+
+Plover uses zero-indexing, but we keep the same loop bounds to avoid too much
+confusion in the translation.  The expression ``a..b`` denotes the sequence
+of integers from ``a`` to ``b``, inclusive, whereas ``a:b`` excludes the upper
+bound. The expression ``(a..b : -1)`` means: count from ``a`` to ``b`` with
+step size -1.
+
+::
+
+        -- Rotate one column at a time
+        for k in j..n -> (
+          v := A[i-2 .. i-1, k-1];
+          A[i-2 .. i-1, k-1] <- rot^T * v;
+        );
+
+We rotate one column at a time so that we can use a two element temporary
+vector v to avoid overwiting elements of ``A`` while they are still needed by
+the product computation.  Currently, Plover will not warn you and will not
+automatically make a copy of the right hand side if one is needed to properly
+compute an update statment ``a <- b``.
+
+These lines also demonstrate the submatrix indexing facilities of Plover. We
+often use the notation ``v[a:b]`` to take the subvector of ``v`` at indices
+from ``a`` to ``b-1``.  These expressions can be used as l-values and as
+r-values, as above. They can also be passed as ``out`` arguments to a function,
+and the proper subvector will be updated.  We can take subranges of objects
+with multiple indices as well: taking a row of a matrix is accomplished with
+``M[i]`` or ``M[i, :]``, and taking a column is simply ``M[:, i]``. A colon
+without upper or lower bounds is filled in appropriately.
+
+Backsolving
+-----------
+
+Now we have a square upper triangular constraint matrix and a target vector; we can solve
+this one row at a time, starting with the last.
+
+For an upper-triangular system :math:`Rx=b`, the value of :math:`x_i` is given
+by
+
+.. math::
+
+  x_i = \left. \left(b_i - \sum_{j=i+1}^n R_{ij}x_j\right)\middle/ R_{ii} \right. .
+
+
+The algorithm will overwrite ``b[i]`` with this value, since it is not needed by
+later steps.
+
+::
+
+  -- Back substitution for upper triangular U
+  static backsolve {n}
+    (U :: double[n,n])
+    (inout b :: double[n])
+    :: s8 := (
+      for i in 0:n ->
+        if U[i,i] == 0 then
+          return -1;
+
+      b[n-1] <- b[n-1]/U[n-1, n-1];
+
+      for i in n-1 .. 1 : -1 -> (
+        b[i-1] <- (b[i-1] - U[i-1, i : n] * b[i : n]) / U[i-1, i-1];
+      );
+
+      return 0;
+  );
+
+The ``*`` inside the for loop is shorthand for a dot product. We add a check to see if any of the
+diagonal entries are 0 and return an error code as a signed byte.
+
+Complete Solver
+---------------
+
+Finally, the completed algorithm:
+
+::
+
+
+  -- Assumes m >= n
+  -- See "Matrix Computations" 4th ed. Golub and Van Loan
+  qr_solve {m, n}
+    (inout A :: double[m, n])
+    (inout b :: double[m])
+
+    (out solution :: double[n])
+    (out residual :: double)
+
+    :: s8 := (
+
+    qr_update (inout b) (inout A);
+
+    -- A is now upper triangular; backsolve it into b
+    code := backsolve A[0:n, 0:n] (inout b[0:n]);
+
+    -- Solution stored in first n elements
+    solution <- b[0:n];
+
+    -- Norm of error = norm of last m-n elements
+    residual <- norm b[n:m];
+
+    return code;
+  );
+
+Note the way implicit arguments are resolved.
+
+The generated C:
+
+::
+
+  s8 qr_solve (const s32 m, const s32 n, double * A, double * b, double * solution, double * const residual)
+  {
+      qr_update(m, n, b, A);
+
+      s8 code;
+      double arg [n * n];
+      double arg2 [n];
+
+      for (s32 idx = 0; idx < n; idx++) {
+          for (s32 idx2 = 0; idx2 < n; idx2++) {
+              arg[n * idx + idx2] = A[n * idx + idx2];
+          }
+      }
+      for (s32 idx = 0; idx < n; idx++) {
+          arg2[idx] = b[idx];
+      }
+      code = backsolve(n, arg, arg2);
+      for (s32 idx = 0; idx < n; idx++) {
+          b[idx] = arg2[idx];
+      }
+      for (s32 idx = 0; idx < n; idx++) {
+          solution[idx] = b[idx];
+      }
+
+      double arg3 [m - n];
+
+      for (s32 idx = 0; idx < m - n; idx++) {
+          arg3[idx] = b[n + idx];
+      }
+      *residual = norm(m - n, arg3);
+      return code;
+  }
+
+The copying around ``inout b[0:n]`` is a bit inefficient in this case, but
+similar logic is needed for more complex matrix storage types.
+
+::
+
+    // qr.h
+    #ifndef PLOVER_GENERATED_qr
+    #define PLOVER_GENERATED_qr
+
+    #include "prelude.h"
+
+    s8 qr_solve (const s32 m, const s32 n, double * A, double * b, double * solution, double * const residual);
+    void qr_update (const s32 m, const s32 n, double * b, double * A);
+    s32 main (void);
+
+
+    #endif /* PLOVER_GENERATED_qr */
 
 Citations
 =========

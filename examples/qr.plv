@@ -1,12 +1,4 @@
-extern fabs (x :: double) :: double;
-extern sqrt (x :: double) :: double;
-extern printf (x :: string) (v :: double) :: ();
-extern puts (x :: string) :: ();
-
-newline () :: () := puts "";
-
-print_matrix {n, m} (A :: double[n,m]) :: ()
-  := ( for i in n -> (for j in m -> printf "%f " A[i,j]; newline()) );
+import prelude;
 
 static givens (a :: double) (b :: double) :: double[2,2] := (
   c :: double;
@@ -22,8 +14,6 @@ static givens (a :: double) (b :: double) :: double[2,2] := (
   mat( c, s ;
       -s, c );
 );
-
-norm {n} (v :: double[n]) :: double := sqrt (v * v);
 
 -- Assumes m >= n
 -- See "Matrix Computations" 4th ed. Golub and Van Loan
@@ -70,18 +60,18 @@ qr_update {m, n}
       v := b[i-2 .. i-1];
       b[i-2 .. i-1] <- rot^T * v;
 
-    );
   );
+);
 
 -- Back substitution for upper triangular U
 static backsolve {n}
   (U :: double[n,n])
   (inout b :: double[n])
   :: s8 := (
-    for i in 0:n -> (
+    for i in 0:n ->
       if U[i,i] == 0 then
         return -1;
-    );
+
     b[n-1] <- b[n-1]/U[n-1, n-1];
 
     for i in n-1 .. 1 : -1 -> (
@@ -110,14 +100,13 @@ main () :: s32 := (
 
   code := qr_solve (inout m) (inout b) (out solution) (out residual);
 
-  print_matrix m;
-
-  newline();
+  printf "\nconstraint matrix:\n";
+  print_mat m;
 
   printf "residual:\n%f\n" residual;
-  puts "solution:";
-  print_matrix vec(solution);
-  puts "residual vector:";
-  print_matrix vec(A * b[0:3] - v);
+  printf "solution:\n";
+  print_vec solution;
+  printf "residual vector:\n";
+  print_vec $ A * b[0:3] - v;
   0;
-)
+);

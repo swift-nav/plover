@@ -139,11 +139,17 @@ pre.code {
 }
 
 blockquote {
-  color: #666;
+  color: #333;
   margin: 0 0 20px 2px;
   padding-left: 20px;
+  padding-bottom: 7px;
   border-left: 3px solid #bbb;
-  font-style: italic;
+  background: white;
+  /*font-style: italic;*/
+}
+
+blockquote div.line-block {
+  margin-bottom: 0;
 }
 
 ul, ol, dl {

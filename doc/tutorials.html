@@ -662,11 +662,17 @@ pre.code {
 }
 
 blockquote {
-  color: #666;
+  color: #333;
   margin: 0 0 20px 2px;
   padding-left: 20px;
+  padding-bottom: 7px;
   border-left: 3px solid #bbb;
-  font-style: italic;
+  background: white;
+  /*font-style: italic;*/
+}
+
+blockquote div.line-block {
+  margin-bottom: 0;
 }
 
 ul, ol, dl {
@@ -1250,8 +1256,13 @@ ul.auto-toc {
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#programming-a-qr-least-squares-solver" id="id2">Programming a QR Least Squares Solver</a></li>
-<li><a class="reference internal" href="#citations" id="id3">Citations</a></li>
+<li><a class="reference internal" href="#programming-a-qr-least-squares-solver" id="id4">Programming a QR Least Squares Solver</a><ul>
+<li><a class="reference internal" href="#qr-factorization" id="id5">QR Factorization</a></li>
+<li><a class="reference internal" href="#backsolving" id="id6">Backsolving</a></li>
+<li><a class="reference internal" href="#complete-solver" id="id7">Complete Solver</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#citations" id="id8">Citations</a></li>
 </ul>
 </div>
 <div class="section" id="programming-a-qr-least-squares-solver">
@@ -1260,16 +1271,40 @@ ul.auto-toc {
 least squares solver for overdetermined systems. That is, given <span class="math">\(A\in
 \R^{m\times n}\)</span> and <span class="math">\(b\in \R^m\)</span> with <span class="math">\(m \geq n\)</span>, we want to find a
 vector <span class="math">\(x\in\R^n\)</span> such that the squared error <span class="math">\(\norm{Ax-b}\)</span> is
-minimized.</p>
+minimized. We give a brief explanation of the math first, following <a class="citation-reference" href="#mc2013" id="id1">[MC2013]</a>.</p>
+<p>Suppose we can compute an orthogonal matrix <span class="math">\(Q\in\R^{m\times m}\)</span> such
+that</p>
+<div class="math">
+\begin{equation*}
+Q^T A = R = \begin{bmatrix}R_1 \\ 0 \end{bmatrix}
+\begin{matrix} \scriptstyle n \\ \scriptstyle m-n \end{matrix}
+\end{equation*}
+</div>
+<p>where <span class="math">\(R_1\in \R^{n\times n}\)</span> is upper triangular. Then we can write</p>
+<div class="math">
+\begin{equation*}
+Q^T b = \begin{bmatrix}c \\ d \end{bmatrix}
+\begin{matrix} \scriptstyle n \\ \scriptstyle m-n \end{matrix}
+\end{equation*}
+</div>
+<p>and we note that</p>
+<div class="math">
+\begin{equation*}
+\norm{Ax-b} = \norm{Q^TAx-Q^Tb} = \norm{R_1x-c}+\norm{d}
+\end{equation*}
+</div>
+<p>If <span class="math">\(A\)</span> is full rank, we can solve the system <span class="math">\(R_1x=c\)</span> exactly, and
+the remaining error is <span class="math">\(d\)</span>.</p>
 <p>The essential steps are:</p>
 <ol class="arabic simple">
 <li>Apply orthogonal transformations to <span class="math">\(A\)</span> and <span class="math">\(b\)</span> until
 <span class="math">\(A\)</span>'s first <span class="math">\(n\)</span> rows are upper triangular.</li>
 <li>Backsolve the triangular system.</li>
-<li>Return the solution and the error (the norm of the last <span class="math">\(n-m\)</span> entries
-of <span class="math">\(b\)</span>).</li>
+<li>Return the solution and the error.</li>
 </ol>
-<p>We will attempt to mindlessly follow the implementation given in <a class="citation-reference" href="#mc2013" id="id1">[MC2013]</a>.</p>
+<p>We will attempt to mindlessly follow the implementation given in <a class="citation-reference" href="#mc2013" id="id2">[MC2013]</a>.</p>
+<div class="section" id="qr-factorization">
+<h2>QR Factorization</h2>
 <p>First we apply a sequence of Givens rotations to introduce zeroes into our matrix <span class="math">\(A\)</span>.
 A Givens rotation is a pair <span class="math">\(c=\cos(\theta)\)</span> and <span class="math">\(s=\sin(\theta)\)</span> such that</p>
 <div class="math">
@@ -1289,8 +1324,9 @@ r \\ 0
 \end{equation*}
 </div>
 <p>Pseudocode to calculate such a pair follows:</p>
+<blockquote>
 <div class="line-block">
-<div class="line">givens(a, b) <strong>returns</strong> [<span class="math">\(c, s\)</span>]</div>
+<div class="line"><strong>givens</strong> (a, b) <strong>returns</strong> [<span class="math">\(c, s\)</span>]</div>
 <div class="line"><strong>if</strong> <span class="math">\(b = 0\)</span></div>
 <div class="line-block">
 <div class="line"><span class="math">\(c = 1; s = 0\)</span></div>
@@ -1304,6 +1340,7 @@ r \\ 0
 <div class="line"><span class="math">\(\tau = -b/a; c = 1/\sqrt{1+\tau^2}; s = c\tau\)</span></div>
 </div>
 </div>
+</blockquote>
 <p>The plover version is below. We will step through it line by line.</p>
 <pre class="literal-block">
 static givens (a :: double) (b :: double) :: double[2,2] := (
@@ -1321,28 +1358,28 @@ static givens (a :: double) (b :: double) :: double[2,2] := (
       -s, c );
 );
 </pre>
-<p>breaking it down:</p>
+<hr class="docutils" />
 <pre class="literal-block">
 static givens (a :: double) (b :: double) :: double[2,2] := (
   ...
 );
 </pre>
 <p>Plover is statically typed, and all functions require a type signature,
-although in many cases types can be inferred (see the section on type holes).
-The function signature indicates that the function <tt class="docutils literal">givens</tt> is <tt class="docutils literal">static</tt>
-(not exported in the header) takes two arguments <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> of type
-<tt class="docutils literal">double</tt>, and returns a 2-by-2 matrix of doubles.  Function declarations and
-variable initializations use the <tt class="docutils literal">:=</tt> operator, and blocks are encosed within
-parentheses. The statements of a block are separated by semicolons. Function
-declarations must also be terminated by a semicolon.</p>
+although in many cases types can be inferred (see the language reference
+section on type holes).  This function signature indicates that the function
+<tt class="docutils literal">givens</tt> is <tt class="docutils literal">static</tt> (decared <tt class="docutils literal">static</tt> in the generated <tt class="docutils literal">C</tt>) takes two
+arguments <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> of type <tt class="docutils literal">double</tt>, and returns a 2-by-2 matrix of
+doubles.  Function declarations and variable initializations use the <tt class="docutils literal">:=</tt>
+operator and must be terminated by a semicolon.  Blocks are enclosed by
+parentheses, and the statements within a block are separated by semicolons.</p>
 <pre class="literal-block">
 c :: double;
 s :: double;
 </pre>
-<p>A new local variable may either be declared with a type or with an initial
-value, in which case the type will be inferred.  In this case, <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt>
-will be set by some branch of the <tt class="docutils literal">if</tt> statement below, so we simply declare
-them with a type.</p>
+<p>A new local variable may either be declared with a type (<tt class="docutils literal">var :: type;</tt>) or
+with an initial value (<tt class="docutils literal">var :: optional_type := value;</tt>), in which case the
+type can be inferred.  In this case, <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt> will be set by some branch
+of the <tt class="docutils literal">if</tt> statement below, so we simply declare them with a type.</p>
 <pre class="literal-block">
 if b == 0 then (
   c &lt;- 1; s &lt;- 0
@@ -1351,12 +1388,13 @@ if b == 0 then (
 <p>The condition of an <tt class="docutils literal">if</tt> statement does not need enclosing parentheses. The
 condition must be followed by the keyword <tt class="docutils literal">then</tt> and an expression or
 statement. In this case, we have a block which updates the values of <tt class="docutils literal">c</tt> and
-<tt class="docutils literal">s</tt>.  Updating variables must be done with <tt class="docutils literal">&lt;-</tt> .</p>
+<tt class="docutils literal">s</tt>.  Updating variables must be done with <tt class="docutils literal">&lt;-</tt> .  An <tt class="docutils literal">if</tt> should be
+terminated by a semicolon when used as a statement.</p>
 <pre class="literal-block">
 else if fabs b &gt; fabs a then (
-  tau := -a/b; s &lt;- 1/sqrt(1+tau*tau); c &lt;- s*tau
+  tau := -a/b; s &lt;- 1/sqrt(1+tau^2); c &lt;- s*tau
 ) else (
-  tau := -b/a; c &lt;- 1/sqrt(1+tau*tau); s &lt;- c*tau
+  tau := -b/a; c &lt;- 1/sqrt(1+tau^2); s &lt;- c*tau
 );
 </pre>
 <p><tt class="docutils literal">if</tt> statements are optionally followed by an <tt class="docutils literal">else</tt> clause and another
@@ -1370,15 +1408,264 @@ mat( c, s ;
     -s, c );
 </pre>
 <p>The final expression in a block is treated as the value for that block. Here,
-the function returns a 2-by-2 matrix literal containing the values we've just computed.</p>
+the function returns a 2-by-2 matrix literal containing the values we've just
+computed. The output code below shows how this is translated into C.</p>
 <p>Let's take a look at the C code generated so far:</p>
+<pre class="literal-block">
+// excerpt, qr.c
+static void givens (const double a, const double b, double * result);
+void givens (const double a, const double b, double * result)
+{
+    double c;
+    double s;
+
+    if (b == 0) {
+        c = 1;
+        s = 0;
+    } else {
+        if (fabs(a) &lt; fabs(b)) {
+            double tau;
+
+            tau = -(a / b);
+            s = 1 / sqrt(1 + tau * tau);
+            c = s * tau;
+        } else {
+            double tau;
+
+            tau = -(b / a);
+            c = 1 / sqrt(1 + tau * tau);
+            s = c * tau;
+        }
+    }
+    result[2 * 0] = c;
+    result[2 * 0 + 1] = s;
+    result[2 * 1] = -s;
+    result[2 * 1 + 1] = c;
+}
+</pre>
+<p>We can see that Plover passes the result matrix as an extra argument, and
+stores the dense matrix in a flat array in row-major order. Arguments are by
+default passed <tt class="docutils literal">const</tt>, but modifications are allowed with the <tt class="docutils literal">out</tt> and
+<tt class="docutils literal">inout</tt> parameter options; see the language reference. The rest of the code
+matches the input closely.</p>
+<p>Now we will use this routine to factor our matrix.  Starting at the lower left
+corner, we go up and then right, introducing zeros with one Givens rotation at
+a time. Pseudocode from <a class="citation-reference" href="#mc2013" id="id3">[MC2013]</a>:</p>
+<blockquote>
+<div class="line-block">
+<div class="line"><strong>qr_factor</strong> (m, n, A)</div>
+<div class="line"><strong>for</strong> <span class="math">\(j = 1:n\)</span></div>
+<div class="line-block">
+<div class="line"><strong>for</strong> <span class="math">\(i=m:-1:j+1\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(R\)</span> = givens(<span class="math">\(A(i-1,j),A(i,j)\)</span>)</div>
+<div class="line"><span class="math">\(A(i-1:i,j:n) = R^T A(i-1:i, j:n)\)</span></div>
+</div>
+</div>
+</div>
+</blockquote>
+<p>We pick a rotation that introduces a zero at location <span class="math">\((i,j)\)</span> and apply
+it to rows <tt class="docutils literal">i</tt> and <tt class="docutils literal"><span class="pre">i-1</span></tt> of <span class="math">\(A\)</span>, updating them in-place. Note that
+the second loop counts down from <span class="math">\(m\)</span> to <span class="math">\(j+1\)</span>, and the arrays are
+one-indexed.</p>
+<p>The Plover code:</p>
+<pre class="literal-block">
+qr_update {m, n}
+  (inout b :: double[m])
+  (inout A :: double[m, n])
+  :: Void := (
+
+    for j in 1 .. n,
+        i in m .. j+1 : -1 -&gt; (
+
+      -- Givens rotation
+      rot := givens A[i-2,j-1] A[i-1,j-1];
+      -- Rotate one column at a time
+      for k in j..n -&gt; (
+        v := A[i-2 .. i-1, k-1];
+        A[i-2 .. i-1, k-1] &lt;- rot^T * v;
+      );
+
+      -- Rotate b vector
+      v := b[i-2 .. i-1];
+      b[i-2 .. i-1] &lt;- rot^T * v;
+
+  );
+);
+</pre>
+<hr class="docutils" />
+<pre class="literal-block">
+qr_update {m, n}
+  (inout b :: double[m])
+  (inout A :: double[m, n])
+</pre>
+<p>We use <tt class="docutils literal">inout</tt> variables, mutating <tt class="docutils literal">b</tt> and <tt class="docutils literal">A</tt> as we go along. This way,
+we never store the <tt class="docutils literal">Q</tt> matrix and simply return the upper triangular rotation
+of <tt class="docutils literal">A</tt>.</p>
+<p><tt class="docutils literal">{m, n}</tt> denotes that <tt class="docutils literal">qr_update</tt> takes two implicit <tt class="docutils literal">int</tt>
+parameters.  The function qr_update can be called simply with the (explicit)
+<tt class="docutils literal">b</tt> and <tt class="docutils literal">A</tt> arguments, and <tt class="docutils literal">m</tt> and <tt class="docutils literal">n</tt> will be inferred. If the
+dimensions of the explicit arguments don't match, Plover will report a type
+error. See the language reference for more details.</p>
+<pre class="literal-block">
+for j in 1 .. n,
+    i in m .. j+1 : -1 -&gt; (
+
+  -- Givens rotation
+  rot := givens A[i-2,j-1] A[i-1,j-1];
+  ...
+);
+</pre>
+<p>Plover uses zero-indexing, but we keep the same loop bounds to avoid too much
+confusion in the translation.  The expression <tt class="docutils literal"><span class="pre">a..b</span></tt> denotes the sequence
+of integers from <tt class="docutils literal">a</tt> to <tt class="docutils literal">b</tt>, inclusive, whereas <tt class="docutils literal">a:b</tt> excludes the upper
+bound. The expression <tt class="docutils literal"><span class="pre">(a..b</span> : <span class="pre">-1)</span></tt> means: count from <tt class="docutils literal">a</tt> to <tt class="docutils literal">b</tt> with
+step size -1.</p>
+<pre class="literal-block">
+-- Rotate one column at a time
+for k in j..n -&gt; (
+  v := A[i-2 .. i-1, k-1];
+  A[i-2 .. i-1, k-1] &lt;- rot^T * v;
+);
+</pre>
+<p>We rotate one column at a time so that we can use a two element temporary
+vector v to avoid overwiting elements of <tt class="docutils literal">A</tt> while they are still needed by
+the product computation.  Currently, Plover will not warn you and will not
+automatically make a copy of the right hand side if one is needed to properly
+compute an update statment <tt class="docutils literal">a &lt;- b</tt>.</p>
+<p>These lines also demonstrate the submatrix indexing facilities of Plover. We
+often use the notation <tt class="docutils literal">v[a:b]</tt> to take the subvector of <tt class="docutils literal">v</tt> at indices
+from <tt class="docutils literal">a</tt> to <tt class="docutils literal"><span class="pre">b-1</span></tt>.  These expressions can be used as l-values and as
+r-values, as above. They can also be passed as <tt class="docutils literal">out</tt> arguments to a function,
+and the proper subvector will be updated.  We can take subranges of objects
+with multiple indices as well: taking a row of a matrix is accomplished with
+<tt class="docutils literal">M[i]</tt> or <tt class="docutils literal">M[i, :]</tt>, and taking a column is simply <tt class="docutils literal"><span class="pre">M[:,</span> i]</tt>. A colon
+without upper or lower bounds is filled in appropriately.</p>
+</div>
+<div class="section" id="backsolving">
+<h2>Backsolving</h2>
+<p>Now we have a square upper triangular constraint matrix and a target vector; we can solve
+this one row at a time, starting with the last.</p>
+<p>For an upper-triangular system <span class="math">\(Rx=b\)</span>, the value of <span class="math">\(x_i\)</span> is given
+by</p>
+<div class="math">
+\begin{equation*}
+x_i = \left. \left(b_i - \sum_{j=i+1}^n R_{ij}x_j\right)\middle/ R_{ii} \right. .
+\end{equation*}
+</div>
+<p>The algorithm will overwrite <tt class="docutils literal">b[i]</tt> with this value, since it is not needed by
+later steps.</p>
+<pre class="literal-block">
+-- Back substitution for upper triangular U
+static backsolve {n}
+  (U :: double[n,n])
+  (inout b :: double[n])
+  :: s8 := (
+    for i in 0:n -&gt;
+      if U[i,i] == 0 then
+        return -1;
+
+    b[n-1] &lt;- b[n-1]/U[n-1, n-1];
+
+    for i in n-1 .. 1 : -1 -&gt; (
+      b[i-1] &lt;- (b[i-1] - U[i-1, i : n] * b[i : n]) / U[i-1, i-1];
+    );
+
+    return 0;
+);
+</pre>
+<p>The <tt class="docutils literal">*</tt> inside the for loop is shorthand for a dot product. We add a check to see if any of the
+diagonal entries are 0 and return an error code as a signed byte.</p>
+</div>
+<div class="section" id="complete-solver">
+<h2>Complete Solver</h2>
+<p>Finally, the completed algorithm:</p>
+<pre class="literal-block">
+-- Assumes m &gt;= n
+-- See &quot;Matrix Computations&quot; 4th ed. Golub and Van Loan
+qr_solve {m, n}
+  (inout A :: double[m, n])
+  (inout b :: double[m])
+
+  (out solution :: double[n])
+  (out residual :: double)
+
+  :: s8 := (
+
+  qr_update (inout b) (inout A);
+
+  -- A is now upper triangular; backsolve it into b
+  code := backsolve A[0:n, 0:n] (inout b[0:n]);
+
+  -- Solution stored in first n elements
+  solution &lt;- b[0:n];
+
+  -- Norm of error = norm of last m-n elements
+  residual &lt;- norm b[n:m];
+
+  return code;
+);
+</pre>
+<p>Note the way implicit arguments are resolved.</p>
+<p>The generated C:</p>
+<pre class="literal-block">
+s8 qr_solve (const s32 m, const s32 n, double * A, double * b, double * solution, double * const residual)
+{
+    qr_update(m, n, b, A);
+
+    s8 code;
+    double arg [n * n];
+    double arg2 [n];
+
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        for (s32 idx2 = 0; idx2 &lt; n; idx2++) {
+            arg[n * idx + idx2] = A[n * idx + idx2];
+        }
+    }
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        arg2[idx] = b[idx];
+    }
+    code = backsolve(n, arg, arg2);
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        b[idx] = arg2[idx];
+    }
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        solution[idx] = b[idx];
+    }
+
+    double arg3 [m - n];
+
+    for (s32 idx = 0; idx &lt; m - n; idx++) {
+        arg3[idx] = b[n + idx];
+    }
+    *residual = norm(m - n, arg3);
+    return code;
+}
+</pre>
+<p>The copying around <tt class="docutils literal">inout b[0:n]</tt> is a bit inefficient in this case, but
+similar logic is needed for more complex matrix storage types.</p>
+<pre class="literal-block">
+// qr.h
+#ifndef PLOVER_GENERATED_qr
+#define PLOVER_GENERATED_qr
+
+#include &quot;prelude.h&quot;
+
+s8 qr_solve (const s32 m, const s32 n, double * A, double * b, double * solution, double * const residual);
+void qr_update (const s32 m, const s32 n, double * b, double * A);
+s32 main (void);
+
+
+#endif /* PLOVER_GENERATED_qr */
+</pre>
+</div>
 </div>
 <div class="section" id="citations">
 <h1>Citations</h1>
 <table class="docutils citation" frame="void" id="mc2013" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
-<tr><td class="label"><a class="fn-backref" href="#id1">[MC2013]</a></td><td>G.H. Golub and C.F. Van Loan (2013). <em>Matrix Computations, 4th ed.</em> The Johns Hopkins University Press, Baltimore, MD.</td></tr>
+<tr><td class="label">[MC2013]</td><td><em>(<a class="fn-backref" href="#id1">1</a>, <a class="fn-backref" href="#id2">2</a>, <a class="fn-backref" href="#id3">3</a>)</em> G.H. Golub and C.F. Van Loan (2013). <em>Matrix Computations, 4th ed.</em> The Johns Hopkins University Press, Baltimore, MD.</td></tr>
 </tbody>
 </table>
 </div>

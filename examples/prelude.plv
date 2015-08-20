@@ -325,14 +325,28 @@ norm {n} (v :: double[n]) :: double
 normalize {n} (v :: double[n]) :: double[n]
   := v / norm v;
 
-print_vec {n} (v :: double[n]) :: ()
-  := for i in n -> printf "[% 12lf]\n" v[i];
-print_mat {n,m} (A :: double[n,m]) :: ()
-  := for i in n -> (
-       printf "[";
-       for j in m -> printf "% 12lf " A[i,j];
-       printf "]\n";
+print_vec {n} (v :: double[n]) :: () := (
+  printf "vec(";
+  for i in n -> (
+    if i > 0 then printf "," else 0;
+    printf "% 12lf" v[i];
+  );
+  printf ")\n";
+  ();
+);
+
+print_mat {n,m} (A :: double[n,m]) :: () := (
+  printf "mat(";
+   for i in n -> (
+     if i > 0 then printf ";\n    " else 0;
+     for j in m -> (
+       if j > 0 then printf "," else 0;
+       printf "% 12lf" A[i,j];
      );
+   );
+   printf ")\n";
+   ();
+);
 
 
 matrix_inverse {n} (A :: double[n,n]) (out B :: double[n, n]) :: int
