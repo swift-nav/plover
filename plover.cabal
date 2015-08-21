@@ -101,23 +101,16 @@ library
 --  hs-source-dirs:    test, src
 --
 --  build-depends:
---                       HUnit
+--                     plover
+--                     , HUnit
 --                     , QuickCheck
 --                     , base >=4.7 && <4.8
 --                     , containers
---                     , either
---                     , free
---                     , mtl >=2.1 && <2.2
---                     , pretty >= 1.1
 --                     , process
 --                     , smallcheck
 --                     , tasty
 --                     , tasty-hunit
---                     , tasty-quickcheck
---                     , tasty-smallcheck
---                     , transformers
 --
 --source-repository head
 --  type:              git
 --  location:          git@github.com:swift-nav/plover.git
---
