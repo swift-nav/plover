@@ -201,12 +201,12 @@ doCodegen opts mchecked = do
 
 fromRight (Right x) = x
 
-doCodegenAll :: Action ()
+doCodegenAll :: Action [(FilePath, FilePath)]
 doCodegenAll = do
   modMap <- gets ms_map
   opts <- gets ms_opts
   let pairs = M.toList modMap
-  forM_ pairs $ \(mod, bs) -> do
+  fmap (mapMaybe id) $ forM pairs $ \(mod, bs) -> do
     (pair, imports) <- doCodegen opts (return $ fromRight bs)
     liftIO $ writeFiles pair imports opts (Just mod)
 
@@ -217,7 +217,8 @@ splitStatic b = Right b
 importName (T.ImportDef n) = n
 both f (a, b) = (f a, f b)
 
-writeFiles :: (String, String) -> [T.DefBinding] -> CompilerOpts -> Maybe String -> IO ()
+writeFiles :: (String, String) -> [T.DefBinding] -> CompilerOpts -> Maybe String
+           -> IO (Maybe (FilePath, FilePath))
 writeFiles (header, source) imports opts unitName =
   let (staticIncludes, normalIncludes) =
         both (map $ importName . T.definition) . partitionEithers . map splitStatic $ imports
@@ -227,6 +228,7 @@ writeFiles (header, source) imports opts unitName =
                  putStrLn (wrapHeader normalIncludes "DEFAULT" header)
                  putStrLn "/* START SOURCE */"
                  putStrLn source
+                 return Nothing
    Just name -> do
      let cfile = joinPath [fromMaybe "" (cFilePrefix opts), name ++ ".c"]
      let hfile = joinPath [fromMaybe "" (hFilePrefix opts), name ++ ".h"]
@@ -234,6 +236,7 @@ writeFiles (header, source) imports opts unitName =
      let includeName = addPrefix name
      writeFile hfile (wrapHeader (map addPrefix normalIncludes) name header)
      writeFile cfile (addIncludes (map addPrefix staticIncludes) includeName source)
+     return $ Just (hfile, cfile)
 
 makeHeaderName :: String -> String
 makeHeaderName unitName = "PLOVER_GENERATED_" ++ clean' unitName

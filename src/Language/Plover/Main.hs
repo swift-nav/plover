@@ -1,5 +1,6 @@
 module Language.Plover.Main
   ( main
+  , main'
   , module Language.Plover.ModuleUtils
   , module Language.Plover.CLI
   ) where
@@ -20,7 +21,7 @@ import Control.Monad
 import Control.Applicative ((<$>))
 import Control.Monad.Trans (liftIO)
 import Data.List
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Map as M
 import Control.Monad.Trans.Either (runEitherT)
 
@@ -47,40 +48,52 @@ runAction_ opts m = do
       exitWith $ ExitFailure 1
     Right _ -> return ()
 
+type FileList = [(FilePath, FilePath)]
+
 main :: IO ()
 main = do
-  args <- getArgs
+  args <- getArgs 
+  _ <- main' args
+  return ()
+
+main' :: [String] -> IO (Either Error FileList)
+main' args = do
   opts <- compilerOpts args
-  when (debugMode opts) $ do
-    hPutStrLn stderr $ "Compiler options:\n" ++ show opts
-  files <- case inputFiles opts of
-             [] -> do contents <- getContents
-                      return [(Nothing, contents)]
-             _ -> forM (inputFiles opts) $ \fileName -> do contents <- readFile fileName
-                                                           return (Just fileName, contents)
-  forM_ files $ \file -> do
-    let mfilename = fst file
-        mparsed = doParse opts file
-        mconvert = doConvert opts mparsed
-        modname = (fromMaybe "Main" $ moduleName opts mfilename)
-        mchecked = loadNewModule mfilename (modname, Nothing)
-        mgen = doCodegen opts mchecked
-    let tgt = case target opts of
-               TargetDefault -> TargetCodeGen
-               x -> x
-    case tgt of
-      TargetParse ->
-        runAction_ opts $ do
+  runAction opts $ do
+    when (debugMode opts) $ liftIO $
+      hPutStrLn stderr $ "Compiler options:\n" ++ show opts
+    files <- case inputFiles opts of
+               [] -> do contents <- liftIO $ getContents
+                        return [(Nothing, contents)]
+               _ -> forM (inputFiles opts) $ \fileName -> do contents <- liftIO $ readFile fileName
+                                                             return (Just fileName, contents)
+    fmap concat $ forM files $ \file -> do
+      let mfilename = fst file
+          mparsed = doParse opts file
+          mconvert = doConvert opts mparsed
+          modname = (fromMaybe "Main" $ moduleName opts mfilename)
+          mchecked = loadNewModule mfilename (modname, Nothing)
+          mgen = doCodegen opts mchecked
+      let tgt = case target opts of
+                 TargetDefault -> TargetCodeGen
+                 x -> x
+      case tgt of
+        TargetParse -> do
           expr <- mparsed
           liftIO $ print $ T.pretty expr
-      TargetConvert -> runAction_ opts $ do
-        defs <- mconvert
-        liftIO $ putStrLn $ Pr.ppShow defs
-      TargetTypeCheck -> runAction_ opts $ do
-        defs <- mchecked
-        liftIO $ putStrLn $ Pr.ppShow defs
-      TargetCodeGen -> runAction_ opts $ do
-        mgen
-        doCodegenAll
-      _ -> putStrLn "Unimplemented target"
-  return ()
+          return []
+        TargetConvert -> do
+          defs <- mconvert
+          liftIO $ putStrLn $ Pr.ppShow defs
+          return []
+        TargetTypeCheck -> do
+          defs <- mchecked
+          liftIO $ putStrLn $ Pr.ppShow defs
+          return []
+        TargetCodeGen -> do
+          -- Needed to populate internal module map
+          _ <- mgen
+          doCodegenAll
+        _ -> do
+          liftIO $ putStrLn "Unimplemented target"
+          return []
