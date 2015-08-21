@@ -1260,14 +1260,141 @@ ul.auto-toc {
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#programming-a-qr-least-squares-solver" id="id4">Programming a QR Least Squares Solver</a><ul>
-<li><a class="reference internal" href="#qr-factorization" id="id5">QR Factorization</a></li>
-<li><a class="reference internal" href="#backsolving" id="id6">Backsolving</a></li>
-<li><a class="reference internal" href="#complete-solver" id="id7">Complete Solver</a></li>
+<li><a class="reference internal" href="#computing-correlation-vectors" id="id4">Computing Correlation Vectors</a></li>
+<li><a class="reference internal" href="#programming-a-qr-least-squares-solver" id="id5">Programming a QR Least Squares Solver</a><ul>
+<li><a class="reference internal" href="#qr-factorization" id="id6">QR Factorization</a></li>
+<li><a class="reference internal" href="#backsolving" id="id7">Backsolving</a></li>
+<li><a class="reference internal" href="#complete-solver" id="id8">Complete Solver</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#citations" id="id8">Citations</a></li>
+<li><a class="reference internal" href="#citations" id="id9">Citations</a></li>
 </ul>
+</div>
+<div class="section" id="computing-correlation-vectors">
+<h1>Computing Correlation Vectors</h1>
+<p>The cross-correlation of two (real-valued) signals <span class="math">\(f\)</span> and
+<span class="math">\(g\)</span> is defined to be</p>
+<div class="math">
+\begin{equation*}
+(f \star g)[i] = \sum_{j=-\infty}^\infty f[j] g[j+i]
+\end{equation*}
+</div>
+<p>For periodic signals with period <span class="math">\(N\)</span>, the bounds of the sum can
+be restricted to having length <span class="math">\(N\)</span>, and, if we model <span class="math">\(f\)</span>
+and <span class="math">\(g\)</span> as being vectors of length <span class="math">\(N\)</span>, this amounts to a
+dot product of <span class="math">\(f\)</span> by a cyclic shift of <span class="math">\(g\)</span>.</p>
+<p>In Plover, the right-hand side can be written as <tt class="docutils literal">f * (g[i:] #
+<span class="pre">g[:i])</span></tt>.  The <tt class="docutils literal">*</tt> operator computes the dot product when given
+vector operands, and the <tt class="docutils literal">#</tt> operator concatenates two vectors.
+Like in Python or Matlab, vectors can be <em>sliced</em> by indexing them
+with a range of values.  The lower- or upper- bounds may be omitted on
+the range operator <tt class="docutils literal">:</tt>, and they default to the bounds of the sliced
+vector.  Here, <tt class="docutils literal">i:</tt> and <tt class="docutils literal">:i</tt> are equivalent to the vectors
+<tt class="docutils literal"><span class="pre">vec(i,i+1,...,N-1)</span></tt> and <tt class="docutils literal"><span class="pre">vec(0,1,...,i-1)</span></tt>, respectively.</p>
+<p>With this, we can make a function which computes all of the
+cross-correlations of two vectors of length <tt class="docutils literal">N</tt>:</p>
+<pre class="literal-block">
+cross_cor {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+  vec i in N -&gt; f * (g[i:] # g[:i]);
+</pre>
+<p>The declaration for the function gives <tt class="docutils literal">N</tt> as an implicit parameter,
+<tt class="docutils literal">f</tt> and <tt class="docutils literal">g</tt> as vectors of length <tt class="docutils literal">N</tt> with double-precision
+floating-point numbers as values, and a return type which is also a
+vector of length <tt class="docutils literal">N</tt> with doubles as values.</p>
+<p>The body of the function is given after the <tt class="docutils literal">:=</tt> definition
+operator.  The body creates a new vector of length <tt class="docutils literal">N</tt> with <tt class="docutils literal">i</tt>
+iterating over that range, computing the cross-correlation for each
+offset <tt class="docutils literal">i</tt>.</p>
+<p>Auto-correlation is the cross-correlation of a vector with itself.
+Given the above definition, we may write</p>
+<pre class="literal-block">
+auto_cor {N} (f :: double[N]) :: double[N] :=
+  cross_cor f f;
+</pre>
+<p>Since the first argument to <tt class="docutils literal">cross_cor</tt> is implicit, Plover will try
+to determine a valid argument to place there, which it will determine
+using <tt class="docutils literal">f</tt> and the return type for <tt class="docutils literal">auto_cor</tt>.  If we wish to be
+explicit, we may instead write <tt class="docutils literal">cross_cor {N} f f</tt> to pass the
+implicit argument <tt class="docutils literal">N</tt>.</p>
+<p>Putting these into a file called <tt class="docutils literal">cor.plv</tt>, we may compile them to C
+by entering the directory and running</p>
+<pre class="literal-block">
+$ plover cor.plv
+</pre>
+<p>This creates a files called <tt class="docutils literal">cor.h</tt> and <tt class="docutils literal">cor.c</tt>, with <tt class="docutils literal">cor.c</tt>
+containing the following definitions:</p>
+<pre class="literal-block">
+void cross_cor (const s32 N, const double * f, const double * g, double * result)
+{
+    for (s32 idx = 0; idx &lt; N; idx++) {
+        s32 i = idx;
+        double sum = 0;
+
+        for (s32 idx2 = 0; idx2 &lt; N; idx2++) {
+            double tmp;
+
+            if (idx2 &lt; -i + N) {
+                tmp = g[i + idx2];
+            } else {
+                tmp = g[idx2 - (-i + N)];
+            }
+            sum += f[idx2] * tmp;
+        }
+        result[idx] = sum;
+    }
+}
+void auto_cor (const s32 N, const double * f, double * result)
+{
+    cross_cor(N, f, f, result);
+}
+</pre>
+<p>The auto-correlation of a random vector approximates a delta function
+as the length of the vector goes to infinity.  We will make a test
+which demonstrates this.</p>
+<pre class="literal-block">
+import prelude;
+
+main () :: int :=
+  ( v := normalize (vec i in 1000 -&gt; rand_normal());
+    print_vec $ auto_cor v;
+    return 0;
+  );
+</pre>
+<p>This imports the standard Plover library, and defines a <tt class="docutils literal">main</tt>
+function.  The function creates a vector of 1000 random doubles,
+normally distributed, and normalizes the vector so that its Euclidean
+length is 1.  After this, the auto-correlation vector is printed.  In
+Plover, the dollar sign acts like an open parenthesis which extends to
+the end of an expression.</p>
+<p>Compiling and running this file with:</p>
+<pre class="literal-block">
+$ plover cor.plv
+$ gcc cor.c prelude.c -o cor
+$ ./cor
+</pre>
+<p>shows that the 0th element is <tt class="docutils literal">1.0</tt> (since this entry represents the
+dot product of the vector with itself), and the rest are relatively
+small.  We can measure this with the following code:</p>
+<pre class="literal-block">
+vec_mean {n} (v :: double[n]) :: double :=
+  sum v / n;
+
+main () :: int :=
+  ( w := vec N in 2:2000 -&gt; (
+           v := normalize $ vec i in N -&gt; rand_normal();
+           av := auto_corr v;
+           vec_mean $ av[1:] .* av[1:]
+         );
+    print_vec w;
+    return 0;
+  );
+</pre>
+<p>The <tt class="docutils literal">.*</tt> operator is the point-wise product (&quot;Hadamard&quot; product) and
+effectively squares each element in the array.  So <tt class="docutils literal">w</tt> is a vector
+of the mean of the squares of the auto-correlations with non-zero
+offset for various sizes of random vectors.  Plotting this vector in a
+graphing application, one can see the errors decrease with the inverse
+of the size of the vectors.</p>
 </div>
 <div class="section" id="programming-a-qr-least-squares-solver">
 <h1>Programming a QR Least Squares Solver</h1>

@@ -1794,13 +1794,43 @@ B :: __  := (G^T * G :: __)^(-1) * G^T;
 <h1>Language Proposals</h1>
 <p>This is a short list of future language extensions which have not yet
 been implemented.</p>
-<ul class="simple">
-<li>Block matrix storage types.  These would be given by
+<ul>
+<li><p class="first">Block matrix storage types.  These would be given by
 <tt class="docutils literal">Block(T1,T2;T3,T4) T5</tt> to say that type <tt class="docutils literal">T5</tt> is represented by
 storing the components into submatrices of types <tt class="docutils literal">T1</tt> through
 <tt class="docutils literal">T4</tt>.  An example would be <tt class="docutils literal">Block(LowerTriangular double[n,n],
 Scalar double[n,n]; Scalar double[n,n], LowerTriangular double[n,n])
-double[2*n,2*n]</tt>.</li>
+double[2*n,2*n]</tt>.</p>
+</li>
+<li><p class="first">Quasiquotation.  This feature would let a user create macros.</p>
+<pre class="literal-block">
+-- Macros.hs
+{-# LANGUAGE QuasiQuotes #-}
+module Macros where
+import Language.Plover.Quote
+import Language.Plover.ParserTypes
+
+square :: Expr -&gt; P Expr
+square x = do t &lt;- gensym &quot;t&quot;
+              return [pexp| (~t := ~x; ~t * ~t) |]
+</pre>
+<pre class="literal-block">
+-- Lib.plv
+
+{-# import Macros #-}
+
+use_square (z :: double) :: double :=
+  ~(square [pexp| z |]);
+</pre>
+<p>The effective <tt class="docutils literal">Lib.plv</tt> after macro expansion would be</p>
+<pre class="literal-block">
+-- Lib.plv
+use_square (z :: double) :: double :=
+  (t22 := z; t22 * t22);
+</pre>
+<p>A good application would be generating code for specialized matrix
+inverses.</p>
+</li>
 </ul>
 </div>
 

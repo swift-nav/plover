@@ -550,3 +550,35 @@ been implemented.
   ``T4``.  An example would be ``Block(LowerTriangular double[n,n],
   Scalar double[n,n]; Scalar double[n,n], LowerTriangular double[n,n])
   double[2*n,2*n]``.
+
+- Quasiquotation.  This feature would let a user create macros.
+  ::
+     
+     -- Macros.hs
+     {-# LANGUAGE QuasiQuotes #-}
+     module Macros where
+     import Language.Plover.Quote
+     import Language.Plover.ParserTypes
+     
+     square :: Expr -> P Expr
+     square x = do t <- gensym "t"
+                   return [pexp| (~t := ~x; ~t * ~t) |]
+
+  ::
+     
+     -- Lib.plv
+     
+     {-# import Macros #-}
+     
+     use_square (z :: double) :: double :=
+       ~(square [pexp| z |]);
+
+  The effective ``Lib.plv`` after macro expansion would be
+  ::
+   
+     -- Lib.plv
+     use_square (z :: double) :: double :=
+       (t22 := z; t22 * t22);
+
+  A good application would be generating code for specialized matrix
+  inverses.

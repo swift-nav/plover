@@ -9,6 +9,146 @@ This part of the documentation gives worked examples of using Plover.
 
 .. contents:: Table of Contents
 
+Computing Correlation Vectors
+=============================
+
+The cross-correlation of two (real-valued) signals :math:`f` and
+:math:`g` is defined to be
+
+.. math::
+
+   (f \star g)[i] = \sum_{j=-\infty}^\infty f[j] g[j+i]
+
+For periodic signals with period :math:`N`, the bounds of the sum can
+be restricted to having length :math:`N`, and, if we model :math:`f`
+and :math:`g` as being vectors of length :math:`N`, this amounts to a
+dot product of :math:`f` by a cyclic shift of :math:`g`.
+
+In Plover, the right-hand side can be written as ``f * (g[i:] #
+g[:i])``.  The ``*`` operator computes the dot product when given
+vector operands, and the ``#`` operator concatenates two vectors.
+Like in Python or Matlab, vectors can be *sliced* by indexing them
+with a range of values.  The lower- or upper- bounds may be omitted on
+the range operator ``:``, and they default to the bounds of the sliced
+vector.  Here, ``i:`` and ``:i`` are equivalent to the vectors
+``vec(i,i+1,...,N-1)`` and ``vec(0,1,...,i-1)``, respectively.
+
+With this, we can make a function which computes all of the
+cross-correlations of two vectors of length ``N``:
+::
+
+   cross_cor {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+     vec i in N -> f * (g[i:] # g[:i]);
+
+The declaration for the function gives ``N`` as an implicit parameter,
+``f`` and ``g`` as vectors of length ``N`` with double-precision
+floating-point numbers as values, and a return type which is also a
+vector of length ``N`` with doubles as values.
+
+The body of the function is given after the ``:=`` definition
+operator.  The body creates a new vector of length ``N`` with ``i``
+iterating over that range, computing the cross-correlation for each
+offset ``i``.
+
+Auto-correlation is the cross-correlation of a vector with itself.
+Given the above definition, we may write
+::
+
+   auto_cor {N} (f :: double[N]) :: double[N] :=
+     cross_cor f f;
+
+Since the first argument to ``cross_cor`` is implicit, Plover will try
+to determine a valid argument to place there, which it will determine
+using ``f`` and the return type for ``auto_cor``.  If we wish to be
+explicit, we may instead write ``cross_cor {N} f f`` to pass the
+implicit argument ``N``.
+
+Putting these into a file called ``cor.plv``, we may compile them to C
+by entering the directory and running ::
+
+   $ plover cor.plv
+
+This creates a files called ``cor.h`` and ``cor.c``, with ``cor.c``
+containing the following definitions:
+::
+
+   void cross_cor (const s32 N, const double * f, const double * g, double * result)
+   {
+       for (s32 idx = 0; idx < N; idx++) {
+           s32 i = idx;
+           double sum = 0;
+
+           for (s32 idx2 = 0; idx2 < N; idx2++) {
+               double tmp;
+
+               if (idx2 < -i + N) {
+                   tmp = g[i + idx2];
+               } else {
+                   tmp = g[idx2 - (-i + N)];
+               }
+               sum += f[idx2] * tmp;
+           }
+           result[idx] = sum;
+       }
+   }
+   void auto_cor (const s32 N, const double * f, double * result)
+   {
+       cross_cor(N, f, f, result);
+   }
+
+The auto-correlation of a random vector approximates a delta function
+as the length of the vector goes to infinity.  We will make a test
+which demonstrates this.
+
+::
+
+   import prelude;
+
+   main () :: int :=
+     ( v := normalize (vec i in 1000 -> rand_normal());
+       print_vec $ auto_cor v;
+       return 0;
+     );
+
+This imports the standard Plover library, and defines a ``main``
+function.  The function creates a vector of 1000 random doubles,
+normally distributed, and normalizes the vector so that its Euclidean
+length is 1.  After this, the auto-correlation vector is printed.  In
+Plover, the dollar sign acts like an open parenthesis which extends to
+the end of an expression.
+
+Compiling and running this file with::
+
+  $ plover cor.plv
+  $ gcc cor.c prelude.c -o cor
+  $ ./cor
+
+shows that the 0th element is ``1.0`` (since this entry represents the
+dot product of the vector with itself), and the rest are relatively
+small.  We can measure this with the following code:
+
+::
+
+   vec_mean {n} (v :: double[n]) :: double :=
+     sum v / n;
+
+   main () :: int :=
+     ( w := vec N in 2:2000 -> (
+              v := normalize $ vec i in N -> rand_normal();
+              av := auto_corr v;
+              vec_mean $ av[1:] .* av[1:]
+            );
+       print_vec w;
+       return 0;
+     );
+
+The ``.*`` operator is the point-wise product ("Hadamard" product) and
+effectively squares each element in the array.  So ``w`` is a vector
+of the mean of the squares of the auto-correlations with non-zero
+offset for various sizes of random vectors.  Plotting this vector in a
+graphing application, one can see the errors decrease with the inverse
+of the size of the vectors.
+
 Programming a QR Least Squares Solver
 =====================================
 
