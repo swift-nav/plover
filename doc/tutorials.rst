@@ -9,6 +9,168 @@ This part of the documentation gives worked examples of using Plover.
 
 .. contents:: Table of Contents
 
+Matrix Multiplications
+======================
+
+A quick application of using Plover is to create bespoke functions
+which operate on matrices.  A very basic example is a matrix times a
+vector:
+::
+
+   mul_mat_vec {m,n} (A :: double[m,n]) (v :: double[n]) :: double[m]
+     := A * v;
+
+This function takes two implicit arguments (``m`` and ``n``) which
+give the dimensions of the :math:`m\times n` matrix ``A`` and an
+:math:`n`-dimensional vector ``v``.  Putting this into a file called
+``mats.plv``, we compile it with Plover using
+::
+
+   $ plover mats.plv
+
+which creates two files, ``mats.c`` and ``mats.h``.  The resulting C
+definition is
+::
+
+   void mul_mat_vec (const s32 m, const s32 n,
+                     const double * A, const double * v,
+                     double * result)
+   {
+       for (s32 idx = 0; idx < m; idx++) {
+           double sum = 0;
+
+           for (s32 idx2 = 0; idx2 < n; idx2++) {
+               sum += A[n * idx + idx2] * v[idx2];
+           }
+           result[idx] = sum;
+       }
+   }
+
+with a corresponding definition in the header file.  The rules for
+creating the C function type from a Plover type are simple: the
+parameters for the C function appear in the same order as they appear
+in the Plover definition, and if the result is a vector type (i.e.,
+non-scalar), it is appended as the last argument.  The caller is
+responsible for allocating the memory of the returned vector.
+
+Another example is computing a quadratic form  :math:`v^TAv`:
+::
+
+   mat_quad_form {n} (A :: double[n,n]) (v :: double[n]) :: double
+     := (v^T * A * v)[0];
+
+Multiplication is left-associative, so the inner expression is the
+same as ``(v^T * A) * v``. The rule for taking the transpose of an
+:math:`n`-dimensional vector is that it becomes a :math:`1\times
+n`-dimensional matrix, and so the product with the :math:`n\times n`
+matrix ``A``, giving a :math:`1\times n` matrix.  This is then
+multiplied by the vector, and a matrix times a vector results in a
+vector, in this case :math:`1`-dimensional.  This is indexed to get
+the sole entry.  Alternatively, the body of the function could
+equivalently be ``(A * v) * v``, without indexing, where the second
+``*`` is a dot product between vectors.
+
+Compiling this, the resulting C is
+::
+
+   double mat_quad_form (const s32 n,
+                         const double * A, const double * v)
+   {
+       double sum = 0;
+
+       for (s32 idx = 0; idx < n; idx++) {
+           double sum2 = 0;
+
+           for (s32 idx2 = 0; idx2 < n; idx2++) {
+               sum2 += v[idx2] * A[n * idx2 + idx];
+           }
+           sum += sum2 * v[idx];
+       }
+       return sum;
+   }
+
+Notice that the Plover compiler does not generate the intermediate
+matrix product.  This is because the later multiplication informs the
+first that it will only be evaluating each element of the first at
+most once, so the elements may be computed on demand.
+
+Suppose that the vector were instead a matrix.  That is,
+::
+
+   mat_quad_prod {n,m} (A :: double[n,n]) (B :: double[n,m]) :: double[m,m]
+     := B^T * A * B;
+
+Plover generates the following code:
+::
+
+   void mat_quad_prod (const s32 n, const s32 m,
+                       const double * A, const double * B,
+                       double * result)
+   {
+       double tmp [m * n];
+
+       for (s32 idx = 0; idx < m; idx++) {
+           for (s32 idx2 = 0; idx2 < n; idx2++) {
+               double sum = 0;
+
+               for (s32 idx3 = 0; idx3 < n; idx3++) {
+                   sum += B[m * idx3 + idx] * A[n * idx3 + idx2];
+               }
+               tmp[n * idx + idx2] = sum;
+           }
+       }
+       for (s32 idx = 0; idx < m; idx++) {
+           for (s32 idx2 = 0; idx2 < m; idx2++) {
+               double sum = 0;
+
+               for (s32 idx3 = 0; idx3 < n; idx3++) {
+                   sum += tmp[n * idx + idx3] * B[m * idx3 + idx2];
+               }
+               result[m * idx + idx2] = sum;
+           }
+       }
+   }
+
+Since the second product will use the elements of the first product
+multiple times, the compiler *memoizes* (or *spills*) the result onto
+the stack.  If ``n`` is large relative to ``m`` this might be
+unacceptable behavior on an embedded system, and we may be willing to
+trade stack space for computation time.  Plover gives the ``nomemo``
+operator to control whether a request to memoize an intermediate value
+will be acknowledged.  This does not change the result of a
+computation, but it might change whether the computation is computable
+on a given system.  Concretely:
+::
+
+   mat_quad_prod_safe {n,m} (A :: double[n,n]) (B :: double[n,m]) :: double[m,m]
+     := nomemo (B^T * A) * B;
+
+gives
+::
+
+   void mat_quad_safe (const s32 n, const s32 m,
+                       const double * A, const double * B,
+                       double * result)
+   {
+       for (s32 idx = 0; idx < m; idx++) {
+           for (s32 idx2 = 0; idx2 < m; idx2++) {
+               double sum = 0;
+
+               for (s32 idx3 = 0; idx3 < n; idx3++) {
+                   double sum2 = 0;
+
+                   for (s32 idx4 = 0; idx4 < n; idx4++) {
+                       sum2 += B[m * idx4 + idx] * A[n * idx4 + idx3];
+                   }
+                   sum += sum2 * B[m * idx3 + idx2];
+               }
+               result[m * idx + idx2] = sum;
+           }
+       }
+   }
+
+
+
 Computing Correlation Vectors
 =============================
 
@@ -144,8 +306,8 @@ small.  We can measure this with the following code:
 
 The ``.*`` operator is the point-wise product ("Hadamard" product) and
 effectively squares each element in the array.  So ``w`` is a vector
-of the mean of the squares of the auto-correlations with non-zero
-offset for various sizes of random vectors.  Plotting this vector in a
+of the mean of the squares of the non-zero-offset auto-correlations
+for various sizes of random vectors.  Plotting this vector in a
 graphing application, one can see the errors decrease with the inverse
 of the size of the vectors.
 
@@ -247,14 +409,16 @@ The plover version is below. We will step through it line by line.
     ...
   );
 
-Plover is statically typed, and all functions require a type signature,
-although in many cases types can be inferred (see the language reference
-section on type holes).  This function signature indicates that the function
-``givens`` is ``static`` (decared ``static`` in the generated ``C``) takes two
-arguments ``a`` and ``b`` of type ``double``, and returns a 2-by-2 matrix of
-doubles.  Function declarations and variable initializations use the ``:=``
-operator and must be terminated by a semicolon.  Blocks are enclosed by
-parentheses, and the statements within a block are separated by semicolons.
+Plover is statically typed, and all functions require a type
+signature, although in many cases types can be inferred (see the
+language reference section on type holes).  This function signature
+indicates that the function ``givens`` is ``static`` (declared
+``static`` in the generated ``C`` file, with no prototype in the
+header file), takes two arguments ``a`` and ``b`` of type ``double``,
+and returns a 2-by-2 matrix of doubles.  Function declarations and
+variable initializations use the ``:=`` operator and must be
+terminated by a semicolon.  Blocks are enclosed by parentheses, and
+the expressions within a block are separated by semicolons.
 
 ::
 
@@ -262,10 +426,12 @@ parentheses, and the statements within a block are separated by semicolons.
     s :: double;
 
 
-A new local variable may either be declared with a type (``var :: type;``) or
-with an initial value (``var :: optional_type := value;``), in which case the
-type can be inferred.  In this case, ``c`` and ``s`` will be set by some branch
-of the ``if`` statement below, so we simply declare them with a type.
+A new local variable may either be declared with a type (``var ::
+type;``) or with an initial value (``var :: optional_type :=
+value;``), in which case the type is optional and can be inferred.  In
+this case, ``c`` and ``s`` are set by each branch of the ``if``
+expression below, so we declare them with only their types.  Declaring
+a variable does not initialize it.
 
 ::
 
@@ -273,11 +439,16 @@ of the ``if`` statement below, so we simply declare them with a type.
       c <- 1; s <- 0
     )
 
-The condition of an ``if`` statement does not need enclosing parentheses. The
-condition must be followed by the keyword ``then`` and an expression or
-statement. In this case, we have a block which updates the values of ``c`` and
-``s``.  Updating variables must be done with ``<-`` .  An ``if`` should be
-terminated by a semicolon when used as a statement.
+The condition of an ``if`` expression does not need enclosing
+parentheses. The condition must be followed by the keyword ``then``
+and an expression. In this case, we have a block which updates the
+values of ``c`` and ``s``.  Updating variables must be done with
+``<-`` .  An ``if`` should be terminated by a semicolon when used as a
+statement.
+
+.. note:: In Plover, everything is an expression.  Sometimes it is
+          convenient to call an expression appearing in a block a
+          *statement*.
 
 ::
 
@@ -287,12 +458,12 @@ terminated by a semicolon when used as a statement.
       tau := -b/a; c <- 1/sqrt(1+tau^2); s <- c*tau
     );
 
-``if`` statements are optionally followed by an ``else`` clause and another
-expression or block. Here, the ``fabs`` function is called on ``b`` and ``a``,
-and these values are compared to choose the branch.  The local ``tau`` is
-initialized, and ``c`` and ``s`` are updated as shown in the pseudocode above.
-The ``fabs`` and ``sqrt`` functions are included in Plover's ``prelude``
-module.
+``if`` statements are optionally followed by an ``else`` clause and
+another expression or block. Here, the ``fabs`` function is called on
+``b`` and on ``a``, and these values are compared to choose the branch.
+The local ``tau`` is initialized, and ``c`` and ``s`` are updated as
+shown in the pseudocode above.  The ``fabs`` and ``sqrt`` functions
+are included in Plover's ``prelude`` module.
 
 ::
 
