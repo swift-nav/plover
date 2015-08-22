@@ -34,6 +34,7 @@ id: '{\\mathrm{id}}'
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
 <title>Plover Language Reference</title>
 <meta name="authors" content="Scott Kovach  Kyle Miller" />
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
 <style type="text/css">
 
 /*! normalize.css v2.1.3 | MIT License | git.io/normalize */
@@ -1267,60 +1268,77 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#overview" id="id1">Overview</a></li>
-<li><a class="reference internal" href="#syntax-elements" id="id2">Syntax Elements</a><ul>
-<li><a class="reference internal" href="#identifiers" id="id3">Identifiers</a></li>
-<li><a class="reference internal" href="#reserved-names" id="id4">Reserved names</a></li>
-<li><a class="reference internal" href="#operators" id="id5">Operators</a></li>
-<li><a class="reference internal" href="#constant-literals" id="id6">Constant Literals</a><ul>
-<li><a class="reference internal" href="#integers" id="id7">Integers</a></li>
-<li><a class="reference internal" href="#floating-point-numbers" id="id8">Floating-Point Numbers</a></li>
-<li><a class="reference internal" href="#booleans" id="id9">Booleans</a></li>
-<li><a class="reference internal" href="#void" id="id10">Void</a></li>
-<li><a class="reference internal" href="#strings" id="id11">Strings</a></li>
+<li><a class="reference internal" href="#overview" id="id2">Overview</a></li>
+<li><a class="reference internal" href="#syntax-elements" id="id3">Syntax Elements</a><ul>
+<li><a class="reference internal" href="#identifiers" id="id4">Identifiers</a></li>
+<li><a class="reference internal" href="#reserved-names" id="id5">Reserved names</a></li>
+<li><a class="reference internal" href="#operators" id="id6">Operators</a></li>
+<li><a class="reference internal" href="#constant-literals" id="id7">Constant Literals</a><ul>
+<li><a class="reference internal" href="#integers" id="id8">Integers</a></li>
+<li><a class="reference internal" href="#floating-point-numbers" id="id9">Floating-Point Numbers</a></li>
+<li><a class="reference internal" href="#booleans" id="id10">Booleans</a></li>
+<li><a class="reference internal" href="#void" id="id11">Void</a></li>
+<li><a class="reference internal" href="#strings" id="id12">Strings</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#whitespace" id="id12">Whitespace</a><ul>
-<li><a class="reference internal" href="#comments" id="id13">Comments</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference internal" href="#types" id="id14">Types</a><ul>
-<li><a class="reference internal" href="#integer-types" id="id15">Integer Types</a></li>
-<li><a class="reference internal" href="#floating-point-types" id="id16">Floating-Point Types</a></li>
-<li><a class="reference internal" href="#boolean-type" id="id17">Boolean Type</a></li>
-<li><a class="reference internal" href="#string-type" id="id18">String Type</a></li>
-<li><a class="reference internal" href="#pointer-types" id="id19">Pointer Types</a></li>
-<li><a class="reference internal" href="#vector-types" id="id20">Vector Types</a></li>
-<li><a class="reference internal" href="#tuple-types" id="id21">Tuple Types</a></li>
-<li><a class="reference internal" href="#function-types" id="id22">Function Types</a></li>
-<li><a class="reference internal" href="#struct-types" id="id23">Struct Types</a></li>
-<li><a class="reference internal" href="#type-holes" id="id24">Type Holes</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#expressions-and-operators" id="id25">Expressions and Operators</a><ul>
-<li><a class="reference internal" href="#syntax" id="id26">Syntax</a><ul>
-<li><a class="reference internal" href="#sequencing" id="id27">Sequencing</a></li>
-<li><a class="reference internal" href="#iteration-constructs" id="id28">Iteration constructs</a><ul>
-<li><a class="reference internal" href="#for-loop" id="id29"><tt class="docutils literal">for</tt> loop</a></li>
-<li><a class="reference internal" href="#vec-constructor" id="id30"><tt class="docutils literal">vec</tt> constructor</a></li>
-<li><a class="reference internal" href="#while-loop" id="id31"><tt class="docutils literal">while</tt> loop</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#value-and-type-holes" id="id32">Value and type holes</a></li>
+<li><a class="reference internal" href="#whitespace" id="id13">Whitespace</a><ul>
+<li><a class="reference internal" href="#comments" id="id14">Comments</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#top-level-definitions" id="id33">Top-level Definitions</a><ul>
-<li><a class="reference internal" href="#functions" id="id34">Functions</a></li>
-<li><a class="reference internal" href="#structs" id="id35">Structs</a></li>
-<li><a class="reference internal" href="#typedefs" id="id36">Typedefs</a></li>
+<li><a class="reference internal" href="#types" id="id15">Types</a><ul>
+<li><a class="reference internal" href="#integer-types" id="id16">Integer Types</a></li>
+<li><a class="reference internal" href="#floating-point-types" id="id17">Floating-Point Types</a></li>
+<li><a class="reference internal" href="#boolean-type" id="id18">Boolean Type</a></li>
+<li><a class="reference internal" href="#string-type" id="id19">String Type</a></li>
+<li><a class="reference internal" href="#pointer-types" id="id20">Pointer Types</a></li>
+<li><a class="reference internal" href="#vector-types" id="id21">Vector Types</a></li>
+<li><a class="reference internal" href="#tuple-types" id="id22">Tuple Types</a></li>
+<li><a class="reference internal" href="#function-types" id="id23">Function Types</a></li>
+<li><a class="reference internal" href="#struct-types" id="id24">Struct Types</a></li>
+<li><a class="reference internal" href="#type-holes" id="id25">Type Holes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id37">Modules</a></li>
-<li><a class="reference internal" href="#language-proposals" id="id38">Language Proposals</a></li>
+<li><a class="reference internal" href="#expressions-and-operators" id="id26">Expressions and Operators</a><ul>
+<li><a class="reference internal" href="#parentheses-and-dollar" id="id27">Parentheses and Dollar</a></li>
+<li><a class="reference internal" href="#sequencing" id="id28">Sequencing</a></li>
+<li><a class="reference internal" href="#variable-definitions" id="id29">Variable Definitions</a></li>
+<li><a class="reference internal" href="#ranges" id="id30">Ranges</a></li>
+<li><a class="reference internal" href="#tuples" id="id31">Tuples</a></li>
+<li><a class="reference internal" href="#locations" id="id32">Locations</a><ul>
+<li><a class="reference internal" href="#slices" id="id33">Slices</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#type-specification" id="id34">Type Specification</a></li>
+<li><a class="reference internal" href="#pointer-operators" id="id35">Pointer Operators</a></li>
+<li><a class="reference internal" href="#id1" id="id36">Operators</a><ul>
+<li><a class="reference internal" href="#exponentiation" id="id37">Exponentiation</a></li>
+<li><a class="reference internal" href="#multiplication" id="id38">Multiplication</a></li>
+<li><a class="reference internal" href="#element-wise-operations" id="id39">Element-wise Operations</a></li>
+<li><a class="reference internal" href="#concatenation" id="id40">Concatenation</a></li>
+<li><a class="reference internal" href="#inequalities" id="id41">Inequalities</a></li>
+<li><a class="reference internal" href="#boolean-operators" id="id42">Boolean Operators</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#function-application" id="id43">Function Application</a></li>
+<li><a class="reference internal" href="#iteration-constructs" id="id44">Iteration Constructs</a><ul>
+<li><a class="reference internal" href="#for-loop" id="id45"><tt class="docutils literal">for</tt> loop</a></li>
+<li><a class="reference internal" href="#vec-constructor" id="id46"><tt class="docutils literal">vec</tt> constructor</a></li>
+<li><a class="reference internal" href="#while-loop" id="id47"><tt class="docutils literal">while</tt> loop</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id48">Value and type holes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#top-level-definitions" id="id49">Top-level Definitions</a><ul>
+<li><a class="reference internal" href="#functions" id="id50">Functions</a></li>
+<li><a class="reference internal" href="#structs" id="id51">Structs</a></li>
+<li><a class="reference internal" href="#typedefs" id="id52">Typedefs</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#modules" id="id53">Modules</a></li>
+<li><a class="reference internal" href="#language-proposals" id="id54">Language Proposals</a></li>
 </ul>
 </div>
 </div>
@@ -1579,6 +1597,9 @@ operation is the dense version with all of the indices concatenated
 appropriately, since the underlying storage is merely an
 implementation detail.  For instance, the effective type of the vector
 in the note is <tt class="docutils literal">double[m,m,n,n,o,p]</tt> (i.e., a 6-index tensor).</p>
+<p>The implementation in C for a vector type is simply <tt class="docutils literal">T *</tt>, where
+<tt class="docutils literal">T</tt> is the C type for the base type of the vector, no matter how
+many levels of storage types there are.</p>
 </div>
 <div class="section" id="tuple-types">
 <h2>Tuple Types</h2>
@@ -1626,28 +1647,392 @@ holes.</p>
 </div>
 <div class="section" id="expressions-and-operators">
 <h1>Expressions and Operators</h1>
-<div class="section" id="syntax">
-<h2>Syntax</h2>
+<p>As is the case for many functional language, everything is an
+expression in Plover: there is no distinction between statements and
+expressions.  Expressions are sometimes called <em>statements</em>, partly
+out of habit from using C-like languages, but this is generally
+reserved for expressions which appear in a sequence.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">We will use <tt class="docutils literal">${META}</tt> to denote metasyntactic variables,
+with <tt class="docutils literal">META</tt> varying.  That is, this is not valid Plover
+expression, but instead denotes (as an analogy to shell scripting)
+some other code which should be spliced in this location.</p>
+</div>
+<div class="section" id="parentheses-and-dollar">
+<h2>Parentheses and Dollar</h2>
+</div>
 <div class="section" id="sequencing">
-<h3>Sequencing</h3>
+<h2>Sequencing</h2>
 <p>Unlike C, everything in Plover is an expression with a value (possibly
-<tt class="docutils literal">void</tt>).  Like C, the semicolon is the expression sequencing
-operator.  Plover treats the final expression in a sequence as the
-value of the sequence.  Hence,</p>
+the void value <tt class="docutils literal">()</tt>).  Like C, the semicolon is the expression
+sequencing operator.  Plover treats the final expression in a sequence
+as the value of the sequence.  Hence,</p>
 <pre class="literal-block">
 (a; b; c)
 </pre>
 <p>has value <tt class="docutils literal">c</tt>, after evaluating <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> (in that order).
-Like other operators, parentheses are used to delimit sequences of
+Like for other operators, parentheses are used to delimit sequences of
 expressions (not curly braces, which are instead used to delimit
-implicit function arguments).</p>
+implicit function arguments).  A sequence of expressions is sometimes
+called a <em>block</em>.</p>
+<p>Plover allows an optional dangling semicolon, as in</p>
+<pre class="literal-block">
+(a; b; c;)
+</pre>
+<p>This is in no way functionally different from the previous sequence.</p>
+<p>In a sequence, the results of the non-terminal expressions are
+dropped, so in the following, the result of the first <tt class="docutils literal">A + B</tt> is not
+computed:</p>
+<pre class="literal-block">
+( printf &quot;The quantity A+B is not computed.\n&quot;;
+  A + B;
+  printf &quot;But the result following is if the value of this block is used.\n&quot;;
+  A + B
+)
+</pre>
+</div>
+<div class="section" id="variable-definitions">
+<h2>Variable Definitions</h2>
+<p>There are two ways to define a new variable.  Both are done inside a
+sequence, and the binding extends through the end of the sequence.
+There must be some expression after the binding.</p>
+<p>The first is for defining a new, uninitialized variable.:</p>
+<pre class="literal-block">
+( x :: ${Type};
+  ${expressions} )
+</pre>
+<p>The variable <tt class="docutils literal">x</tt> is declared to be of type <tt class="docutils literal">Type</tt> (with some
+reserved stack space) for the following expressions.</p>
+<p>The second is for defining a new variable with an initial value.:</p>
+<pre class="literal-block">
+( x := ${value};
+  ${expressions} )
+</pre>
+<p>or</p>
+<pre class="literal-block">
+( x :: ${Type} := ${value};
+  ${expressions} )
+</pre>
+<p>The value is evaluated <em>before</em> the variable <tt class="docutils literal">x</tt> is brought into
+scope, and then the result is stored at the location for <tt class="docutils literal">x</tt>.</p>
+<p>The type is optional because Plover is able to infer the type from the
+value.  However, when dealing with integer or floating-point types it
+can be useful to give a type when a specific width is wanted.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">Variables may not shadow other previous bindings.  There is
+no technical need for this other than the observation that
+accidental name shadowing can cause programmer errors.</p>
+</div>
+<p>Another example to demonstrate scoping rules:</p>
+<pre class="literal-block">
+( x := 22;
+  y := x + 1;
+  z := foo (&amp;z); -- this is an error, since z is not bound on the r.h.s.
+  w := ( b := 1;
+         x := 23; -- this is an error, since x shadows x
+         b + 100; );
+  -- now w is 101
+  c := b + 1; -- this is an error since b is no longer bound
+)
+</pre>
+</div>
+<div class="section" id="ranges">
+<h2>Ranges</h2>
+<p>There are two syntaxes for ranges of integers, each useful for
+different circumstances, but in the end are equivalent.</p>
+<p>The expression <tt class="docutils literal">a:b</tt> represents all integers from <tt class="docutils literal">a</tt> to <tt class="docutils literal">b</tt>,
+excluding <tt class="docutils literal">b</tt>, where <tt class="docutils literal"><span class="pre">a..b</span></tt> represents all integers from <tt class="docutils literal">a</tt>
+through <tt class="docutils literal">b</tt>, including <tt class="docutils literal">b</tt>.  The second syntax is especially
+useful when implementing a numerical algorithm from a textbook.</p>
+<p>Step sizes are specified using an extra <tt class="docutils literal">:step</tt>.  For instance,</p>
+<pre class="literal-block">
+0:6     -- is 0,1,2,3,4,5
+0..6    -- is 0,1,2,3,4,5,6
+0:6:2   -- is 0,2,4
+0:5:2   -- is 0,2,4
+0..6:2  -- is 0,2,4,6
+0..5:2  -- is 0,2,4
+5:0:-1  -- is 5,4,3,2,1
+5:-1:-1 -- is 5,4,3,2,1,0
+5..0:-1 -- is 5,4,3,2,1,0
+</pre>
+<p>A benefit of <tt class="docutils literal">:</tt> is that <tt class="docutils literal">0:i</tt> and <tt class="docutils literal">i:n</tt> together cover all
+elements in <tt class="docutils literal">0:n</tt>.  On the other hand, <tt class="docutils literal"><span class="pre">1..i-1</span></tt> and <tt class="docutils literal">i:n</tt>
+together cover all elements <tt class="docutils literal"><span class="pre">1..n</span></tt>.</p>
+<p>The type of a range expression is an integer-valued vector.</p>
+<p>The lower bounds and upper bounds of a range can be omitted if Plover
+is able to infer their values.  If the lower bound is omitted, it is
+<em>always</em> assumed to be <tt class="docutils literal">0</tt>, so <tt class="docutils literal">:6</tt> is the range <tt class="docutils literal">0:6</tt>.  If the
+upper bound is omitted and is being used as an index, then it is
+assumed to be the length that index of the vector.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p>Textbooks tend to use 1-indexing of vectors and matrices,
+where C and Plover use 0-indexing.  (In some ways,
+1-indexing is about <em>naming</em> locations in a vector, where
+0-indexing is about <em>offsets</em> from the beginning of the
+vector, sometimes called a <span class="math">\(\mathbb{Z}\)</span>-torsor).</p>
+<p>A rule of thumb when translating: use 1-indexing and <tt class="docutils literal">..</tt>
+for loop bounds, and then subtract <tt class="docutils literal">1</tt> whenever a vector
+is indexed (as this computes the <em>offset</em> from <tt class="docutils literal">1</tt>).  For
+instance,:</p>
+<pre class="literal-block">
+for i in 1..n -&gt;
+  foo A[i-1];
+</pre>
+<p class="last">Trying to subtract one from the loop bounds is bound to give
+bounds errors.</p>
+</div>
+</div>
+<div class="section" id="tuples">
+<h2>Tuples</h2>
+<p>Tuples are a comma-separated list of values of varying types.  The
+tuple with a single element is, like in Python, designated by using a
+trailing comma.  The following are equivalent tuples:</p>
+<pre class="literal-block">
+1,2
+1,2,
+(1,2)
+(1,2,)
+</pre>
+<p>These are all of type <tt class="docutils literal">(int,int)</tt>.  Notice that parentheses are
+optional, and are only used for grouping.</p>
+<p>One way to understand the tuple operator is as compared to sequences:
+a sequence is like a tuple which drops all but the last element, and a
+tuple is like a sequence which accumulates all elements of the
+sequence.  However, a tuple makes no guarantee on evaluation order.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">Tuples are not yet implemented in full.  They cannot be
+stored, indexed, or passed as arguments.  They are used for
+indexing, however, as in <tt class="docutils literal">A[1,2]</tt>.</p>
+</div>
+</div>
+<div class="section" id="locations">
+<h2>Locations</h2>
+<p>Locations are places which can hold values.  Variables are a basic
+kind of location, but there are other kinds of locations, too.</p>
+<p>The first is from indexing.  Suppose <tt class="docutils literal">A</tt> is some kind of location
+which is vector typed, and <tt class="docutils literal">i</tt> is some integer.  Then <tt class="docutils literal">A[i]</tt> is
+the location of row <tt class="docutils literal">i</tt> of <tt class="docutils literal">A</tt>.  If <tt class="docutils literal">A</tt> is a 1d vector, then
+this is a scalar, but if it is a matrix, then it is the full row.
+There are subtleties which will be discussed in its own section.</p>
+<p>The second is from selecting a structure's field.  If <tt class="docutils literal">o</tt> is of some
+structure type, or a pointer to a structure, or a pointer to a pointer
+to a structure (and so on), then <tt class="docutils literal">o.f</tt> selects the <tt class="docutils literal">f</tt> field from
+<tt class="docutils literal">o</tt>, like in C.  There is no need for <tt class="docutils literal"><span class="pre">-&gt;</span></tt> with pointers since
+Plover can easily figure out when <tt class="docutils literal">o</tt> is a pointer to a ... to a
+struct.</p>
+<p>The third is from dereferencing a pointer.  If <tt class="docutils literal">p</tt> is some pointer,
+then <tt class="docutils literal">*p</tt> is the location <tt class="docutils literal">p</tt> points to.</p>
+<p>The <tt class="docutils literal">&lt;-</tt> operator assigns a value into a location by copying.  For
+scalars and structs, it behaves like C assignment, but for vector
+types it will generate the necessary loops to copy every element.  The
+precise loops will depend on the type of the left-hand side, so, for
+instance, assigning into a diagonal matrix type will only copy out the
+diagonal of the right-hand side.</p>
+<pre class="literal-block">
+A :: double[10];
+A &lt;- vec i in 10 -&gt; i; -- now A is filled with 0 through 9
+A[2] &lt;- 22; -- now A[2] is 22
+B :: Diagonal double[11,11];
+B &lt;- vec i in 11, j in 11 -&gt; i * j; -- now B has i^2 on diagonal
+o :: MyStruct; -- suppose has field f
+o.f &lt;- 100;
+z := &amp;o;
+z.f &lt;- 222;
+</pre>
+<p>Locations do not necessarily take stack space.  They will only take
+stack space if an operator determines it will iterate over the
+elements of a location multiple times.  This behavior can be
+overridden with <tt class="docutils literal">nomemo</tt>.</p>
+<div class="section" id="slices">
+<h3>Slices</h3>
+<p>Vectors can be indexed by integer indices, tuple indices, or vectors
+of integer or tuple indices.  As a running example, suppose <tt class="docutils literal">A</tt> has
+the type <tt class="docutils literal">double[n,m]</tt>.</p>
+<p>First, the rule is that when applying indices to a vector, the
+remaining indices are assumed to be <tt class="docutils literal">:</tt>.  Hence, <tt class="docutils literal">A[1]</tt> is
+<tt class="docutils literal"><span class="pre">A[1,:]</span></tt> (which is <tt class="docutils literal">A[1,0:m]</tt>).</p>
+<p>Second, indexing by an integer does what one would expect: take the
+subvector of elements with that integer for the index.  So <tt class="docutils literal">A[1,2]</tt>
+is the double on row 1, column 2.</p>
+<p>Third, indexing by a tuple indexes by each of the components of the
+tuple.  In fact, <tt class="docutils literal">A[1,2]</tt> is syntactically the same as <tt class="docutils literal"><span class="pre">A[(1,2)]</span></tt>.</p>
+<p>Fourth, indexing by a vector of indices creates a new vector whose
+indices are the indices of that index vector.  The expression
+<tt class="docutils literal">A[1,0:m]</tt> is row 1 of the matrix, with type <tt class="docutils literal">double[m]</tt>.  The
+expression <tt class="docutils literal">A[0:n,1]</tt> is column 1 of the matrix, with type
+<tt class="docutils literal">double[n]</tt>.  The expression <tt class="docutils literal"><span class="pre">A[i..i+1,j..j+1]</span></tt> is a
+<tt class="docutils literal">double[2,2]</tt> consisting of those elements in rows <tt class="docutils literal">i</tt> and <tt class="docutils literal">i+1</tt>
+and columns <tt class="docutils literal">j</tt> and <tt class="docutils literal">j+1</tt>.</p>
+<p>These rules make indexing by range expressions sound, but one can also
+index by an arbitrary vector.  For instance, if <tt class="docutils literal">I</tt> is any
+<tt class="docutils literal">int[5]</tt>, then <tt class="docutils literal">A[I]</tt> is a matrix of type <tt class="docutils literal">double[5,m]</tt> with the
+rows of <tt class="docutils literal">A</tt> indexed by <tt class="docutils literal">I</tt>.  Similarly, <tt class="docutils literal">A[2,I]</tt> is a vector of
+type <tt class="docutils literal">double[5]</tt> of elements on row 2, the elements indexed by
+<tt class="docutils literal">I</tt>.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">Indexing by a vector of tuples is not yet implemented.</p>
+</div>
+<p>Theoretically speaking, integer indices are like <span class="math">\((0,1)\)</span> tensors
+(i.e., no covariant indices and one contravariant index), because for
+a standard basis vector <tt class="docutils literal">E</tt>, <tt class="docutils literal">E[i]</tt> is <span class="math">\(0\)</span> unless <tt class="docutils literal">E</tt> has
+its <span class="math">\(1\)</span> at index <tt class="docutils literal">i</tt>.  Each extra element in a tuple index
+corresponds to an extra contravariant index, and each extra index in
+an indexing vector has corresponds to an extra covariant index for the
+tensor.  With this, <tt class="docutils literal">A[I]</tt> is tensor composition, and <tt class="docutils literal">A[I,J]</tt> is
+tensor composition of <tt class="docutils literal">A</tt> and the tensor product of <tt class="docutils literal">I</tt> with
+<tt class="docutils literal">J</tt>.  Limiting ourselves to only integers lets the tensor
+composition be treated as a settable location (a more general indexing
+scheme is possible, but less useful for general applications).</p>
+</div>
+</div>
+<div class="section" id="type-specification">
+<h2>Type Specification</h2>
+<p>An expression can be asserted to have a particular type using the
+<tt class="docutils literal">::</tt> operator.  The left-hand side is a value, and the right-hand
+side is a type, as in Haskell.</p>
+<p>This operator is also used for declaring the type of a new variable,
+as described above for <tt class="docutils literal">:=</tt>.</p>
+<p>The operator is useful for getting a particular integer or
+floating-point type, as in <tt class="docutils literal">5 :: s8</tt>, but it can also be used to
+ensure the programmer has the same understanding of the intermediate
+types in an expression as Plover does.</p>
+</div>
+<div class="section" id="pointer-operators">
+<h2>Pointer Operators</h2>
+<p>The <tt class="docutils literal">*</tt> operator, as described in the locations section, takes a
+pointer and gets the location which the pointer points to.  It is
+prefix.</p>
+<p>The (pseudo-)inverse of this operator is <tt class="docutils literal">&amp;</tt>, which takes a location
+and gives a pointer which can be later dereferenced by <tt class="docutils literal">*</tt>.</p>
+<p>Since Plover treats scalar types and vector types differently, the
+underlying implementation of <tt class="docutils literal">*</tt> and <tt class="docutils literal">&amp;</tt> is different for
+each. First of all, <tt class="docutils literal">*T</tt> for a scalar type <tt class="docutils literal">T</tt> is implemented as
+<tt class="docutils literal">TT *</tt> in C, where <tt class="docutils literal">T</tt> is the corresponding C type for <tt class="docutils literal">T</tt>.
+When <tt class="docutils literal">T</tt> is a vector type, then the C implementation of <tt class="docutils literal">*T</tt> is
+<tt class="docutils literal">TT</tt>, since <tt class="docutils literal">TT</tt> is already a pointer to the base type (as
+described in the vector types section).  This rule keeps the number of
+indirections down in the compiled C.</p>
+<p>When <tt class="docutils literal">&amp;</tt> is applied to a vector location, Plover will guarantee
+reified stack space for the location.  Plover will not guarantee any
+modifications made to what that pointer points to will be reflected in
+the original location, unless that location is just a reference.  That
+is, <tt class="docutils literal">&amp;A[2:5,2]</tt> will not guarantee reflecting modifications, but
+<tt class="docutils literal">&amp;A</tt> will.</p>
+<p>There is no arithmetic on pointer operators in Plover.  Pointers are
+only useful for passing references to locations.</p>
+</div>
+<div class="section" id="id1">
+<h2>Operators</h2>
+<p>These are listed in roughly decreasing order of precedence.</p>
+<div class="section" id="exponentiation">
+<h3>Exponentiation</h3>
+<p>Written <tt class="docutils literal">x^y</tt>.  This is overloaded to have the following operations:</p>
+<ul>
+<li><p class="first">When <tt class="docutils literal">A</tt> is a matrix, <tt class="docutils literal">A^T</tt> is the transpose of the matrix.
+<tt class="docutils literal">T</tt> is a reserved word used especially for this syntax.  Taking
+the transpose requires no stack space.</p>
+<p>When <tt class="docutils literal">A</tt> is an <span class="math">\(n\)</span>-dimensional vector, then <tt class="docutils literal">A</tt> is
+presumed to be a <span class="math">\(n\times 1\)</span>-dimensional matrix for the
+purposes of transposition.</p>
+</li>
+<li><p class="first">When <tt class="docutils literal">A</tt> is a matrix, <tt class="docutils literal"><span class="pre">A^(-1)</span></tt> is the inverse of the matrix.  If
+the matrix is singular, an error is raised using <tt class="docutils literal">assert</tt> from
+<tt class="docutils literal">assert.h</tt>.  Taking the inverse requires stack space for the
+inverted matrix.</p>
+</li>
+<li><p class="first">When <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> are integers, then a C function <tt class="docutils literal">ipow</tt> is
+called.  The Plover standard prelude gives an implementation.</p>
+</li>
+<li><p class="first">When <tt class="docutils literal">x</tt> is floating-point and <tt class="docutils literal">y</tt> is an integer, then a C
+function <tt class="docutils literal">dipow</tt> is called.</p>
+</li>
+<li><p class="first">When <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> are floating-point numbers, then the C function
+<tt class="docutils literal">pow</tt> from <tt class="docutils literal">math.h</tt> is called.</p>
+</li>
+</ul>
+</div>
+<div class="section" id="multiplication">
+<h3>Multiplication</h3>
+<p>Written <tt class="docutils literal">x*y</tt>.  This is overloaded to have the following operations:</p>
+<ul class="simple">
+<li>When <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> are numerical scalars, then it is simply the product.</li>
+<li>When one is a product and the other is a numerical scalar, then it
+is a component-wise product.</li>
+<li>When <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> are matrices, then it is a matrix product.
+There are special implementations for different storage types for
+<tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt>.  Depending on the dimensions of <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt>,
+the locations will be memoized on the stack.  In particular, if
+<tt class="docutils literal">x</tt> has more than one row, then <tt class="docutils literal">y</tt> will be memoized, and if
+<tt class="docutils literal">y</tt> has more than one column, then <tt class="docutils literal">x</tt> will be memoized. This
+behavior can be overridden with <tt class="docutils literal">nomemo</tt>.</li>
+<li>When <tt class="docutils literal">x</tt> is a matrix and <tt class="docutils literal">y</tt> is a vector, then it is a
+matrix-vector product.  Similar memoization rules apply.  Matrix
+storage types may give a special implementation, for instance when
+<tt class="docutils literal">x</tt> is diagonal.</li>
+<li>When <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> are both vectors, then it is a dot product.</li>
+</ul>
+</div>
+<div class="section" id="element-wise-operations">
+<h3>Element-wise Operations</h3>
+<p>The following are operators which can be applied on pairs of scalars,
+or on vectors of varying sizes.  The vectors must either have the same
+indices, or one of the vectors must be extendable to the other by
+adding new indices to the front.  The operators are:</p>
+<ul class="simple">
+<li><tt class="docutils literal">a + b</tt> is the sum.</li>
+<li><tt class="docutils literal">a - b</tt> is the difference.</li>
+<li><tt class="docutils literal">a .* b</tt> is the Hadamard (pointwise) product.</li>
+<li><tt class="docutils literal">a / b</tt> is the quotient.</li>
+</ul>
+<p>Auto-vectorization lets us compute things like <tt class="docutils literal">1 + v</tt> to add <tt class="docutils literal">1</tt>
+to each element of <tt class="docutils literal">v</tt>, or <tt class="docutils literal">1/v</tt> to take the reciprocal of each
+element.  Or, <tt class="docutils literal">v+A</tt> for <tt class="docutils literal">v</tt> a vector and <tt class="docutils literal">A</tt> a matrix adds <tt class="docutils literal">v</tt>
+to each row of <tt class="docutils literal">A</tt>.</p>
+<p>The Hadamard product lets us compute a vector of the squares of
+elements of a vector by <tt class="docutils literal">v .* v</tt>.</p>
+<p>The following are unary element-wise operations:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">-a</span></tt> is the negation of each element of <tt class="docutils literal">a</tt></li>
+<li><tt class="docutils literal">+a</tt> is each element of <tt class="docutils literal">a</tt>, but constrains <tt class="docutils literal">a</tt> to being of
+numeric vector type.</li>
+</ul>
+</div>
+<div class="section" id="concatenation">
+<h3>Concatenation</h3>
+<p>The <tt class="docutils literal">#</tt> operator takes two vectors and concatenates them along their
+first index.  For two one-indexed vectors of types <tt class="docutils literal">double[n]</tt> and
+<tt class="docutils literal">double[m]</tt>, the result is a <tt class="docutils literal">double[n+m]</tt>.  For two matrices of
+types <tt class="docutils literal">double[l,m]</tt> and <tt class="docutils literal">double[n,m]</tt>, the result is a matrix of
+type <tt class="docutils literal">double[l+n,m]</tt>.</p>
+</div>
+<div class="section" id="inequalities">
+<h3>Inequalities</h3>
+<p>The inequalities <tt class="docutils literal">==</tt>, <tt class="docutils literal">!=</tt>, <tt class="docutils literal">&lt;</tt>, <tt class="docutils literal">&lt;=</tt>, <tt class="docutils literal">&gt;</tt>, <tt class="docutils literal">&gt;=</tt> all
+operate on a pair of scalars.</p>
+</div>
+<div class="section" id="boolean-operators">
+<h3>Boolean Operators</h3>
+<p>The operators <tt class="docutils literal">and</tt> and <tt class="docutils literal">or</tt> each take a pair of booleans and give
+a boolean, where <tt class="docutils literal">and</tt> has higher precedence than <tt class="docutils literal">or</tt>.</p>
+<p>The operator <tt class="docutils literal">not</tt> takes a boolean and gives the boolean negation of
+the boolean.  It is parsed as a function.</p>
+</div>
+</div>
+<div class="section" id="function-application">
+<h2>Function Application</h2>
 </div>
 <div class="section" id="iteration-constructs">
-<h3>Iteration constructs</h3>
+<h2>Iteration Constructs</h2>
 <p>There are three basic iteration constructs in Plover: the <tt class="docutils literal">for</tt>
 loop, the <tt class="docutils literal">vec</tt> constructor, and the <tt class="docutils literal">while</tt> loop</p>
 <div class="section" id="for-loop">
-<h4><tt class="docutils literal">for</tt> loop</h4>
+<h3><tt class="docutils literal">for</tt> loop</h3>
 <p>The <tt class="docutils literal">for</tt> loop has the following basic syntax:</p>
 <pre class="literal-block">
 for ${i} in ${range} -&gt; ${body}
@@ -1679,7 +2064,7 @@ for i in n, j in m -&gt; printf &quot;(i,j) = (%d,%d)\n&quot; i j;
 result of <tt class="docutils literal">for</tt> is always void.</p>
 </div>
 <div class="section" id="vec-constructor">
-<h4><tt class="docutils literal">vec</tt> constructor</h4>
+<h3><tt class="docutils literal">vec</tt> constructor</h3>
 <p>The <tt class="docutils literal">vec</tt> constructor has the same syntax as <tt class="docutils literal">for</tt>, and it
 accumulates the values of the iteration as a location.  No guarantee
 is made on the number of times any of the expressions in a <tt class="docutils literal">vec</tt>
@@ -1692,7 +2077,7 @@ I := vec i in n, j in n -&gt; if i == j then 1 else 0;
 </pre>
 </div>
 <div class="section" id="while-loop">
-<h4><tt class="docutils literal">while</tt> loop</h4>
+<h3><tt class="docutils literal">while</tt> loop</h3>
 <p>The <tt class="docutils literal">while</tt> loop is for iterating while a boolean condition remains
 true.  There are two forms:</p>
 <pre class="literal-block">
@@ -1744,7 +2129,7 @@ rand_normal() :: double
 </div>
 </div>
 <div class="section" id="value-and-type-holes">
-<h3>Value and type holes</h3>
+<h2>Value and type holes</h2>
 <p>The Plover language supports introducing holes into a program which,
 depending on context, may in some circumstances be filled during
 normal typechecking.  This feature allows a programmer some
@@ -1772,7 +2157,6 @@ For instance,</p>
 B :: __  := (G^T * G :: __)^(-1) * G^T;
 </pre>
 <p>to get the types of <tt class="docutils literal">B</tt> and of <tt class="docutils literal">G^T * G</tt>.</p>
-</div>
 </div>
 </div>
 <div class="section" id="top-level-definitions">
@@ -1830,6 +2214,16 @@ use_square (z :: double) :: double :=
 </pre>
 <p>A good application would be generating code for specialized matrix
 inverses.</p>
+</li>
+<li><p class="first">Delimited location pointers.  Since <tt class="docutils literal">&amp;</tt> does not guarantee
+reflecting changes back to a Plover location, there is a proposal to
+introduce a block-delimited pointer constructor:</p>
+<pre class="literal-block">
+with_pointer p from A[2:5,2] -&gt; (
+  use_pointer p;
+);
+-- here changes to *p are reflected in A
+</pre>
 </li>
 </ul>
 </div>

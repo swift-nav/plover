@@ -305,6 +305,10 @@ appropriately, since the underlying storage is merely an
 implementation detail.  For instance, the effective type of the vector
 in the note is ``double[m,m,n,n,o,p]`` (i.e., a 6-index tensor).
 
+The implementation in C for a vector type is simply ``T *``, where
+``T`` is the C type for the base type of the vector, no matter how
+many levels of storage types there are.
+
 Tuple Types
 -----------
 
@@ -355,35 +359,428 @@ holes.
 Expressions and Operators
 =========================
 
-Syntax
-------
+As is the case for many functional language, everything is an
+expression in Plover: there is no distinction between statements and
+expressions.  Expressions are sometimes called *statements*, partly
+out of habit from using C-like languages, but this is generally
+reserved for expressions which appear in a sequence.
 
+.. note:: We will use ``${META}`` to denote metasyntactic variables,
+   with ``META`` varying.  That is, this is not valid Plover
+   expression, but instead denotes (as an analogy to shell scripting)
+   some other code which should be spliced in this location.
+
+Parentheses and Dollar
+----------------------
+   
 Sequencing
-~~~~~~~~~~
+----------
 
 Unlike C, everything in Plover is an expression with a value (possibly
-``void``).  Like C, the semicolon is the expression sequencing
-operator.  Plover treats the final expression in a sequence as the
-value of the sequence.  Hence,
-::
+the void value ``()``).  Like C, the semicolon is the expression
+sequencing operator.  Plover treats the final expression in a sequence
+as the value of the sequence.  Hence, ::
 
    (a; b; c)
 
 has value ``c``, after evaluating ``a`` and ``b`` (in that order).
-Like other operators, parentheses are used to delimit sequences of
+Like for other operators, parentheses are used to delimit sequences of
 expressions (not curly braces, which are instead used to delimit
-implicit function arguments).
+implicit function arguments).  A sequence of expressions is sometimes
+called a *block*.
+
+Plover allows an optional dangling semicolon, as in ::
+
+  (a; b; c;)
+
+This is in no way functionally different from the previous sequence.
+
+In a sequence, the results of the non-terminal expressions are
+dropped, so in the following, the result of the first ``A + B`` is not
+computed: ::
+
+   ( printf "The quantity A+B is not computed.\n";
+     A + B;
+     printf "But the result following is if the value of this block is used.\n";
+     A + B
+   )
 
 
-Iteration constructs
-~~~~~~~~~~~~~~~~~~~~
+Variable Definitions
+--------------------
 
+There are two ways to define a new variable.  Both are done inside a
+sequence, and the binding extends through the end of the sequence.
+There must be some expression after the binding.
+
+The first is for defining a new, uninitialized variable.::
+
+  ( x :: ${Type};
+    ${expressions} )
+
+The variable ``x`` is declared to be of type ``Type`` (with some
+reserved stack space) for the following expressions.
+
+The second is for defining a new variable with an initial value.::
+
+  ( x := ${value};
+    ${expressions} )
+
+or ::
+
+  ( x :: ${Type} := ${value};
+    ${expressions} )
+
+The value is evaluated *before* the variable ``x`` is brought into
+scope, and then the result is stored at the location for ``x``.
+
+The type is optional because Plover is able to infer the type from the
+value.  However, when dealing with integer or floating-point types it
+can be useful to give a type when a specific width is wanted.
+
+.. note:: Variables may not shadow other previous bindings.  There is
+          no technical need for this other than the observation that
+          accidental name shadowing can cause programmer errors.
+
+Another example to demonstrate scoping rules: ::
+
+  ( x := 22;
+    y := x + 1;
+    z := foo (&z); -- this is an error, since z is not bound on the r.h.s.
+    w := ( b := 1;
+           x := 23; -- this is an error, since x shadows x
+           b + 100; );
+    -- now w is 101
+    c := b + 1; -- this is an error since b is no longer bound
+  )
+
+Ranges
+------
+
+There are two syntaxes for ranges of integers, each useful for
+different circumstances, but in the end are equivalent.
+
+The expression ``a:b`` represents all integers from ``a`` to ``b``,
+excluding ``b``, where ``a..b`` represents all integers from ``a``
+through ``b``, including ``b``.  The second syntax is especially
+useful when implementing a numerical algorithm from a textbook.
+
+Step sizes are specified using an extra ``:step``.  For instance,
+
+::
+
+   0:6     -- is 0,1,2,3,4,5
+   0..6    -- is 0,1,2,3,4,5,6
+   0:6:2   -- is 0,2,4
+   0:5:2   -- is 0,2,4
+   0..6:2  -- is 0,2,4,6
+   0..5:2  -- is 0,2,4
+   5:0:-1  -- is 5,4,3,2,1
+   5:-1:-1 -- is 5,4,3,2,1,0
+   5..0:-1 -- is 5,4,3,2,1,0
+
+A benefit of ``:`` is that ``0:i`` and ``i:n`` together cover all
+elements in ``0:n``.  On the other hand, ``1..i-1`` and ``i:n``
+together cover all elements ``1..n``.
+
+The type of a range expression is an integer-valued vector.
+
+The lower bounds and upper bounds of a range can be omitted if Plover
+is able to infer their values.  If the lower bound is omitted, it is
+*always* assumed to be ``0``, so ``:6`` is the range ``0:6``.  If the
+upper bound is omitted and is being used as an index, then it is
+assumed to be the length that index of the vector.
+
+.. note:: Textbooks tend to use 1-indexing of vectors and matrices,
+          where C and Plover use 0-indexing.  (In some ways,
+          1-indexing is about *naming* locations in a vector, where
+          0-indexing is about *offsets* from the beginning of the
+          vector, sometimes called a :math:`\mathbb{Z}`-torsor).
+
+          A rule of thumb when translating: use 1-indexing and ``..``
+          for loop bounds, and then subtract ``1`` whenever a vector
+          is indexed (as this computes the *offset* from ``1``).  For
+          instance,::
+
+            for i in 1..n ->
+              foo A[i-1];
+
+          Trying to subtract one from the loop bounds is bound to give
+          bounds errors.
+
+Tuples
+------
+
+Tuples are a comma-separated list of values of varying types.  The
+tuple with a single element is, like in Python, designated by using a
+trailing comma.  The following are equivalent tuples: ::
+
+  1,2
+  1,2,
+  (1,2)
+  (1,2,)
+
+These are all of type ``(int,int)``.  Notice that parentheses are
+optional, and are only used for grouping.
+
+One way to understand the tuple operator is as compared to sequences:
+a sequence is like a tuple which drops all but the last element, and a
+tuple is like a sequence which accumulates all elements of the
+sequence.  However, a tuple makes no guarantee on evaluation order.
+
+.. note:: Tuples are not yet implemented in full.  They cannot be
+          stored, indexed, or passed as arguments.  They are used for
+          indexing, however, as in ``A[1,2]``.
+
+Locations
+---------
+
+Locations are places which can hold values.  Variables are a basic
+kind of location, but there are other kinds of locations, too.
+
+The first is from indexing.  Suppose ``A`` is some kind of location
+which is vector typed, and ``i`` is some integer.  Then ``A[i]`` is
+the location of row ``i`` of ``A``.  If ``A`` is a 1d vector, then
+this is a scalar, but if it is a matrix, then it is the full row.
+There are subtleties which will be discussed in its own section.
+
+The second is from selecting a structure's field.  If ``o`` is of some
+structure type, or a pointer to a structure, or a pointer to a pointer
+to a structure (and so on), then ``o.f`` selects the ``f`` field from
+``o``, like in C.  There is no need for ``->`` with pointers since
+Plover can easily figure out when ``o`` is a pointer to a ... to a
+struct.
+
+The third is from dereferencing a pointer.  If ``p`` is some pointer,
+then ``*p`` is the location ``p`` points to.
+
+The ``<-`` operator assigns a value into a location by copying.  For
+scalars and structs, it behaves like C assignment, but for vector
+types it will generate the necessary loops to copy every element.  The
+precise loops will depend on the type of the left-hand side, so, for
+instance, assigning into a diagonal matrix type will only copy out the
+diagonal of the right-hand side.
+
+::
+
+   A :: double[10];
+   A <- vec i in 10 -> i; -- now A is filled with 0 through 9
+   A[2] <- 22; -- now A[2] is 22
+   B :: Diagonal double[11,11];
+   B <- vec i in 11, j in 11 -> i * j; -- now B has i^2 on diagonal
+   o :: MyStruct; -- suppose has field f
+   o.f <- 100;
+   z := &o;
+   z.f <- 222;
+
+Locations do not necessarily take stack space.  They will only take
+stack space if an operator determines it will iterate over the
+elements of a location multiple times.  This behavior can be
+overridden with ``nomemo``.
+
+Slices
+~~~~~~
+
+Vectors can be indexed by integer indices, tuple indices, or vectors
+of integer or tuple indices.  As a running example, suppose ``A`` has
+the type ``double[n,m]``.
+
+First, the rule is that when applying indices to a vector, the
+remaining indices are assumed to be ``:``.  Hence, ``A[1]`` is
+``A[1,:]`` (which is ``A[1,0:m]``).
+
+Second, indexing by an integer does what one would expect: take the
+subvector of elements with that integer for the index.  So ``A[1,2]``
+is the double on row 1, column 2.
+
+Third, indexing by a tuple indexes by each of the components of the
+tuple.  In fact, ``A[1,2]`` is syntactically the same as ``A[(1,2)]``.
+
+Fourth, indexing by a vector of indices creates a new vector whose
+indices are the indices of that index vector.  The expression
+``A[1,0:m]`` is row 1 of the matrix, with type ``double[m]``.  The
+expression ``A[0:n,1]`` is column 1 of the matrix, with type
+``double[n]``.  The expression ``A[i..i+1,j..j+1]`` is a
+``double[2,2]`` consisting of those elements in rows ``i`` and ``i+1``
+and columns ``j`` and ``j+1``.
+
+These rules make indexing by range expressions sound, but one can also
+index by an arbitrary vector.  For instance, if ``I`` is any
+``int[5]``, then ``A[I]`` is a matrix of type ``double[5,m]`` with the
+rows of ``A`` indexed by ``I``.  Similarly, ``A[2,I]`` is a vector of
+type ``double[5]`` of elements on row 2, the elements indexed by
+``I``.
+
+.. note::  Indexing by a vector of tuples is not yet implemented.
+
+Theoretically speaking, integer indices are like :math:`(0,1)` tensors
+(i.e., no covariant indices and one contravariant index), because for
+a standard basis vector ``E``, ``E[i]`` is :math:`0` unless ``E`` has
+its :math:`1` at index ``i``.  Each extra element in a tuple index
+corresponds to an extra contravariant index, and each extra index in
+an indexing vector has corresponds to an extra covariant index for the
+tensor.  With this, ``A[I]`` is tensor composition, and ``A[I,J]`` is
+tensor composition of ``A`` and the tensor product of ``I`` with
+``J``.  Limiting ourselves to only integers lets the tensor
+composition be treated as a settable location (a more general indexing
+scheme is possible, but less useful for general applications).
+
+
+Type Specification
+------------------
+
+An expression can be asserted to have a particular type using the
+``::`` operator.  The left-hand side is a value, and the right-hand
+side is a type, as in Haskell.
+
+This operator is also used for declaring the type of a new variable,
+as described above for ``:=``.
+
+The operator is useful for getting a particular integer or
+floating-point type, as in ``5 :: s8``, but it can also be used to
+ensure the programmer has the same understanding of the intermediate
+types in an expression as Plover does.
+
+Pointer Operators
+-----------------
+
+The ``*`` operator, as described in the locations section, takes a
+pointer and gets the location which the pointer points to.  It is
+prefix.
+
+The (pseudo-)inverse of this operator is ``&``, which takes a location
+and gives a pointer which can be later dereferenced by ``*``.
+
+Since Plover treats scalar types and vector types differently, the
+underlying implementation of ``*`` and ``&`` is different for
+each. First of all, ``*T`` for a scalar type ``T`` is implemented as
+``TT *`` in C, where ``T`` is the corresponding C type for ``T``.
+When ``T`` is a vector type, then the C implementation of ``*T`` is
+``TT``, since ``TT`` is already a pointer to the base type (as
+described in the vector types section).  This rule keeps the number of
+indirections down in the compiled C.
+
+When ``&`` is applied to a vector location, Plover will guarantee
+reified stack space for the location.  Plover will not guarantee any
+modifications made to what that pointer points to will be reflected in
+the original location, unless that location is just a reference.  That
+is, ``&A[2:5,2]`` will not guarantee reflecting modifications, but
+``&A`` will.
+
+There is no arithmetic on pointer operators in Plover.  Pointers are
+only useful for passing references to locations.
+
+Operators
+---------
+
+These are listed in roughly decreasing order of precedence.
+
+Exponentiation
+~~~~~~~~~~~~~~
+
+Written ``x^y``.  This is overloaded to have the following operations:
+
+- When ``A`` is a matrix, ``A^T`` is the transpose of the matrix.
+  ``T`` is a reserved word used especially for this syntax.  Taking
+  the transpose requires no stack space.
+
+  When ``A`` is an :math:`n`-dimensional vector, then ``A`` is
+  presumed to be a :math:`n\times 1`-dimensional matrix for the
+  purposes of transposition.
+- When ``A`` is a matrix, ``A^(-1)`` is the inverse of the matrix.  If
+  the matrix is singular, an error is raised using ``assert`` from
+  ``assert.h``.  Taking the inverse requires stack space for the
+  inverted matrix.
+- When ``x`` and ``y`` are integers, then a C function ``ipow`` is
+  called.  The Plover standard prelude gives an implementation.
+- When ``x`` is floating-point and ``y`` is an integer, then a C
+  function ``dipow`` is called.
+- When ``x`` and ``y`` are floating-point numbers, then the C function
+  ``pow`` from ``math.h`` is called.
+
+Multiplication
+~~~~~~~~~~~~~~
+
+Written ``x*y``.  This is overloaded to have the following operations:
+
+- When ``x`` and ``y`` are numerical scalars, then it is simply the product.
+- When one is a product and the other is a numerical scalar, then it
+  is a component-wise product.
+- When ``x`` and ``y`` are matrices, then it is a matrix product.
+  There are special implementations for different storage types for
+  ``x`` and ``y``.  Depending on the dimensions of ``x`` and ``y``,
+  the locations will be memoized on the stack.  In particular, if
+  ``x`` has more than one row, then ``y`` will be memoized, and if
+  ``y`` has more than one column, then ``x`` will be memoized. This
+  behavior can be overridden with ``nomemo``.
+- When ``x`` is a matrix and ``y`` is a vector, then it is a
+  matrix-vector product.  Similar memoization rules apply.  Matrix
+  storage types may give a special implementation, for instance when
+  ``x`` is diagonal.
+- When ``x`` and ``y`` are both vectors, then it is a dot product.
+
+Element-wise Operations
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The following are operators which can be applied on pairs of scalars,
+or on vectors of varying sizes.  The vectors must either have the same
+indices, or one of the vectors must be extendable to the other by
+adding new indices to the front.  The operators are:
+
+- ``a + b`` is the sum.
+- ``a - b`` is the difference.
+- ``a .* b`` is the Hadamard (pointwise) product.
+- ``a / b`` is the quotient.
+
+Auto-vectorization lets us compute things like ``1 + v`` to add ``1``
+to each element of ``v``, or ``1/v`` to take the reciprocal of each
+element.  Or, ``v+A`` for ``v`` a vector and ``A`` a matrix adds ``v``
+to each row of ``A``.
+
+The Hadamard product lets us compute a vector of the squares of
+elements of a vector by ``v .* v``.
+
+The following are unary element-wise operations:
+
+- ``-a`` is the negation of each element of ``a``
+- ``+a`` is each element of ``a``, but constrains ``a`` to being of
+  numeric vector type.
+
+Concatenation
+~~~~~~~~~~~~~
+
+The ``#`` operator takes two vectors and concatenates them along their
+first index.  For two one-indexed vectors of types ``double[n]`` and
+``double[m]``, the result is a ``double[n+m]``.  For two matrices of
+types ``double[l,m]`` and ``double[n,m]``, the result is a matrix of
+type ``double[l+n,m]``.
+
+Inequalities
+~~~~~~~~~~~~
+
+The inequalities ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=`` all
+operate on a pair of scalars.
+
+Boolean Operators
+~~~~~~~~~~~~~~~~~
+
+The operators ``and`` and ``or`` each take a pair of booleans and give
+a boolean, where ``and`` has higher precedence than ``or``.
+
+The operator ``not`` takes a boolean and gives the boolean negation of
+the boolean.  It is parsed as a function.
+
+Function Application
+--------------------
+
+Iteration Constructs
+--------------------
 
 There are three basic iteration constructs in Plover: the ``for``
 loop, the ``vec`` constructor, and the ``while`` loop
 
 ``for`` loop
-++++++++++++
+~~~~~~~~~~~~
 
 The ``for`` loop has the following basic syntax:
 ::
@@ -420,7 +817,7 @@ The value of the expressions in ``for`` can be of any type, but the
 result of ``for`` is always void.
 
 ``vec`` constructor
-+++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~
 
 The ``vec`` constructor has the same syntax as ``for``, and it
 accumulates the values of the iteration as a location.  No guarantee
@@ -435,7 +832,7 @@ This produces an identity matrix named `I`:
    I := vec i in n, j in n -> if i == j then 1 else 0;
 
 ``while`` loop
-++++++++++++++
+~~~~~~~~~~~~~~
 
 The ``while`` loop is for iterating while a boolean condition remains
 true.  There are two forms:
@@ -490,7 +887,7 @@ Box-Muller transform for normally distributed random numbers: ::
 
 
 Value and type holes
-~~~~~~~~~~~~~~~~~~~~
+--------------------
 
 The Plover language supports introducing holes into a program which,
 depending on context, may in some circumstances be filled during
@@ -582,3 +979,12 @@ been implemented.
 
   A good application would be generating code for specialized matrix
   inverses.
+
+- Delimited location pointers.  Since ``&`` does not guarantee
+  reflecting changes back to a Plover location, there is a proposal to
+  introduce a block-delimited pointer constructor: ::
+
+    with_pointer p from A[2:5,2] -> (
+      use_pointer p;
+    );
+    -- here changes to *p are reflected in A
