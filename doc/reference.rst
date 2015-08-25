@@ -771,13 +771,16 @@ Inequalities
 ~~~~~~~~~~~~
 
 The inequalities ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=`` all
-operate on a pair of scalars.
+operate on a pair of (vectors of) scalars and vectorize by the same
+rules as the elementwise arithmetic operators, though the resulting
+base type is ``bool``.
 
 Boolean Operators
 ~~~~~~~~~~~~~~~~~
 
-The operators ``and`` and ``or`` each take a pair of booleans and give
-a boolean, where ``and`` has higher precedence than ``or``.
+The operators ``and`` and ``or`` each take a pair of (vectors of)
+booleans and give a boolean, where ``and`` has higher precedence than
+``or``.  These follow the same elementwise vectorization rules.
 
 The operator ``not`` takes a boolean or vector of booleans and gives
 the boolean negation of the boolean(s).  It is parsed as a function,
