@@ -1322,24 +1322,27 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 <li><a class="reference internal" href="#boolean-operators" id="id42">Boolean Operators</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#function-application" id="id43">Function Application</a></li>
-<li><a class="reference internal" href="#iteration-constructs" id="id44">Iteration Constructs</a><ul>
-<li><a class="reference internal" href="#for-loop" id="id45"><tt class="docutils literal">for</tt> loop</a></li>
-<li><a class="reference internal" href="#vec-constructor" id="id46"><tt class="docutils literal">vec</tt> constructor</a></li>
-<li><a class="reference internal" href="#while-loop" id="id47"><tt class="docutils literal">while</tt> loop</a></li>
+<li><a class="reference internal" href="#function-application" id="id43">Function Application</a><ul>
+<li><a class="reference internal" href="#argument-directions" id="id44">Argument Directions</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#value-and-type-holes" id="id48">Value and type holes</a></li>
+<li><a class="reference internal" href="#iteration-constructs" id="id45">Iteration Constructs</a><ul>
+<li><a class="reference internal" href="#for-loop" id="id46"><tt class="docutils literal">for</tt> loop</a></li>
+<li><a class="reference internal" href="#vec-constructor" id="id47"><tt class="docutils literal">vec</tt> constructor</a></li>
+<li><a class="reference internal" href="#while-loop" id="id48"><tt class="docutils literal">while</tt> loop</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#top-level-definitions" id="id49">Top-level Definitions</a><ul>
-<li><a class="reference internal" href="#functions" id="id50">Functions</a></li>
-<li><a class="reference internal" href="#structs" id="id51">Structs</a></li>
-<li><a class="reference internal" href="#typedefs" id="id52">Typedefs</a></li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id49">Value and type holes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id53">Modules</a></li>
-<li><a class="reference internal" href="#language-proposals" id="id54">Language Proposals</a></li>
+<li><a class="reference internal" href="#top-level-definitions" id="id50">Top-level Definitions</a><ul>
+<li><a class="reference internal" href="#functions" id="id51">Functions</a></li>
+<li><a class="reference internal" href="#structs" id="id52">Structs</a></li>
+<li><a class="reference internal" href="#typedefs" id="id53">Typedefs</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#modules" id="id54">Modules</a></li>
+<li><a class="reference internal" href="#language-proposals" id="id55">Language Proposals</a></li>
 </ul>
 </div>
 </div>
@@ -1884,7 +1887,7 @@ masks the vector by treating all entries corresponding to <tt class="docutils li
 values as the default value for the type (for instance, <tt class="docutils literal">0</tt> for
 integers and floats).  The boolean indexing vector and the indexed
 vector must match on each dimension, though the indexing vector may
-have fewer dimensions than the indexed vector.  As an example,:</p>
+have fewer dimensions than the indexed vector.  As an example,</p>
 <pre class="literal-block">
 A[A &lt; 0] &lt;- 0;
 </pre>
@@ -2032,12 +2035,77 @@ operate on a pair of scalars.</p>
 <h3>Boolean Operators</h3>
 <p>The operators <tt class="docutils literal">and</tt> and <tt class="docutils literal">or</tt> each take a pair of booleans and give
 a boolean, where <tt class="docutils literal">and</tt> has higher precedence than <tt class="docutils literal">or</tt>.</p>
-<p>The operator <tt class="docutils literal">not</tt> takes a boolean and gives the boolean negation of
-the boolean.  It is parsed as a function.</p>
+<p>The operator <tt class="docutils literal">not</tt> takes a boolean or vector of booleans and gives
+the boolean negation of the boolean(s).  It is parsed as a function,
+and follows the same vectorization rules as unary arithmetic.</p>
 </div>
 </div>
 <div class="section" id="function-application">
 <h2>Function Application</h2>
+<p>A function call is a function name followed by each of its arguments.
+They are passed by juxtaposition, like in Haskell.  Implicit arguments
+are optional if Plover can determine what they should be, but required
+arguments must always be supplied.  A basic example is calling
+<tt class="docutils literal">sqrt</tt> from prelude:</p>
+<pre class="literal-block">
+sqrt 2
+</pre>
+<p>The precedence of function application is higher than any other
+operator, so the following are equivalent:</p>
+<pre class="literal-block">
+1 + sqrt 2 + 3
+1 + (sqrt 2) + 3
+</pre>
+<p>Implicit arguments, like in the function declaration, are delimited by
+braces.  Suppose <tt class="docutils literal">foo</tt> is declared as</p>
+<pre class="literal-block">
+foo {n} (A :: double[n]) :: double;
+</pre>
+<p>and suppose <tt class="docutils literal">B</tt> is a <tt class="docutils literal">double[m]</tt>.  Then the following are equivalent:</p>
+<pre class="literal-block">
+foo B
+foo {m} B
+</pre>
+<div class="section" id="argument-directions">
+<h3>Argument Directions</h3>
+<p>Function arguments come in three flavors, <tt class="docutils literal">in</tt>, <tt class="docutils literal">out</tt>, and
+<tt class="docutils literal">inout</tt>.  By default, all arguments are <tt class="docutils literal">in</tt>, and so the above
+could equivalently be written as</p>
+<pre class="literal-block">
+foo (in B)
+foo {m} (in B)
+</pre>
+<p>The direction for the argument must match the declared direction for
+the corresponding parameter of the function.</p>
+<ul class="simple">
+<li><tt class="docutils literal">in</tt> passes an argument by value.  The receiver is unable to
+change the value of any location passed in this way.  In the C
+interface for the compiled function, scalar types are passed by the
+standard C convention, and vector types are passed as constant
+pointers.  Plover will ensure that <em>any</em> location can be passed,
+including non-contiguous vector locations such as <tt class="docutils literal"><span class="pre">A[2,:]</span></tt>, by
+copying the elements of the location to fresh stack space.</li>
+<li><tt class="docutils literal">inout</tt> passes an location by name.  This means that any location
+passed in this way, if changed by the receiver, will have those
+changes reflected in the location by the time the called function
+returns.  In the C interface for the function, scalar references are
+given pointer types, and vector types are <em>non</em>-constant pointers.
+Plover will copy non-contiguous regions to fresh stack space before
+the call, and copy the region back into the original location after
+the call.</li>
+<li><tt class="docutils literal">out</tt> is like <tt class="docutils literal">inout</tt>, but the receiver may not use the value of
+the location, since the location is allowed to be uninitialized.</li>
+</ul>
+<p>For example, the matrix inverse function in the prelude can be called
+directly rather than through <tt class="docutils literal"><span class="pre">^(-1)</span></tt> by</p>
+<pre class="literal-block">
+matrix_inverse {n} A (out B) -- returns -1 if A is singular
+</pre>
+<p>Of course, the <tt class="docutils literal">{n}</tt> is optional.</p>
+<p>C interface note: when a function returns a vector, it is actually
+represented as an <tt class="docutils literal">out</tt> variable, and the caller must allocate stack
+space for the returned vector.</p>
+</div>
 </div>
 <div class="section" id="iteration-constructs">
 <h2>Iteration Constructs</h2>

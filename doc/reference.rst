@@ -618,7 +618,7 @@ masks the vector by treating all entries corresponding to ``False``
 values as the default value for the type (for instance, ``0`` for
 integers and floats).  The boolean indexing vector and the indexed
 vector must match on each dimension, though the indexing vector may
-have fewer dimensions than the indexed vector.  As an example,::
+have fewer dimensions than the indexed vector.  As an example, ::
 
   A[A < 0] <- 0;
 
@@ -779,11 +779,80 @@ Boolean Operators
 The operators ``and`` and ``or`` each take a pair of booleans and give
 a boolean, where ``and`` has higher precedence than ``or``.
 
-The operator ``not`` takes a boolean and gives the boolean negation of
-the boolean.  It is parsed as a function.
+The operator ``not`` takes a boolean or vector of booleans and gives
+the boolean negation of the boolean(s).  It is parsed as a function,
+and follows the same vectorization rules as unary arithmetic.
 
 Function Application
 --------------------
+
+A function call is a function name followed by each of its arguments.
+They are passed by juxtaposition, like in Haskell.  Implicit arguments
+are optional if Plover can determine what they should be, but required
+arguments must always be supplied.  A basic example is calling
+``sqrt`` from prelude: ::
+
+  sqrt 2
+
+The precedence of function application is higher than any other
+operator, so the following are equivalent: ::
+
+  1 + sqrt 2 + 3
+  1 + (sqrt 2) + 3
+
+Implicit arguments, like in the function declaration, are delimited by
+braces.  Suppose ``foo`` is declared as ::
+
+  foo {n} (A :: double[n]) :: double;
+
+and suppose ``B`` is a ``double[m]``.  Then the following are equivalent: ::
+
+  foo B
+  foo {m} B
+
+
+Argument Directions
+~~~~~~~~~~~~~~~~~~~
+
+Function arguments come in three flavors, ``in``, ``out``, and
+``inout``.  By default, all arguments are ``in``, and so the above
+could equivalently be written as ::
+
+  foo (in B)
+  foo {m} (in B)
+
+The direction for the argument must match the declared direction for
+the corresponding parameter of the function.
+
+- ``in`` passes an argument by value.  The receiver is unable to
+  change the value of any location passed in this way.  In the C
+  interface for the compiled function, scalar types are passed by the
+  standard C convention, and vector types are passed as constant
+  pointers.  Plover will ensure that *any* location can be passed,
+  including non-contiguous vector locations such as ``A[2,:]``, by
+  copying the elements of the location to fresh stack space.
+- ``inout`` passes an location by name.  This means that any location
+  passed in this way, if changed by the receiver, will have those
+  changes reflected in the location by the time the called function
+  returns.  In the C interface for the function, scalar references are
+  given pointer types, and vector types are *non*-constant pointers.
+  Plover will copy non-contiguous regions to fresh stack space before
+  the call, and copy the region back into the original location after
+  the call.
+- ``out`` is like ``inout``, but the receiver may not use the value of
+  the location, since the location is allowed to be uninitialized.
+
+For example, the matrix inverse function in the prelude can be called
+directly rather than through ``^(-1)`` by ::
+
+  matrix_inverse {n} A (out B) -- returns -1 if A is singular
+
+Of course, the ``{n}`` is optional.
+
+C interface note: when a function returns a vector, it is actually
+represented as an ``out`` variable, and the caller must allocate stack
+space for the returned vector.
+
 
 Iteration Constructs
 --------------------
