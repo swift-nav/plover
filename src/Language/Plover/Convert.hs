@@ -77,6 +77,7 @@ makeExpr exp@(PExpr pos e') = case e' of
           tr Mul = T.Mul
           tr Hadamard = T.Hadamard
           tr Div = T.Div
+          tr Mod = T.Mod
           tr Pow = T.Pow
           tr Concat = T.Concat
           tr Type = error "Not translatable here"

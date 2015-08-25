@@ -28,7 +28,7 @@ languageDef =
            , Token.identLetter = alphaNum <|> oneOf "_'"
            , Token.opStart = mzero -- Token.opLetter languageDef   -- No opStart because all operators are reserved
            , Token.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
-           , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", ".*", "&",
+           , Token.reservedOpNames = ["::", ":", "..", "<-", "->", ":=", "~", "*", "-", "+", "/", "%", ".*", "&",
                                       "#", ".", "^", "$", "==", "!=", "<", "<=", ">", ">="]
            , Token.reservedNames = [
              "module", "import", "extern", "static", "inline", "__C__",
@@ -203,6 +203,7 @@ operators = buildExpressionParser ops application
           , [ Infix (bin Pow (reservedOp "^")) AssocRight ] -- TODO how to deal with -x^y and x^-y both properly
           , [ Infix (bin Mul (reservedOp "*")) AssocLeft
             , Infix (bin Div (reservedOp "/")) AssocLeft
+            , Infix (bin Mod (reservedOp "%")) AssocLeft
             , Infix (bin Hadamard (reservedOp ".*")) AssocLeft
             ]
           , [ Prefix (un Neg (reservedOp "-"))

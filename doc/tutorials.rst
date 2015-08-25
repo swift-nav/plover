@@ -212,6 +212,16 @@ operator.  The body creates a new vector of length ``N`` with ``i``
 iterating over that range, computing the cross-correlation for each
 offset ``i``.
 
+.. note::
+   The cross-correlation function can also be written as::
+
+     cross_cor {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+       vec i in N -> f * g[(i:i+N) % N];
+
+   since arithmetic operators coerce their operands into vectors of
+   compatible size and then vectorize the operation elementwise.
+
+
 Auto-correlation is the cross-correlation of a vector with itself.
 Given the above definition, we may write
 ::

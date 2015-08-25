@@ -1423,8 +1423,7 @@ compileStat (Unary pos ToVoid a) = comp
 -- -- binary
 
 compileStat v@(Binary _ op a b)
-  | op `elem` [Add, Sub, Hadamard, Div] = wrapCompiled $
-                                          compileVectorized vty <$> lifted aty a <*> lifted bty b
+  | op `elem` ops = wrapCompiled $ compileVectorized vty <$> lifted aty a <*> lifted bty b
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
 
@@ -1440,11 +1439,21 @@ compileStat v@(Binary _ op a b)
                 bnds = take (length vbnds - length xbnds) vbnds
 
 
+        ops = [Add, Sub, Hadamard, Div, Mod, EqOp, NEqOp, LTOp, LTEOp, And, Or]
         opExp a b = case op of
                      Add -> [cexp| $a + $b |]
                      Sub -> [cexp| $a - $b |]
                      Hadamard -> [cexp| $a * $b |]
                      Div -> [cexp| $a / $b |]
+                     Mod -> case vecBaseType vty of
+                       FloatType {} -> [cexp| fmod($a, $b) |]
+                       IntType {} -> [cexp| $a % $b |]
+                     EqOp ->  [cexp| $a == $b |]
+                     NEqOp ->  [cexp| $a != $b |]
+                     LTOp ->  [cexp| $a < $b |]
+                     LTEOp -> [cexp| $a <= $b |]
+                     And -> [cexp| $a && $b |]
+                     Or -> [cexp| $a || $b |]
 
         compileVectorized (VecType _ [] vty) aloc bloc = compileVectorized vty aloc bloc
         compileVectorized vty@(VecType _ (bnd:bnds) ty) aloc bloc = defaultAsRValue $ return loc
@@ -1639,21 +1648,6 @@ compileStat v@(Binary pos Concat v1 v2) = comp
         (VecType _ (bnd1:bnds1) bty1) = normalizeTypes $ getType v1
         (VecType _ (bnd2:bnds2) bty2) = normalizeTypes $ getType v2
 
-compileStat v@(Binary pos op v1 v2) | op `elem` comparisonOps = comp
-  where comp = Compiled
-                  { noValue = return ()
-                  , asExp = opExp <$> (asExp $ compileStat v1) <*> (asExp $ compileStat v2)
-                  , asLoc = defaultAsLocFromAsExp (getType v) comp
-                  , withDest = defaultWithDest (getType v) comp
-                  }
-        opExp a b = case op of
-                      EqOp ->  [cexp| $a == $b |]
-                      NEqOp ->  [cexp| $a != $b |]
-                      LTOp ->  [cexp| $a <  $b |]
-                      LTEOp -> [cexp| $a <= $b |]
-                      And -> [cexp| $a && $b |]
-                      Or -> [cexp| $a || $b |]
-        comparisonOps = [EqOp, NEqOp, LTOp, LTEOp, And, Or]
 compileStat v = error $ "compileStat not implemented: " ++ show v
 
 

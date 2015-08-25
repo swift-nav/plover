@@ -833,7 +833,7 @@ typeCheck (Unary pos ToVoid a) = do _ <- typeCheck a
                                     return Void
 typeCheck (Unary pos op a) = do error $ "unary " ++ show op ++ " not implemented"
 typeCheck (Binary pos op a b)
-  | op `elem` [Add, Sub, Hadamard, Div]  = do
+  | op `elem` [Add, Sub, Hadamard, Div, Mod]  = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
       numTypeVectorize pos aty bty
@@ -884,32 +884,20 @@ typeCheck (Binary pos op a b)
   | op `elem` [EqOp, NEqOp, LTOp, LTEOp] = do
       aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
       bty <- typeCheck b >>= expandTerm >>= normalizeTypesM
-      _ <- arithType pos aty bty
-      return BoolType
+      genTypeVectorize (\pos aty bty -> do _ <- arithType pos aty bty
+                                           return BoolType)
+        pos aty bty
   | op `elem` [And, Or] = do
       aty <- typeCheck a
       bty <- typeCheck b
-      expectBool pos aty
-      expectBool pos bty
-      return BoolType
+      genTypeVectorize (\pos aty bty -> do expectBool pos aty
+                                           expectBool pos bty
+                                           return BoolType)
+        pos aty bty
   | otherwise = error $ "binary " ++ show op ++ " not implemented"
 
 numTypeVectorize :: Tag SourcePos -> Type -> Type -> UM Type
-numTypeVectorize pos ty1 ty2 =
-  case (ty1, ty2) of
-   (VecType _ [] bty1, ty2) -> numTypeVectorize pos bty1 ty2
-   (ty1, VecType _ [] bty2) -> numTypeVectorize pos ty1 bty2
-   (VecType _ (idx1:idxs1) bty1, VecType _ (idx2:idxs2) bty2)  -> do
-     idx' <- unifyArithmetic pos idx1 idx2
-     normalizeTypes <$> (VecType DenseMatrix [idx'] <$> numTypeVectorize pos
-                         (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2))
-   (VecType _ idxs1 bty1, ty2)  -> do
-     bty' <- numTypeVectorize pos bty1 ty2
-     return $ VecType DenseMatrix idxs1 bty'
-   (ty1, VecType _ idxs2 bty2) -> do
-     bty' <- numTypeVectorize pos ty1 bty2
-     return $ VecType DenseMatrix idxs2 bty'
-   (ty1, ty2) -> arithType pos ty1 ty2
+numTypeVectorize = genTypeVectorize arithType
 
 arithType :: Tag SourcePos -> Type -> Type -> UM Type
 arithType pos ty1 ty2 = do ty1' <- expandTerm ty1
@@ -927,6 +915,24 @@ arithType pos ty1 ty2 = do ty1' <- expandTerm ty1
           (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
           _ -> do addUError $ UError pos "Invalid types for arithmetic."
                   return $ IntType defaultIntType
+
+genTypeVectorize :: (Tag SourcePos -> Type -> Type -> UM Type)
+                    -> Tag SourcePos -> Type -> Type -> UM Type
+genTypeVectorize f pos ty1 ty2 =
+  case (ty1, ty2) of
+   (VecType _ [] bty1, ty2) -> genTypeVectorize f pos bty1 ty2
+   (ty1, VecType _ [] bty2) -> genTypeVectorize f pos ty1 bty2
+   (VecType _ (idx1:idxs1) bty1, VecType _ (idx2:idxs2) bty2)  -> do
+     idx' <- unifyArithmetic pos idx1 idx2
+     normalizeTypes <$> (VecType DenseMatrix [idx'] <$> genTypeVectorize f pos
+                         (VecType DenseMatrix idxs1 bty1) (VecType DenseMatrix idxs2 bty2))
+   (VecType _ idxs1 bty1, ty2)  -> do
+     bty' <- genTypeVectorize f pos bty1 ty2
+     return $ VecType DenseMatrix idxs1 bty'
+   (ty1, VecType _ idxs2 bty2) -> do
+     bty' <- genTypeVectorize f pos ty1 bty2
+     return $ VecType DenseMatrix idxs2 bty'
+   (ty1, ty2) -> f pos ty1 ty2
 
 -- Ranges must give signed integers because they might be counting
 -- down to zero.

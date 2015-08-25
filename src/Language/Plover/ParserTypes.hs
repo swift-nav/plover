@@ -56,6 +56,7 @@ data BinOp = Add
            | Sub
            | Mul
            | Div
+           | Mod
            | Hadamard
            | Pow
            | Concat
@@ -174,6 +175,7 @@ instance PP a => PP (Expr' a) where
       f Mul = "*"
       f Hadamard = ".*"
       f Div = "/"
+      f Mod = "%"
       f Pow = "^"
       f EqualOp = "=="
       f LTOp = "<"

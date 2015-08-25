@@ -84,7 +84,7 @@ data UnOp = Pos | Neg | Not
                    -- should not spill (memoize) to stack space. (Essentially no-op)
           | ToVoid -- | drops the result of a computation
           deriving (Show, Eq, Ord)
-data BinOp = Add | Sub | Mul | Div | Hadamard
+data BinOp = Add | Sub | Mul | Div | Mod | Hadamard
            | Pow | Concat
            | And | Or
            | EqOp | NEqOp | LTOp | LTEOp
@@ -829,6 +829,7 @@ instance PP BinOp where
   pretty Mul = text "*"
   pretty Hadamard = text ".*"
   pretty Div = text "/"
+  pretty Mod = text "%"
   pretty Pow = text "^"
   pretty Concat = text "#"
   pretty And = text "and"
@@ -908,7 +909,7 @@ getType (Unary pos NoMemo a) = getType a
 getType (Unary pos ToVoid a) = Void
 getType (Unary pos Not a) = BoolType
 getType (Binary pos op a b)
-  | op `elem` [Add, Sub, Div, Hadamard] = getVectorizedType aty bty
+  | op `elem` [Add, Sub, Div, Mod, Hadamard] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
     (VecType _ [a, _] aty', VecType _ [_, c] bty') -> VecType DenseMatrix [a, c] (getArithType aty' bty')
     (VecType _ [a] aty', VecType _ [_, c] bty') -> VecType DenseMatrix [a, c] (getArithType aty' bty') -- left vector is a x 1
@@ -920,7 +921,7 @@ getType (Binary pos op a b)
     (VecType _ (abnd:abnds) aty', VecType _ (bbnd:_) bty') -> VecType DenseMatrix
                                                               (reduceArithmetic (Binary pos Add abnd bbnd) : abnds)
                                                               (getMinimalType aty' bty')
-  | op `elem` [And, Or, EqOp, NEqOp, LTOp, LTEOp]  = BoolType
+  | op `elem` [And, Or, EqOp, NEqOp, LTOp, LTEOp]  = getVectorizedGenType (\_ _ -> BoolType) aty bty
   | op == Pow = case (aty, bty) of
     (IntType ai, IntType {}) -> IntType $ promoteInt ai
     (FloatType af, FloatType bf) -> FloatType $ arithFloat af bf
@@ -956,21 +957,8 @@ getLocType (Field a field) = case stripPtr (normalizeTypes $ getType a) of
 getLocType (Deref a) = let (PtrType a') = normalizeTypes $ getType a
                        in a'
 
--- | Gets the type of an auto-vectorized expression.  Assumes types
--- have been unified.  Result (if vector) is always DenseMatrix storage type.
--- Rules:
---  1) if A and B are vectors, (A + B)[i] = A[i] + B[i]
---  2) if (wlog) A is a vector and B is not, (A + B)[i] = A[i] + B
---  3) if neither are, it is just A + B
 getVectorizedType :: Type -> Type -> Type
-getVectorizedType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
-   (VecType _ [] bty1, ty2) -> getVectorizedType bty1 ty2
-   (ty1, VecType _ [] bty2) -> getVectorizedType ty1 bty2
-   (VecType _ (bnd1:bnds1) bty1, VecType _ (bnd2:bnds2) bty2)  ->
-     VecType DenseMatrix [bnd1] (getVectorizedType (VecType DenseMatrix bnds1 bty1) (VecType DenseMatrix bnds2 bty2))
-   (VecType _ bnds1 bty1, ty2)  -> VecType DenseMatrix bnds1 (getVectorizedType bty1 ty2)
-   (ty1, VecType _ bnds2 bty2) -> VecType DenseMatrix bnds2 (getVectorizedType ty1 bty2)
-   (ty1, ty2) -> getArithType ty1 ty2
+getVectorizedType = getVectorizedGenType getArithType
 
 getArithType :: Type -> Type -> Type
 getArithType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
@@ -979,6 +967,25 @@ getArithType ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
   (IntType {}, FloatType t2) -> FloatType $ promoteFloat t2
   (FloatType t1, FloatType t2) -> FloatType $ arithFloat t1 t2
   (ty1, _) -> ty1
+
+-- | Gets the type of an auto-vectorized expression.  Assumes types
+-- have been unified.  Result (if vector) is always DenseMatrix storage type.
+-- Rules:
+--  1) if A and B are vectors, (A + B)[i] = A[i] + B[i]
+--  2) if (wlog) A is a vector and B is not, (A + B)[i] = A[i] + B
+--  3) if neither are, it is just A + B
+getVectorizedGenType :: (Type -> Type -> Type) -> Type -> Type -> Type
+getVectorizedGenType f ty1 ty2 = case (normalizeTypes ty1, normalizeTypes ty2) of
+  (VecType _ [] bty1, ty2) -> getVectorizedGenType f bty1 ty2
+  (ty1, VecType _ [] bty2) -> getVectorizedGenType f ty1 bty2
+  (VecType _ (bnd1:bnds1) bty1, VecType _ (bnd2:bnds2) bty2)  ->
+     VecType DenseMatrix [bnd1] (getVectorizedGenType f
+                                 (VecType DenseMatrix bnds1 bty1)
+                                 (VecType DenseMatrix bnds2 bty2))
+  (VecType _ bnds1 bty1, ty2)  -> VecType DenseMatrix bnds1 (getVectorizedGenType f bty1 ty2)
+  (ty1, VecType _ bnds2 bty2) -> VecType DenseMatrix bnds2 (getVectorizedGenType f ty1 bty2)
+  (ty1, ty2) -> f ty1 ty2
+
 
 -- | Assumes types are already unified.  Gets the smallest type which
 -- can hold both types.  Really should only be used on arithmetic
