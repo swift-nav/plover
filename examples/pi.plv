@@ -1,0 +1,84 @@
+-- let's compute pi
+
+import prelude;
+
+-- Stores numbers in a base-100 representation so they are easy to print out
+-- returns whether the result is not zero
+small_div {n} (out dest :: u8[n]) (num :: u8[n]) (div :: u32) :: bool :=
+  ( r :: u32  := 0;
+    is_zero := True;
+    for i in n -> (
+      s := r * 100 + num[i];
+      dest[i] <- s / div;
+      r <- s % div;
+      is_zero <- is_zero and dest[i] == 0;
+    );
+    return not is_zero;
+  );
+
+bigsum {n} (out dest :: u8[n]) (a :: u8[n]) (b :: u8[n]) :: () :=
+  ( carry :: u32 := 0;
+    for i in n-1..0 : -1 -> (
+      s := a[i] + b[i] + carry;
+      dest[i] <- s % 100;
+      carry <- s / 100;
+    );
+  );
+bigdiff {n} (out dest :: u8[n]) (a :: u8[n]) (b :: u8[n]) :: () :=
+  ( borrow :: u32 := 1;
+    for i in n-1..0 : -1 -> (
+      d := a[i] + 99 - b[i] + borrow;
+      dest[i] <- d % 100;
+      borrow <- d / 100;
+    );
+  );
+
+mkInt {N} (z :: u8) :: u8[N] :=
+  vec i in : -> if i == 0 then z else 0;
+
+-- Computes 2N digits after the decimal point
+compute (N :: u32) :: () :=
+  ( num :: u8[N + 2];
+    powers :: u8[N + 2];
+    scratch :: u8[N + 2];
+
+    -- Compute 16arctan(1/5)
+    powers <- mkInt 16;
+    small_div (out powers) powers 5;
+    num <- powers;
+
+    divisor := 3;
+    while (small_div (out powers) powers 25
+           and small_div (out scratch) powers divisor) -> (
+      if divisor % 4 == 3 then
+        bigdiff (out num) num scratch
+      else
+        bigsum (out num) num scratch;
+      divisor <- divisor + 2;
+    );
+
+    -- Compute 4arctan(1/239)
+    powers <- mkInt 4;
+    small_div (out powers) powers 239;
+    bigdiff (out num) num powers;
+
+    divisor <- 3;
+    while (small_div (out powers) powers (239*239)
+           and small_div (out scratch) powers divisor) -> (
+      if divisor % 4 == 3 then
+        bigsum (out num) num scratch
+      else
+        bigdiff (out num) num scratch;
+      divisor <- divisor + 2;
+    );
+
+    printf "%01u." num[0];
+    -- the last two digits are probably wrong, so don't print them
+    for i in 1:N -> printf "%02u" num[i];
+    void $ printf "\n";
+  );
+
+main () :: int :=
+  ( compute 500;
+    return 0;
+  );
