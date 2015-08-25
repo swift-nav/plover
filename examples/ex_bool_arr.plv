@@ -9,5 +9,6 @@ foo {n} (A :: double[n]) (B :: double[n]) :: double :=
      E := D[A < 0, 3];
      E' := D[3, A < 0];
      F := D[A < 0, B < 0];
+     AOEU := not (A < 0);
      22;
   );

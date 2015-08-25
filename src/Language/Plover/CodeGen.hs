@@ -1290,15 +1290,16 @@ compileStat (AssertType pos a ty) = compileStat a
 -- -- unary
 
 compileStat v@(Unary _ op a)
-  | op `elem` [Pos, Neg] = wrapCompiled $
-                           compileVectorized vty <$> (asLoc $ compileStat a)
+  | op `elem` [Pos, Neg, Not] = wrapCompiled $
+                                compileVectorized vty <$> (asLoc $ compileStat a)
   where aty = normalizeTypes $ getType a
-        vty = getVectorizedType aty aty -- TODO hack (but correct result)
+        vty = getType v
 
         opExp :: C.Exp -> C.Exp
         opExp a = case op of
           Pos -> [cexp| +$a |]
           Neg -> [cexp| -$a |]
+          Not -> [cexp| !$a |]
 
         compileVectorized :: Type -> CmLoc -> Compiled
         compileVectorized (VecType _ [] bty) loc = compileVectorized bty loc
@@ -1316,9 +1317,6 @@ compileStat v@(Unary _ op a)
                        , store = error "Cannot store into vectorized unary operation"
                        }
         compileVectorized vty loc = compPureExpr vty $ opExp <$> (asExp $ asRValue loc)
-
-compileStat (Unary _ Not a) = compPureExpr BoolType (cnot <$> (asExp $ compileStat a))
-  where cnot x = [cexp| !$x |]
 
 compileStat v@(Unary _ Inverse a) = comp
   where comp = Compiled
@@ -1437,7 +1435,7 @@ compileStat v@(Binary _ op a b)
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
 
-        vty = getVectorizedType aty bty
+        vty = getType v
         vbnds = getIndices vty
 
         lifted :: Type -> CExpr -> CM CmLoc

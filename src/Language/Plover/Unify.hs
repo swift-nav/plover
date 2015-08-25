@@ -773,8 +773,9 @@ typeCheck (Unary pos op a) | op `elem` [Pos, Neg] = do
   numTypeVectorize pos aty aty
 typeCheck (Unary pos Not a) = do
   aty <- typeCheck a
-  expectBool pos aty
-  return BoolType
+  genTypeVectorize (\pos aty _ -> do expectBool pos aty
+                                     return BoolType)
+    pos aty aty
 typeCheck (Unary pos Sum a) = do
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   aty' <- numTypeVectorize pos aty aty -- HACK (but ok)

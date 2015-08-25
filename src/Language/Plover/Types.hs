@@ -914,7 +914,8 @@ getType (Unary pos (VecCons st) a) = case normalizeTypes $ getType a of
   VecType _ (i1:_:bnds) aty -> VecType st [i1,i1] (VecType DenseMatrix bnds aty)
 getType (Unary pos NoMemo a) = getType a
 getType (Unary pos ToVoid a) = Void
-getType (Unary pos Not a) = BoolType
+getType (Unary pos Not a) = let aty = normalizeTypes $ getType a
+                            in getVectorizedGenType (\_ _ -> BoolType) aty aty
 getType (Binary pos op a b)
   | op `elem` [Add, Sub, Div, Mod, Hadamard] = getVectorizedType aty bty
   | op == Mul  = case (aty, bty) of
