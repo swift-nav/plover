@@ -53,8 +53,12 @@ type FileList = [(FilePath, FilePath)]
 main :: IO ()
 main = do
   args <- getArgs 
-  _ <- main' args
-  return ()
+  result <- main' args
+  case result of
+    Left err -> do
+      hPutStrLn stderr err
+      exitWith $ ExitFailure 1
+    Right _ -> return ()
 
 main' :: [String] -> IO (Either Error FileList)
 main' args = do
