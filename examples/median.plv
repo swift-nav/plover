@@ -1,0 +1,93 @@
+-- Find the median, using quicksort and quickselect
+
+import prelude;
+
+static swap {n} (inout A :: double[n]) (i :: u32) (j :: u32) :: () :=
+  ( t := A[i];
+    A[i] <- A[j];
+    A[j] <- t;
+  );
+
+static qsort_helper {n} (inout A :: double[n]) (s :: s32) (e :: s32) :: () :=
+  ( if s >= e then return;
+    pivot := A[s + (e - s) / 2];
+    i := s;
+    j := e;
+    while i <= j -> (
+      while A[i] < pivot -> i <- i + 1;
+      while A[j] > pivot -> j <- j - 1;
+      if i <= j then (
+        swap (inout A) i j;
+        i <- i + 1;
+        j <- j - 1;
+      );
+    );
+    qsort_helper (inout A) s j;
+    qsort_helper (inout A) i e;
+  );
+
+my_qsort {n} (inout A :: double[n]) :: () :=
+  ( qsort_helper (inout A) 0 (n-1);
+    assert test_sorted A;
+  );
+
+static test_sorted {n} (A :: double[n]) :: bool :=
+  ( for i in 1:n ->
+      if A[i-1] >= A[i] then return False;
+    return True;
+  );
+
+median1 {n} (A :: double[n]) :: double :=
+  ( A' := A;
+    my_qsort (inout A');
+    if n % 2 == 0 then
+      (A'[n / 2] + A'[(n - 1) / 2]) / 2
+    else
+      A'[n / 2];
+  );
+
+qselect {n} (inout A :: double[n]) (k :: u32) :: double :=
+  ( i := 0;
+    j := n - 1;
+    while (i < j) -> (
+      pivot := A[k];
+      swap (inout A) k j;
+      pos := i;
+      for h in i:j ->
+        if A[h] < pivot then (
+          swap (inout A) h pos;
+          pos <- pos + 1;
+        );
+      swap (inout A) j pos;
+      if pos == k then
+        return A[pos]
+      else if pos < k then
+        i <- pos + 1
+      else
+        j <- pos - 1;
+    );
+    return A[k];
+  );
+
+median2 {n} (A :: double[n]) :: double :=
+  ( A' := A;
+    if n % 2 == 0 then
+      (qselect (inout A') (n / 2) + qselect (inout A') ((n - 1) / 2)) / 2
+    else
+      qselect (inout A') (n / 2);
+  );
+
+main () :: int :=
+  ( A := vec i in 9 -> rand_uniform();
+
+    printf "Unsorted:\n";
+    print_vec A;
+
+    printf "Median1: %f\n" (median1 A);
+    printf "Median2: %f\n" (median2 A);
+    
+    printf "Sorted:\n";
+    my_qsort (inout A);
+    print_vec A;
+    return 0;
+  );
