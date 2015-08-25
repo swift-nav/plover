@@ -1,0 +1,8 @@
+condstore1 (inout v :: double) (w :: double) (b :: bool) :: () :=
+  v[b] <- w;
+
+condstore2 {n} (inout A :: double[n]) (w :: double) (b :: bool) :: () :=
+  A[b] <- w;
+
+condstore3 {n} (inout A :: double[n]) (w :: double) :: () :=
+  A[A < w] <- w;

@@ -942,9 +942,9 @@ getLocType :: Location CExpr -> Type
 getLocType (Ref ty v) = ty
 getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ getType a)
   where getTypeIdx [] aty = aty
-        getTypeIdx (idx:idxs) aty@(VecType {}) = getTypeIdxty [] (getType idx) idxs aty
+        getTypeIdx (idx:idxs) aty = getTypeIdxty [] (getType idx) idxs aty
 
-        getTypeIdxty acc idxty idxs vty@(VecType {}) =
+        getTypeIdxty acc idxty idxs vty =
           case normalizeTypes idxty of
             VecType st' idxs' idxtybase -> VecType st' idxs' $
                                            getTypeIdxty (acc ++ idxs') idxtybase idxs vty

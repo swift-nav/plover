@@ -1705,6 +1705,9 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
           vty@(VecType {}) -> do
             idxloc <- asLoc $ compileStat idx
             return $ Left (length $ getIndices vty, vecBaseType vty, idxloc)
+          BoolType -> do
+            idxloc <- asLoc $ compileStat idx
+            return $ Left (0, BoolType, idxloc)
           ty -> do
             idxex <- asExp $ compileStat idx
             return $ Right idxex

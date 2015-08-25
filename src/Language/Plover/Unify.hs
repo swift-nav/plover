@@ -968,11 +968,15 @@ typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLo
           idxty <- typeCheck idx
           typeCheckIdxty oty [] idxty idxs aty
         typeCheckIdx oty (idx:idxs) ty = do
-          addUError $ UGenTyError pos oty "Too many indices on expression of type"
-          return ty
+          idxty <- typeCheck idx
+          case idxty of
+            BoolType -> typeCheckIdxty oty [] idxty idxs ty
+            _ -> do addUError $ UGenTyError pos oty
+                      "Too many indices on expression of type"
+                    return ty
 
         typeCheckIdxty :: Type -> [CExpr] -> Type -> [CExpr] -> Type -> UM Type
-        typeCheckIdxty oty acc idxty idxs vty@(VecType {}) =
+        typeCheckIdxty oty acc idxty idxs vty =
           case normalizeTypes idxty of
            VecType st' idxs' idxtybase -> -- result shape equals shape of index
              VecType st' idxs' <$> (typeCheckIdxty oty (acc ++ idxs') idxtybase idxs vty)
