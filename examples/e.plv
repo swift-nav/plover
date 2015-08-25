@@ -1,0 +1,30 @@
+-- Let us compute the constant e
+
+import prelude;
+
+small_div {n} (inout num :: u8[n]) (div :: u32) :: () :=
+  ( r :: u32  := 0;
+    for i in n -> (
+      s := r * 10 + num[i];
+      num[i] <- s / div;
+      r <- s % div;
+    );
+  );
+
+compute (N :: u32) (D :: u32) :: () :=
+  ( num :: u8[N+1];
+    num <- 0;
+    for div in D..1 : -1 -> (
+      num[0] <- num[0] + 1;
+      small_div (inout num) div;
+    );
+    num[0] <- num[0] + 1;
+    printf "%01u." num[0];
+    for i in 1:N+1 -> printf "%01u" num[i];
+    void $ printf "\n";
+  );
+
+main () :: int :=
+  ( compute 100 70;
+    return 0;
+  );
