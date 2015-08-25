@@ -1,0 +1,24 @@
+import prelude;
+
+static printed :: bool := False;
+
+static my_print (s :: string) :: () :=
+  ( printf s;
+    printed <- True;
+  );
+static my_nl (i :: int) :: () :=
+  if printed then (
+    printf "\n";
+    printed <- False;
+  ) else (
+    void $ printf "%d\n" i;
+  );
+
+main () :: int :=
+  ( for i in 1..100 -> (
+      if i % 3 == 0 then my_print "Fizz";
+      if i % 5 == 0 then my_print "Buzz";
+      my_nl i;
+    );
+    return 0;
+  );
