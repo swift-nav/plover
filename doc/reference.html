@@ -1850,9 +1850,9 @@ elements of a location multiple times.  This behavior can be
 overridden with <tt class="docutils literal">nomemo</tt>.</p>
 <div class="section" id="slices">
 <h3>Slices</h3>
-<p>Vectors can be indexed by integer indices, tuple indices, or vectors
-of integer or tuple indices.  As a running example, suppose <tt class="docutils literal">A</tt> has
-the type <tt class="docutils literal">double[n,m]</tt>.</p>
+<p>Vectors can be indexed by integer indices, tuple indices, vectors of
+integer or tuple indices, or vectors of booleans.  As a running
+example, suppose <tt class="docutils literal">A</tt> has the type <tt class="docutils literal">double[n,m]</tt>.</p>
 <p>First, the rule is that when applying indices to a vector, the
 remaining indices are assumed to be <tt class="docutils literal">:</tt>.  Hence, <tt class="docutils literal">A[1]</tt> is
 <tt class="docutils literal"><span class="pre">A[1,:]</span></tt> (which is <tt class="docutils literal">A[1,0:m]</tt>).</p>
@@ -1878,6 +1878,17 @@ type <tt class="docutils literal">double[5]</tt> of elements on row 2, the eleme
 <p class="first admonition-title">Note</p>
 <p class="last">Indexing by a vector of tuples is not yet implemented.</p>
 </div>
+<p>Indexing by an array of booleans acts as a filter expression which
+masks the vector by treating all entries corresponding to <tt class="docutils literal">False</tt>
+values as the default value for the type (for instance, <tt class="docutils literal">0</tt> for
+integers and floats).  The boolean indexing vector and the indexed
+vector must match on each dimension, though the indexing vector may
+have fewer dimensions than the indexed vector.  As an example,:</p>
+<pre class="literal-block">
+A[A &lt; 0] &lt;- 0;
+</pre>
+<p>sets all negative entries of <tt class="docutils literal">A</tt> to <tt class="docutils literal">0</tt>, since <tt class="docutils literal">A &lt; 0</tt> is a
+<tt class="docutils literal">bool[n,m]</tt> containing <tt class="docutils literal">True</tt> exactly where <tt class="docutils literal">A</tt> is non-negative.</p>
 <p>Theoretically speaking, integer indices are like <span class="math">\((0,1)\)</span> tensors
 (i.e., no covariant indices and one contravariant index), because for
 a standard basis vector <tt class="docutils literal">E</tt>, <tt class="docutils literal">E[i]</tt> is <span class="math">\(0\)</span> unless <tt class="docutils literal">E</tt> has

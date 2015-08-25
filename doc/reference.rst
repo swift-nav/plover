@@ -581,9 +581,9 @@ overridden with ``nomemo``.
 Slices
 ~~~~~~
 
-Vectors can be indexed by integer indices, tuple indices, or vectors
-of integer or tuple indices.  As a running example, suppose ``A`` has
-the type ``double[n,m]``.
+Vectors can be indexed by integer indices, tuple indices, vectors of
+integer or tuple indices, or vectors of booleans.  As a running
+example, suppose ``A`` has the type ``double[n,m]``.
 
 First, the rule is that when applying indices to a vector, the
 remaining indices are assumed to be ``:``.  Hence, ``A[1]`` is
@@ -612,6 +612,18 @@ type ``double[5]`` of elements on row 2, the elements indexed by
 ``I``.
 
 .. note::  Indexing by a vector of tuples is not yet implemented.
+
+Indexing by an array of booleans acts as a filter expression which
+masks the vector by treating all entries corresponding to ``False``
+values as the default value for the type (for instance, ``0`` for
+integers and floats).  The boolean indexing vector and the indexed
+vector must match on each dimension, though the indexing vector may
+have fewer dimensions than the indexed vector.  As an example,::
+
+  A[A < 0] <- 0;
+
+sets all negative entries of ``A`` to ``0``, since ``A < 0`` is a
+``bool[n,m]`` containing ``True`` exactly where ``A`` is non-negative.
 
 Theoretically speaking, integer indices are like :math:`(0,1)` tensors
 (i.e., no covariant indices and one contravariant index), because for

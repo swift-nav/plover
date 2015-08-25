@@ -1,0 +1,42 @@
+-- A test based on auto-correlation of random vectors
+
+import prelude;
+
+vec_max {n} (v :: double[n]) :: double :=
+  ( m := -INFINITY;
+    for i in n -> ( m <- fmax m v[i] );
+    return m;
+  );
+
+vec_mean {n} (v :: double[n]) :: double := sum v / n;
+
+   cross_cor {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+     vec i in N -> f * (g[i:] # g[:i]);
+   auto_cor {N} (f :: double[N]) :: double[N] :=
+     cross_cor f f;
+
+cross_cor_2 {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+  vec i in N -> f * g[(i:i+N) % N];
+
+
+-- | Computes a vector of correlations of a vector against the shifted
+-- | (and rotated) form of itself.
+auto_corr {n} (v :: double[n]) :: double[n] :=
+  ( vec i in n -> v * (v[i:n] # v[0:i])
+  );
+
+main () :: int :=
+  ( w := vec j in 2:2000 -> (
+      rand_v := normalize vec i in j -> rand_normal();
+      av := auto_corr rand_v;
+      1 / (j * vec_mean $ av[1:] .* av[1:])
+    );
+    print_vec w;
+    return 0;
+  );
+
+    --printf "Original vector:\n";
+    --print_vec rand_v;
+    --printf "Autocorrelation vector:\n";
+    --print_vec av;
+    --printf "Max abs: %f\n" $ sqrt $ vec_max $ av[1:] .* av[1:];

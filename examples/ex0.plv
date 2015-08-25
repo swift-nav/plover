@@ -1,0 +1,8 @@
+foo {n} (A :: double[n]) (out B :: double[n]) :: ()
+  :=  (B <- -A/2 + sum A);
+
+mydiag {n} (A :: double[n,n]) :: double[n]
+ := diag A;
+
+mysum {n,m} (A :: double[n,m]) :: double[m]
+ := sum A;

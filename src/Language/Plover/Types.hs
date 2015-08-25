@@ -664,6 +664,8 @@ typeCanHold' ty1 (VecType _ [] bty2) = typeCanHold ty1 bty2
 typeCanHold' (VecType st1 (bnd1:bnds1) bty1) (VecType st2 (bnd2:bnds2) bty2) =
   reduceArithmetic bnd1 == reduceArithmetic bnd2
   && typeCanHold' (VecType st1 bnds1 bty1) (VecType st2 bnds2 bty2)
+typeCanHold' (VecType st1 (bnd1:bnds1) bty1) ty2 = -- auto-vectorize set
+  typeCanHold' (VecType DenseMatrix bnds1 bty1) ty2
 typeCanHold' (TupleType tys1) (TupleType tys2) =
   length tys1 == length tys2 && and (map (uncurry typeCanHold') (zip tys1 tys2))
 typeCanHold' (FnType _) (FnType _) = False -- TODO (?)
@@ -721,6 +723,11 @@ getIndices :: Type -> [CExpr]
 getIndices ty = getIndices' $ normalizeTypes ty
   where getIndices' (VecType _ bnds bty) = bnds ++ getIndices' bty
         getIndices' _ = []
+
+-- | Gets the base type for a vector
+vecBaseType :: Type -> Type
+vecBaseType (VecType _ _ bty) = vecBaseType bty
+vecBaseType bty = bty
 
 reduceArithmetic :: CExpr -> CExpr
 reduceArithmetic expr =
@@ -934,11 +941,13 @@ getLocType :: Location CExpr -> Type
 getLocType (Ref ty v) = ty
 getLocType (Index a idxs) = normalizeTypes $ getTypeIdx idxs (normalizeTypes $ getType a)
   where getTypeIdx [] aty = aty
-        getTypeIdx (idx:idxs) aty@(VecType {}) = getTypeIdxty (getType idx) idxs aty
+        getTypeIdx (idx:idxs) aty@(VecType {}) = getTypeIdxty [] (getType idx) idxs aty
 
-        getTypeIdxty idxty idxs vty@(VecType {}) =
+        getTypeIdxty acc idxty idxs vty@(VecType {}) =
           case normalizeTypes idxty of
-            VecType st' idxs' idxtybase -> VecType st' idxs' (getTypeIdxty idxtybase idxs vty)
+            VecType st' idxs' idxtybase -> VecType st' idxs' $
+                                           getTypeIdxty (acc ++ idxs') idxtybase idxs vty
+            BoolType -> getTypeIdx idxs $ strip (length acc) vty
             ty -> getTypeIdx idxs $ strip (iSize ty) vty
 
         iSize (IntType {}) = 1

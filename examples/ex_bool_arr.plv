@@ -1,0 +1,13 @@
+--import prelude;
+
+foo {n} (A :: double[n]) (B :: double[n]) :: double :=
+  (  C := A == B;
+     A[C] <- 22;
+     A[A < 0] <- B[B > 0]; --vec i in : -> 22;
+     D := vec i in n, j in n -> i + j;
+     D[A < 0, 3] <- 22;
+     E := D[A < 0, 3];
+     E' := D[3, A < 0];
+     F := D[A < 0, B < 0];
+     22;
+  );

@@ -1,0 +1,7 @@
+main () :: _
+  := (
+  X :: Diagonal double[5,5];
+  X <- vec i in :, j in : -> i + j;
+  Y := (vec i in 1:11:2, j in 0:5 -> i + j) * (vec i in 0:5, j in 22 -> 2 * (i - j));
+  X
+  );

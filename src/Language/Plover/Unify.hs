@@ -760,6 +760,8 @@ typeCheck (Set pos loc v) = do
         unifySet (VecType st1 (idx1:idxs1) bty1) (VecType st2 (idx2:idxs2) bty2)
           = do unifyArithmetic pos idx1 idx2
                unifySet (VecType st1 idxs1 bty1) (VecType st2 idxs2 bty2)
+        unifySet (VecType st1 (idx1:idxs1) bty1) ty2 -- auto vectorize set
+          = unifySet (VecType DenseMatrix idxs1 bty1) ty2
         unifySet ty1 ty2 = void $ unify pos ty1 ty2
 typeCheck (AssertType pos v ty) = do
   vty <- typeCheck v
@@ -963,16 +965,17 @@ typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLo
         typeCheckIdx oty (idx:idxs) aty@(VecType _ (ibnd:_) _) = do
           unifyRangeIndex pos idx ibnd
           idxty <- typeCheck idx
-          typeCheckIdxty oty idxty idxs aty
+          typeCheckIdxty oty [] idxty idxs aty
         typeCheckIdx oty (idx:idxs) ty = do
           addUError $ UGenTyError pos oty "Too many indices on expression of type"
           return ty
 
-        typeCheckIdxty :: Type -> Type -> [CExpr] -> Type -> UM Type
-        typeCheckIdxty oty idxty idxs vty@(VecType {}) =
+        typeCheckIdxty :: Type -> [CExpr] -> Type -> [CExpr] -> Type -> UM Type
+        typeCheckIdxty oty acc idxty idxs vty@(VecType {}) =
           case normalizeTypes idxty of
            VecType st' idxs' idxtybase -> -- result shape equals shape of index
-             VecType st' idxs' <$> (typeCheckIdxty oty idxtybase idxs vty)
+             VecType st' idxs' <$> (typeCheckIdxty oty (acc ++ idxs') idxtybase idxs vty)
+           BoolType -> do typeCheckIdx oty idxs =<< stripBool acc vty
            ty -> do nidxs <- iSize ty
                     typeCheckIdx oty idxs =<< strip nidxs vty
 
@@ -987,6 +990,15 @@ typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLo
         strip n (VecType _ (bnd:bnds) bty) = strip (n - 1) (VecType DenseMatrix bnds bty)
         strip n ty = do addUError $ UGenTyError pos ty "Too many indices on expression of type"
                         return ty
+
+        stripBool :: [CExpr] -> Type -> UM Type
+        stripBool [] ty = return ty
+        stripBool bnds' (VecType _ [] bty) = stripBool bnds' bty
+        stripBool (bnd':bnds') (VecType _ (bnd:bnds) bty) = do
+          unifyArithmetic pos bnd' bnd
+          stripBool bnds' (VecType DenseMatrix bnds bty)
+        stripBool _ ty = do addUError $ UGenTyError pos ty "Too many indices on expression of type"
+                            return ty
 
         unifyRangeIndex pos idx ibound = do
           case idx of

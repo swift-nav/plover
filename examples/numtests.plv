@@ -1,0 +1,9 @@
+import prelude;
+
+tests () :: ()  := void (
+  printf "22 = %d\n" 22;
+  printf "0x22 = %x\n" 0x22;
+  printf "0o22 = %o\n" 0o22;
+  printf "22.0 = %f\n" 22.0;
+  printf "0.22 = %f\n" 0.22;
+);

@@ -307,10 +307,6 @@ compileType = compileType' -- . normalizeTypes
 compileVecType :: Type -> C.Type
 compileVecType ty = [cty|$ty:(compileType (vecBaseType ty))*|]
 
-vecBaseType :: Type -> Type
-vecBaseType (VecType _ _ bty) = vecBaseType bty
-vecBaseType bty = bty
-
 compileType' :: Type -> C.Type
 compileType' (VecType _ _ ty) = compileVecType ty
 compileType' Void = [cty|void|]
@@ -1268,12 +1264,26 @@ compileStat v@(Addr pos loc) = comp
 compileStat (Set pos loc v) = comp
   where comp = Compiled
                { noValue = do loc <- compileLoc loc
-                              withDest (compileStat v) loc
+                              let ev = lifted (normalizeTypes $ getType v) v
+                              case ev of
+                                Right v -> withDest (compileStat v) loc
+                                Left mvloc -> storeLoc loc =<< mvloc
                , withDest = \dst -> noValue comp -- Shouldn't happen, but just in case...
                , asExp = do noValue comp
                             return $ error "Cannot get Set as value."
                , asLoc = error "Set is not a location"
                }
+
+        vbnds = getIndices $ getLocType loc
+
+        lifted :: Type -> CExpr -> Either (CM CmLoc) CExpr
+        lifted xty x | null bnds = Right x
+                     | otherwise = Left $ do loc <- asLoc $ compileStat x
+                                             loc' <- prepLoc loc
+                                             return $ liftLoc xty loc' bnds
+          where xbnds = getIndices xty
+                bnds = take (length vbnds - length xbnds) vbnds
+
 
 compileStat (AssertType pos a ty) = compileStat a
 
@@ -1669,19 +1679,21 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
                                    cidxs' <- mapM mkIndex idxs
                                    let ty = normalizeTypes $ getLocType loc
                                    mkLoc ty cidxs' aloc
-  where mkIndex :: CExpr -> CM (Either (Int, CmLoc) C.Exp) -- TODO tuple
+  where mkIndex :: CExpr -> CM (Either (Int, Type, CmLoc) C.Exp) -- TODO tuple
         mkIndex idx = case normalizeTypes (getType idx) of
           vty@(VecType {}) -> do
             idxloc <- asLoc $ compileStat idx
-            return $ Left (length $ getIndices vty, idxloc)
+            return $ Left (length $ getIndices vty, vecBaseType vty, idxloc)
           ty -> do
             idxex <- asExp $ compileStat idx
             return $ Right idxex
 
-        mkLoc :: Type -> [Either (Int, CmLoc) C.Exp] -> CmLoc -> CM CmLoc
+        mkLoc :: Type -> [Either (Int, Type, CmLoc) C.Exp] -> CmLoc -> CM CmLoc
         mkLoc _ [] aloc = return aloc
         mkLoc ty ((Right exp):idxs) aloc = apIndex aloc exp >>= mkLoc ty idxs
-        mkLoc ty ((Left (n, iloc)):idxs) aloc = partialLoc ty iloc n $ \iloc' -> do -- TODO tuples
+        mkLoc ty ((Left (n, BoolType, iloc)):idxs) aloc
+          = boolLoc ty n iloc aloc $ \aloc' -> mkLoc (strip n ty) idxs aloc'
+        mkLoc ty ((Left (n, _, iloc)):idxs) aloc = partialLoc ty iloc n $ \iloc' -> do -- TODO tuples
           ilocex <- asExp $ asRValue iloc'
           apIndex aloc ilocex >>= mkLoc (strip n ty) idxs -- remove n indices since we just applied n
 
@@ -1689,6 +1701,29 @@ compileLoc loc@(Index a idxs) = do aloc <- asLoc $ compileStat a
         strip 0 ty = ty
         strip n (VecType _ [] bty) = strip n bty
         strip n (VecType _ (bnd:bnds) bty) = strip (n - 1) (VecType DenseMatrix bnds bty)
+
+        boolLoc :: Type -> Int -> CmLoc -> CmLoc -> (CmLoc -> CM CmLoc) -> CM CmLoc
+        boolLoc ty 0 bloc aloc f = do bex <- asExp $ asRValue bloc
+                                      aloc' <- f aloc
+                                      return $ condLoc bex aloc' (constLoc ty uninit)
+          where bty = vecBaseType ty
+                uninit = compileUninit bty
+        boolLoc ty n bloc aloc f = return loc
+          where loc = CmLoc
+                      { apIndex = \idx -> do bloc' <- apIndex bloc idx
+                                             aloc' <- apIndex aloc idx
+                                             boolLoc ty' (n - 1) bloc' aloc' f
+                      , store = error "No store for boolLoc"
+                      , asRValue = error "No asRValue for boolLoc"
+                      , asArgument = defaultAsArgument loc
+                      , prepLoc = do bloc' <- prepLoc bloc
+                                     aloc' <- prepLoc aloc
+                                     boolLoc ty n bloc' aloc' f
+                      , locType = ty
+                      }
+                VecType _ (bnd:bnds) bty = normalizeTypes ty
+                ty' = normalizeTypes $ VecType DenseMatrix bnds bty
+
 
 compileLoc l@(Field a field) = do sex <- asExp $ compileStat a
                                   let sex' = access sex (getType a) field

@@ -1,0 +1,9 @@
+import prelude;
+
+foo {l,n,m,o} (A :: Symmetric (Diagonal ((LowerTriangular s32[o,o])[m,m])[n,n])[l,l])
+  :: ()
+  := (
+    B := A;
+    C := mat(2,22;222,2222)[A,A][A,A,A] :: _;
+    void $ printf "woah\n";
+  );

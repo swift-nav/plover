@@ -1,0 +1,11 @@
+mul_mat_vec {m,n} (A :: double[m,n]) (v :: double[n]) :: double[m]
+  := A * v;
+
+mat_quad_form {n} (A :: double[n,n]) (v :: double[n]) :: double
+  := (v^T * A * v)[0];
+
+mat_quad_prod {n,m} (A :: double[n,n]) (B :: double[n,m]) :: double[m,m]
+  := B^T * A * B;
+
+mat_quad_safe {n,m} (A :: double[n,n]) (B :: double[n,m]) :: double[m,m]
+  := nomemo (B^T * A) * B;
