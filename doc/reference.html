@@ -2069,6 +2069,13 @@ foo {n} (A :: double[n]) :: double;
 foo B
 foo {m} B
 </pre>
+<p>If a function takes no arguments, a dummy void value must be supplied
+as an argument, otherwise there is an ambiguity between function call
+and variable value.  If <tt class="docutils literal">do_it</tt> is a function of no arguments, this
+looks like</p>
+<pre class="literal-block">
+do_it ()
+</pre>
 <div class="section" id="argument-directions">
 <h3>Argument Directions</h3>
 <p>Function arguments come in three flavors, <tt class="docutils literal">in</tt>, <tt class="docutils literal">out</tt>, and

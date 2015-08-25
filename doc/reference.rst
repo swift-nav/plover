@@ -813,6 +813,12 @@ and suppose ``B`` is a ``double[m]``.  Then the following are equivalent: ::
   foo B
   foo {m} B
 
+If a function takes no arguments, a dummy void value must be supplied
+as an argument, otherwise there is an ambiguity between function call
+and variable value.  If ``do_it`` is a function of no arguments, this
+looks like ::
+
+  do_it ()
 
 Argument Directions
 ~~~~~~~~~~~~~~~~~~~
