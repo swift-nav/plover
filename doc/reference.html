@@ -2029,12 +2029,15 @@ type <tt class="docutils literal">double[l+n,m]</tt>.</p>
 <div class="section" id="inequalities">
 <h3>Inequalities</h3>
 <p>The inequalities <tt class="docutils literal">==</tt>, <tt class="docutils literal">!=</tt>, <tt class="docutils literal">&lt;</tt>, <tt class="docutils literal">&lt;=</tt>, <tt class="docutils literal">&gt;</tt>, <tt class="docutils literal">&gt;=</tt> all
-operate on a pair of scalars.</p>
+operate on a pair of (vectors of) scalars and vectorize by the same
+rules as the elementwise arithmetic operators, though the resulting
+base type is <tt class="docutils literal">bool</tt>.</p>
 </div>
 <div class="section" id="boolean-operators">
 <h3>Boolean Operators</h3>
-<p>The operators <tt class="docutils literal">and</tt> and <tt class="docutils literal">or</tt> each take a pair of booleans and give
-a boolean, where <tt class="docutils literal">and</tt> has higher precedence than <tt class="docutils literal">or</tt>.</p>
+<p>The operators <tt class="docutils literal">and</tt> and <tt class="docutils literal">or</tt> each take a pair of (vectors of)
+booleans and give a boolean, where <tt class="docutils literal">and</tt> has higher precedence than
+<tt class="docutils literal">or</tt>.  These follow the same elementwise vectorization rules.</p>
 <p>The operator <tt class="docutils literal">not</tt> takes a boolean or vector of booleans and gives
 the boolean negation of the boolean(s).  It is parsed as a function,
 and follows the same vectorization rules as unary arithmetic.</p>
@@ -2085,14 +2088,15 @@ standard C convention, and vector types are passed as constant
 pointers.  Plover will ensure that <em>any</em> location can be passed,
 including non-contiguous vector locations such as <tt class="docutils literal"><span class="pre">A[2,:]</span></tt>, by
 copying the elements of the location to fresh stack space.</li>
-<li><tt class="docutils literal">inout</tt> passes an location by name.  This means that any location
-passed in this way, if changed by the receiver, will have those
-changes reflected in the location by the time the called function
-returns.  In the C interface for the function, scalar references are
-given pointer types, and vector types are <em>non</em>-constant pointers.
-Plover will copy non-contiguous regions to fresh stack space before
-the call, and copy the region back into the original location after
-the call.</li>
+<li><tt class="docutils literal">inout</tt> passes an location by reference (or copy-restore of the
+location must be reified).  This means that any location passed in
+this way, if changed by the receiver, will have those changes
+reflected in the location by the time the called function returns.
+In the C interface for the function, scalar references are given
+pointer types, and vector types are <em>non</em>-constant pointers.  Plover
+will copy non-contiguous regions to fresh stack space before the
+call, and copy the region back into the original location after the
+call.</li>
 <li><tt class="docutils literal">out</tt> is like <tt class="docutils literal">inout</tt>, but the receiver may not use the value of
 the location, since the location is allowed to be uninitialized.</li>
 </ul>

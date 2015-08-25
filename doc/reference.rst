@@ -834,14 +834,15 @@ the corresponding parameter of the function.
   pointers.  Plover will ensure that *any* location can be passed,
   including non-contiguous vector locations such as ``A[2,:]``, by
   copying the elements of the location to fresh stack space.
-- ``inout`` passes an location by name.  This means that any location
-  passed in this way, if changed by the receiver, will have those
-  changes reflected in the location by the time the called function
-  returns.  In the C interface for the function, scalar references are
-  given pointer types, and vector types are *non*-constant pointers.
-  Plover will copy non-contiguous regions to fresh stack space before
-  the call, and copy the region back into the original location after
-  the call.
+- ``inout`` passes an location by reference (or copy-restore of the
+  location must be reified).  This means that any location passed in
+  this way, if changed by the receiver, will have those changes
+  reflected in the location by the time the called function returns.
+  In the C interface for the function, scalar references are given
+  pointer types, and vector types are *non*-constant pointers.  Plover
+  will copy non-contiguous regions to fresh stack space before the
+  call, and copy the region back into the original location after the
+  call.
 - ``out`` is like ``inout``, but the receiver may not use the value of
   the location, since the location is allowed to be uninitialized.
 
