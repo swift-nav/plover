@@ -1,0 +1,41 @@
+import prelude;
+
+MAX_ITER :: int    := 200;
+RADIUS   :: double := 2.0;
+MIN_R    :: double := -2.25;
+MAX_R    :: double := 0.75;
+MIN_I    :: double := -1.5;
+MAX_I    :: double := 1.5;
+WIDTH    :: int    := 80;
+HEIGHT   :: int    := 50;
+
+lin_ramp (start :: double) (stop :: double) (t :: double) :: double
+  := start + (stop - start) * t;
+
+iter (cr :: double) (ci :: double) :: int :=
+  ( zr := cr;
+    zi := ci;
+    for i in 1..MAX_ITER -> (
+      zr' := zr^2 - zi^2 + cr;
+      zi' := 2 * zr * zi + ci;
+      if zr'^2 + zi'^2 > RADIUS^2 then return i;
+      zr <- zr';
+      zi <- zi';
+    );
+    return 0;
+  );
+
+main () :: int :=
+  ( for j in HEIGHT-1..0 : -1 -> (
+      for i in WIDTH  -> (
+        b := iter (lin_ramp MIN_R MAX_R (1.0 * i / WIDTH))
+                  (lin_ramp MIN_I MAX_I (1.0 * j / HEIGHT));
+        if b == 0 then
+          printf " "
+        else
+          printf "%c" (127 - (b % (126 - 32)));
+      );
+      printf "\n";
+    );
+    return 0;
+  );

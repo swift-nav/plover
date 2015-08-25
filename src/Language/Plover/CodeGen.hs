@@ -1484,12 +1484,19 @@ compileStat v@(Binary _ op a b)
 
 -- TODO make ipow deal with various int types! maybe make it inline the prelude ipow impl?
 compileStat v@(Binary _ Pow a b) = case (aty, bty) of
-  (IntType {}, IntType {}) -> compileIntPow rty a b
-  (FloatType {}, IntType {}) -> compileFloatIntPow rty a b
+  (IntType {}, IntType {}) -> case checkInt b of
+                               Just n -> compPureExpr rty $ buildPow rty a n
+                               Nothing -> compileIntPow rty a b
+  (FloatType {}, IntType {}) -> case checkInt b of
+                                 Just n -> compPureExpr rty $ buildPow rty a n
+                                 Nothing -> compileFloatIntPow rty a b
   _ -> compileFloatPow rty a b
   where aty = normalizeTypes $ getType a
         bty = normalizeTypes $ getType b
         rty = normalizeTypes $ getType v
+
+        checkInt (IntLit _ _ n) | n >= 0 = Just n
+        checkInt _ = Nothing
 
         compileIntPow rty a b = compPureExpr rty $ do aex <- asExp $ compileStat a
                                                       bex <- asExp $ compileStat b
@@ -1500,6 +1507,22 @@ compileStat v@(Binary _ Pow a b) = case (aty, bty) of
         compileFloatPow rty a b = compPureExpr rty $ do aex <- asExp $ compileStat a
                                                         bex <- asExp $ compileStat b
                                                         return [cexp| pow($aex, $bex) |]
+
+        -- | Let's try to compile a better form if we can.
+        buildPow rty a n = do aex <- asExp . asRValue =<< prepLoc =<< asLoc (compileStat a)
+                              buildPow' True aex n
+          where buildPow' _ aex 0 = return [cexp| 1 |]
+                buildPow' _ aex 1 = return aex
+                buildPow' prep aex n = do spex <- case prep of
+                                            False -> do aex' <- freshLoc "exp" rty
+                                                        store aex' aex
+                                                        aexex <- asExp $ asRValue aex'
+                                                        sp aexex
+                                            True -> sp aex
+                                          if n `mod` 2 == 0
+                                            then return spex
+                                            else return [cexp|$spex * $aex|]
+                  where sp aex = buildPow' False [cexp|$aex * $aex|] (n `div` 2)
 
 compileStat v@(Binary pos Mul a b) = case (aty, bty) of
   (VecType DiagonalMatrix [ia, ib] aty', VecType DiagonalMatrix [_, ic] bty') -> comp
