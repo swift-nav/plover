@@ -1,4 +1,5 @@
 %(head_prefix)s
+<link rel="shortcut icon" type="image/png" href="favicon.png"/>
 <script type="text/x-mathjax-config">
 MathJax.Hub.Config({
 config: ["MMLorHTML.js"],
