@@ -20,7 +20,7 @@ Installation
 ------------
 
 First, install the [Haskell Platform](https://www.haskell.org/platform/)
-(recommended) or other GHC 7.8+ toolchain of your choice.
+(recommended) or other GHC 7.10+ toolchain of your choice.
 
 Check out the `plover` source:
 
