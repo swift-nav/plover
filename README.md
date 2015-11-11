@@ -51,9 +51,6 @@ $ cabal test --show-details=streaming
 Usage
 -----
 
-`cabal repl` will load `Plover.Compile`, `Plover.Expressions`, and other modules.
-Experiment with the `printExpr` function.
-
-`cabal repl test-rewrites` will load the tests. run them with `main`. Running
-tests requires gcc.
+See
+http://swift-nav.github.io/plover/guide.html
 
