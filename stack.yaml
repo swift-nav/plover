@@ -1,0 +1,7 @@
+flags: {}
+packages:
+  - '.'
+resolver: lts-3.13
+extra-deps:
+  - data-fix-0.0.1
+  - language-c-quote-0.11
