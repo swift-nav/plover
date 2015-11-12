@@ -3,3 +3,7 @@
 dist/
 testing/*.h
 cabal.sandbox.config
+prelude.[ch]
+qr.[ch]
+qr_test.[ch]
+test_bin

@@ -1,6 +1,10 @@
 Plover
 ======
 
+[![Package version][plover-hackage-img]][plover-hackage]
+[![Build status][plover-travis-img]][plover-travis]
+[![Dependency status][plover-hackage-deps-img]][plover-hackage-deps]
+
 Plover is an embedded Haskell DSL for compiling linear algebra into robust,
 efficient C code suitable for running on embedded systems.
 
@@ -54,3 +58,10 @@ Usage
 See
 http://swift-nav.github.io/plover/guide.html
 
+[plover-github]: https://github.com/swift-nav/plover
+[plover-hackage-img]: https://img.shields.io/hackage/v/plover.svg?style=flat
+[plover-hackage]: https://hackage.haskell.org/package/plover
+[plover-travis-img]: https://img.shields.io/travis/swift-nav/plover/master.svg?style=flat
+[plover-travis]: https://travis-ci.org/swift-nav/plover
+[plover-hackage-deps-img]: https://img.shields.io/hackage-deps/v/plover.svg?style=flat
+[plover-hackage-deps]: http://packdeps.haskellers.com/feed?needle=plover

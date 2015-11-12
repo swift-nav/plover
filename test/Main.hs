@@ -23,9 +23,9 @@ testSuccess =       fst
 testCode v = (== v) . snd
 
 gccCompile files outcome = do
-  _ <- readProcess "gcc" (files ++ ["-w", "-otest_bin"]) ""
+  _ <- readProcess "gcc" (files ++ ["-w", "-std=c99", "-otest_bin", "-lm"]) ""
   -- ExitCode, stdout :: String, stderr :: String
-  (code, _, _) <- readProcessWithExitCode "test_bin" [] ""
+  (code, _, _) <- readProcessWithExitCode "./test_bin" [] ""
 
   assert (testCode (Just code) outcome)
 
