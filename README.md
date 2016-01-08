@@ -46,6 +46,20 @@ Run the test suite (requires gcc):
 $ stack test --test-arguments --show-details=streaming
 ```
 
+Installation of the `plover` binary into `~/.local/bin`
+
+```
+$ stack build --copy-bins
+```
+
+or
+
+```
+# same thing as previous
+$ stack install
+```
+
+
 ## Cabal sandbox build
 
 Next, create a cabal sandbox. This keeps any dependencies isolated so you don't
