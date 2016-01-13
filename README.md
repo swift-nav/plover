@@ -23,8 +23,7 @@ linear algebra problems to generate more efficient code.
 Installation
 ------------
 
-First, install the [Haskell Platform](https://www.haskell.org/platform/)
-(recommended) or other GHC 7.10+ toolchain of your choice.
+First, install [Stack](http://haskellstack.org) or [Haskell Platform](https://www.haskell.org/platform/). Key is having GHC 7.10+ available.
 
 Check out the `plover` source:
 
@@ -32,6 +31,36 @@ Check out the `plover` source:
 $ git clone https://github.com/swift-nav/plover.git
 $ cd plover
 ```
+
+Then use one of the two available build methods.
+
+## Stack build
+
+```
+$ stack build
+```
+
+Run the test suite (requires gcc):
+
+```
+$ stack test --test-arguments --show-details=streaming
+```
+
+Installation of the `plover` binary into `~/.local/bin`
+
+```
+$ stack build --copy-bins
+```
+
+or
+
+```
+# same thing as previous
+$ stack install
+```
+
+
+## Cabal sandbox build
 
 Next, create a cabal sandbox. This keeps any dependencies isolated so you don't
 have to worry about conflicts with other versions you may have on your system.
