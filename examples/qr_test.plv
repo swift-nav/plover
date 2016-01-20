@@ -9,22 +9,40 @@ main () :: s32 := (
        0,   0, 22);
   A := m;
 
-  b := vec(5.0, 4, 1.1, 22);
+  -- b := vec(5.0, 4, 1.1, 22);
+  b := mat(5.0, 10.0;
+           4, 7.1;
+           1.1, 4e-2;
+           22, 1e-5);
+
   v := b;
 
-  residual := -1.0;
+  residual :: double[2];
 
-  solution :: double[3];
+  solution :: double[3, 2];
 
-  qr_solve (inout m) (inout b) (out solution) (out residual);
+  ret := qr_solve (inout m) (inout b) (out solution) (out residual);
+  assert(ret > -1);
 
+  octave_solution := mat(2.99958762886598,   9.99983414432989;
+                         2.00061855670102,  -2.89975121649484;
+                         1.00020618556701,   8.29278350529933e-05);
+
+  tol := 1e-6;
+  error := solution - octave_solution;
+  for col in 2 -> (
+    assert(norm(error[:, col]) < tol);
+  );
+
+  printf "\nCorrect solution to within %e!\n" tol;
   printf "\nconstraint matrix:\n";
   print_mat m;
 
   printf "residual:\n%f\n" residual;
   printf "solution:\n";
-  print_vec solution;
+  print_mat solution;
   printf "residual vector:\n";
-  print_vec $ A * b[0:3] - v;
-  0;
+  print_mat $ A * b[0:3, :] - v;
+
+  ret;
 );

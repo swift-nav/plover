@@ -17,31 +17,31 @@ static givens (a :: double) (b :: double) :: double[2,2] := (
 
 -- Assumes m >= n
 -- See "Matrix Computations" 4th ed. Golub and Van Loan
-qr_solve {m, n}
+qr_solve {m, n, p}
   (inout A :: double[m, n])
-  (inout b :: double[m])
+  (inout b :: double[m, p])
 
-  (out solution :: double[n])
-  (out residual :: double)
+  (out solution :: double[n, p])
+  (out residual :: double[p])
 
   :: s8 := (
 
   qr_update (inout b) (inout A);
 
   -- A is now upper triangular; backsolve it into b
-  code := backsolve A[0:n, 0:n] (inout b[0:n]);
+  code := backsolve A[0:n, 0:n] (inout b[0:n, :]);
 
-  -- Solution stored in first n elements
-  solution <- b[0:n];
+  -- Solution stored in first n rows
+  solution <- b[0:n, :];
 
-  -- Norm of error = norm of last m-n elements
-  residual <- norm b[n:m];
+  -- Norm of error = norm of last m-n rows
+  residual <- vec i in p -> norm b[n:m, p];
 
   return code;
 );
 
-qr_update {m, n}
-  (inout b :: double[m])
+qr_update {m, n, p}
+  (inout b :: double[m, p])
   (inout A :: double[m, n])
   :: Void := (
 
@@ -56,26 +56,27 @@ qr_update {m, n}
         A[i-2 .. i-1, k-1] <- rot^T * v;
       );
 
-      -- Rotate b vector
-      v := b[i-2 .. i-1];
-      b[i-2 .. i-1] <- rot^T * v;
-
+      -- Rotate columns of b by the same rotation
+      for k in 0 .. p-1 -> (
+        v := b[i-2 .. i-1, k];
+        b[i-2 .. i-1, k] <- rot^T * v;
+      );
   );
 );
 
 -- Back substitution for upper triangular U
-static backsolve {n}
+static backsolve {n, p}
   (U :: double[n,n])
-  (inout b :: double[n])
+  (inout b :: double[n, p])
   :: s8 := (
     for i in 0:n ->
       if U[i,i] == 0 then
         return -1;
 
-    b[n-1] <- b[n-1]/U[n-1, n-1];
+    b[n-1, :] <- b[n-1, :]/U[n-1, n-1];
 
     for i in n-1 .. 1 : -1 -> (
-      b[i-1] <- (b[i-1] - U[i-1, i : n] * b[i : n]) / U[i-1, i-1];
+      b[i-1, :] <- (b[i-1, :] - (vec j in p -> U[i-1, i : n] * b[i : n, j])) / U[i-1, i-1];
     );
 
     return 0;
