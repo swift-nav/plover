@@ -50,7 +50,6 @@ library
                      Language.Plover.Main,
                      Language.Plover.Types,
                      Language.Plover.Quote,
-                     Language.Plover.QuoteTest,
                      Language.Plover.Parser,
                      Language.Plover.ParserTypes,
                      Language.Plover.Convert,
@@ -79,7 +78,7 @@ library
                    , pretty-show
 
                    , mainland-pretty
-                   , language-c-quote == 0.11
+                   , language-c-quote == 0.11.4
                    , srcloc
                    , haskell-src-meta
                    , syb
