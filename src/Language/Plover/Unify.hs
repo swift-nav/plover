@@ -710,6 +710,9 @@ typeCheck (VecLit pos ty xs) = do
   -- Take care to unify against ty last so that ty doesn't become wrong number type too early:
   ty' <- foldM (unify pos) (head xtys) $ tail xtys ++ [ty]
   return $ normalizeTypes $ VecType DenseMatrix [IntLit pos defaultIntType (fromIntegral $ length xs)] ty'
+typeCheck (TupleLit pos xs@(x : _)) = do
+  addUError $ UError pos "Nontrivial tuples not supported.  Did you mean to call a function?"
+  TupleType <$> mapM typeCheck xs
 typeCheck (TupleLit pos xs) = TupleType <$> mapM typeCheck xs
 typeCheck (ScalarMatLit pos n s) = do _ <- expectInt pos =<< typeCheck n
                                       VecType ScalarMatrix [n,n] <$> typeCheck s
