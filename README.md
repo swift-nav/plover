@@ -62,7 +62,7 @@ $ stack install
 
 ## Cabal sandbox build
 
-Next, create a cabal sandbox. This keeps any dependencies isolated so you don't
+We suggest using a cabal sandbox: this keeps any dependencies isolated so you don't
 have to worry about conflicts with other versions you may have on your system.
 
 ```
@@ -72,6 +72,7 @@ $ cabal sandbox init
 Install the dependencies into the sandbox:
 
 ```
+$ cabal install happy alex
 $ cabal install --only-dependencies --enable-tests
 ```
 
