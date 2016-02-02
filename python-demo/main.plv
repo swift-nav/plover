@@ -1,0 +1,16 @@
+import prelude;
+
+test {n}
+     (out m :: double[n,n])
+     (inout x :: double[n])
+     :: double := (
+  m <- vec i in n,
+           j in n ->
+        rand_uniform () * i;
+  y := m * x;
+  x <- y;
+  return norm y;
+);
+
+-- currently needed for plover compiler
+main () :: int := 0;
