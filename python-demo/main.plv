@@ -14,3 +14,39 @@ test {n}
 
 -- currently needed for plover compiler
 main () :: int := 0;
+
+-- maintain a map from row to sid
+-- given sid, return corresponding row, and update map for remaining rows
+drop_row {num_sats}
+  (sid :: int)
+  (sid_map :: int[num_sats])
+  (out new_map :: int[num_sats-1])
+  :: int := (
+
+  row :: int;
+
+  for i in num_sats -> (
+    if sid_map[i] == sid then (
+      row <- i;
+    );
+  );
+
+  new_map[0:row] <- sid_map[0:row];
+  new_map[row:]  <- sid_map[row+1:];
+
+  return row;
+);
+
+kp {dim}
+  (x :: double[dim])
+  (P :: double[dim, dim])
+  (F :: double[dim, dim])
+  (Q :: double[dim, dim])
+  (out x_new :: double[dim])
+  (out P_new :: double[dim, dim])
+  :: () := (
+
+  P_new <- F * P * F^T + Q;
+  x_new <- F * x;
+
+);
