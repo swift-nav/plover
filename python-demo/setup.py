@@ -3,9 +3,10 @@ from distutils.extension import Extension
 from Cython.Build import cythonize
 import numpy
 
-setup(
-  ext_modules = cythonize([
+extensions = [
       Extension("plover", ["plover.pyx"],
                 include_dirs=[numpy.get_include()],
-                libraries=["plover", "prelude"])])
+                libraries=["plover", "prelude", "qr"])]
+setup(
+  ext_modules = cythonize(extensions, gdb_debug=True)
 )

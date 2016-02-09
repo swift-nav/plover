@@ -1,4 +1,11 @@
 import prelude;
+import qr;
+__C__ "#include <libswiftnav/linear_algebra.h>";
+
+extern (
+  -- not currently used
+  matrix_inverse (n :: u32) (in m :: double[n,n]) (out minv :: double[n,n]) :: u32;
+);
 
 test {n}
      (out m :: double[n,n])
@@ -37,7 +44,7 @@ drop_row {num_sats}
   return row;
 );
 
-kp {dim}
+kalman_predict_ {dim}
   (x :: double[dim])
   (P :: double[dim, dim])
   (F :: double[dim, dim])
@@ -48,5 +55,53 @@ kp {dim}
 
   P_new <- F * P * F^T + Q;
   x_new <- F * x;
+);
 
+kalman_update_ {xdim, dim}
+  (x :: double[xdim])
+  (P :: double[xdim, xdim])
+  (y :: double[dim])
+  (H :: double[dim, xdim])
+  (R :: double[dim, dim])
+  (out x_new :: double[xdim])
+  (out P_new :: double[xdim, xdim])
+  :: () := (
+
+  id :: Scalar double[xdim, xdim];
+  id <- 1;
+  innovation := y - H * x;
+  pht := P * H^T;
+  S := H * pht + R;
+
+  -- instead of computing
+  --    K <- P * H^T * S^(-1) :: double[xdim, dim];
+  --    K * innovation, K * H
+  -- we use the least squares procedure to compute
+  --    S^(-1) * [innovation | H]
+  -- then multiply the other factors
+
+  block := (innovation^T # H^T)^T;
+  block_out :: double[dim, xdim+1];
+  resid :: double[xdim+1];
+  qr_solve (inout S) (inout block) (out block_out) (out resid);
+  x_new <- x + pht * block_out[:, 0];
+  P_new <- (id - pht * block_out[:, 1:]) * P;
+
+  ()
+);
+
+print_all_ {dim}
+  (innovation :: double[dim])
+  (S :: double[dim, dim])
+  (Si :: double[dim, dim])
+  (K :: double[dim, dim])
+  (x_new :: double[dim])
+  (P_new :: double[dim, dim])
+  :: () := (
+  print_vec innovation;
+  print_mat S;
+  print_mat Si;
+  print_mat K;
+  print_vec x_new;
+  print_mat P_new;
 );
