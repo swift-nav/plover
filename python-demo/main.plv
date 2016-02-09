@@ -7,42 +7,8 @@ extern (
   matrix_inverse (n :: u32) (in m :: double[n,n]) (out minv :: double[n,n]) :: u32;
 );
 
-test {n}
-     (out m :: double[n,n])
-     (inout x :: double[n])
-     :: double := (
-  m <- vec i in n,
-           j in n ->
-        rand_uniform () * i;
-  y := m * x;
-  x <- y;
-  return norm y;
-);
-
 -- currently needed for plover compiler
 main () :: int := 0;
-
--- maintain a map from row to sid
--- given sid, return corresponding row, and update map for remaining rows
-drop_row {num_sats}
-  (sid :: int)
-  (sid_map :: int[num_sats])
-  (out new_map :: int[num_sats-1])
-  :: int := (
-
-  row :: int;
-
-  for i in num_sats -> (
-    if sid_map[i] == sid then (
-      row <- i;
-    );
-  );
-
-  new_map[0:row] <- sid_map[0:row];
-  new_map[row:]  <- sid_map[row+1:];
-
-  return row;
-);
 
 kalman_predict_ {dim}
   (x :: double[dim])
@@ -88,20 +54,4 @@ kalman_update_ {xdim, dim}
   P_new <- (id - pht * block_out[:, 1:]) * P;
 
   ()
-);
-
-print_all_ {dim}
-  (innovation :: double[dim])
-  (S :: double[dim, dim])
-  (Si :: double[dim, dim])
-  (K :: double[dim, dim])
-  (x_new :: double[dim])
-  (P_new :: double[dim, dim])
-  :: () := (
-  print_vec innovation;
-  print_mat S;
-  print_mat Si;
-  print_mat K;
-  print_vec x_new;
-  print_mat P_new;
 );
