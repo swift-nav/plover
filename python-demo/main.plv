@@ -1,14 +1,10 @@
 import prelude;
 import qr;
+
 __C__ "#include <libswiftnav/linear_algebra.h>";
 __C__ "#include <libswiftnav/constants.h>";
--- TODO: use libswiftnav structs
-__C__ "#include \"temp_defs.h\"";
 
 extern (
-  -- not currently used
-  matrix_inverse (n :: u32) (in m :: double[n,n]) (out minv :: double[n,n]) :: u32;
-
   GPS_L1_LAMBDA :: double;
 );
 
@@ -47,11 +43,6 @@ kalman_update_ {xdim, dim}
   P_new <- (id () - K * H) * P;
 );
 
-extern struct sdiff (
-  pseudorange :: double;
-  carrier_phase :: double;
-);
-
 omega_dot_unit_vector {sats, dim}
   (base_pos :: double[dim])
   (sat_positions :: double[sats, dim])
@@ -87,34 +78,33 @@ observation_model_ {sats}
   (sig_cp :: double)
   (sig_pr :: double)
 
-  (out y :: double[2*sats-2])
-  (out H :: double[2*sats-2, sats+2])
-  (out R :: double[2*sats-2, 2*sats-2])
+  (out y :: double[2*(sats-1)])
+  (out H :: double[2*(sats-1), 3+(sats-1)])
+  (out R :: double[2*(sats-1), 2*(sats-1)])
   :: () := (
 
-  omega_e := omega_dot_unit_vector base_pos sat_positions x[0:3];
-  E := omega_e / GPS_L1_LAMBDA;
+  E :: double[sats, 3];
+  E <- (omega_dot_unit_vector base_pos sat_positions x[0:3]) / GPS_L1_LAMBDA;
 
   u :: double[sats];
   u <- -1.0 / sqrt sats;
   u[0] <- u[0] + 1;
 
-  P := id () - 2 * (u * u^T) / (u * u);
-
-  sig_ratio := sig_cp / (sig_pr / GPS_L1_LAMBDA);
-
   P_bar :: double[sats-1, sats];
-  P_bar <- P[1:];
+  P_bar <- (id () - 2 * (u * u^T) / (u * u))[1:];
+
   F :: double[sats-1, sats-1];
   F <- id () - (1 / (sats - sqrt sats));
 
-  pr_in_wavelengths := pseudoranges / GPS_L1_LAMBDA;
-  y <- (P_bar * carrier_phases) # (sig_ratio * P_bar * pr_in_wavelengths);
+  sig_ratio := sig_cp / (sig_pr / GPS_L1_LAMBDA);
 
+  -- Outputs
+  y <- (P_bar * carrier_phases) #
+         (sig_ratio * P_bar * pseudoranges / GPS_L1_LAMBDA);
+
+  -- block: [PE, F; sig_ratio*PE, 0]
   PE := P_bar * E;
   H <- ((PE^T # F^T)^T # ((sig_ratio * PE^T) # zero())^T);
 
   R <- 4 * sig_cp * id ();
-
-  ()
 )
