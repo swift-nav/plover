@@ -1,10 +1,15 @@
 import prelude;
 import qr;
 __C__ "#include <libswiftnav/linear_algebra.h>";
+__C__ "#include <libswiftnav/constants.h>";
+-- TODO: use libswiftnav structs
+__C__ "#include \"temp_defs.h\"";
 
 extern (
   -- not currently used
   matrix_inverse (n :: u32) (in m :: double[n,n]) (out minv :: double[n,n]) :: u32;
+
+  GPS_L1_LAMBDA :: double;
 );
 
 -- currently needed for plover compiler
@@ -33,13 +38,83 @@ kalman_update_ {xdim, dim}
   (out P_new :: double[xdim, xdim])
   :: () := (
 
-  id :: Scalar double[xdim, xdim];
-  id <- 1;
   innovation := y - H * x;
   PHt := P * H^T;
   S := H * PHt + R;
   K := PHt * S^(-1) :: double[xdim, dim];
 
   x_new <- x + K * innovation;
-  P_new <- (id - K * H) * P;
+  P_new <- (id () - K * H) * P;
 );
+
+extern struct sdiff (
+  pseudorange :: double;
+  carrier_phase :: double;
+);
+
+omega_dot_unit_vector {sats, dim}
+  (base_pos :: double[dim])
+  (sat_positions :: double[sats, dim])
+  (estimate :: double[dim])
+  :: double[sats, dim] := (
+
+  vec i in sats -> (
+    h := sat_positions[i] - base_pos;
+    omega := norm h + norm (h - estimate);
+    (2*h - estimate) / omega
+  );
+);
+
+id {m} :: Scalar double[m,m] := (
+  i :: Scalar double[m,m];
+  i <- 1;
+  i
+);
+
+zero {m} :: Scalar double[m,m] := (
+  i :: Scalar double[m,m];
+  i <- 0;
+  i
+);
+
+observation_model_ {sats}
+  (pseudoranges :: double[sats])
+  (carrier_phases :: double[sats])
+  (x :: double[3+sats])
+  (base_pos :: double[3])
+  (sat_positions :: double[sats, 3])
+
+  (sig_cp :: double)
+  (sig_pr :: double)
+
+  (out y :: double[2*sats-2])
+  (out H :: double[2*sats-2, sats+2])
+  (out R :: double[2*sats-2, 2*sats-2])
+  :: () := (
+
+  omega_e := omega_dot_unit_vector base_pos sat_positions x[0:3];
+  E := omega_e / GPS_L1_LAMBDA;
+
+  u :: double[sats];
+  u <- -1.0 / sqrt sats;
+  u[0] <- u[0] + 1;
+
+  P := id () - 2 * (u * u^T) / (u * u);
+
+  sig_ratio := sig_cp / (sig_pr / GPS_L1_LAMBDA);
+
+  P_bar :: double[sats-1, sats];
+  P_bar <- P[1:];
+  F :: double[sats-1, sats-1];
+  F <- id () - (1 / (sats - sqrt sats));
+
+  pr_in_wavelengths := pseudoranges / GPS_L1_LAMBDA;
+  y <- (P_bar * carrier_phases) # (sig_ratio * P_bar * pr_in_wavelengths);
+
+  PE := P_bar * E;
+  H <- ((PE^T # F^T)^T # ((sig_ratio * PE^T) # zero())^T);
+
+  R <- 4 * sig_cp * id ();
+
+  ()
+)

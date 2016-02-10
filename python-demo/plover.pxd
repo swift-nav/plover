@@ -7,3 +7,4 @@ cdef extern from "main.c":
 
     s32 matrix_inverse (const s32 dim, const double * x, double * y);
     void print_all_ (const s32 dim, const double * innovation, const double * S, const double * Si, const double * K, const double * x_new, const double * P_new);
+    void observation_model_ (const s32 sats, const double * pseudoranges, const double * carrier_phases, const double * x, const double * base_pos, const double * sat_positions, const double sig_cp, const double sig_pr, double * y, double * H, double * R);
