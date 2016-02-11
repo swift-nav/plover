@@ -11,6 +11,21 @@ extern (
 -- currently needed for plover compiler
 main () :: int := 0;
 
+-- WARNING do not use id or zero in a general direct assignment.
+-- Correct code will only be generated if id is used within
+-- an expression, or assigned to a Scalar location.
+id {m} :: Scalar double[m,m] := (
+  i :: Scalar double[m,m];
+  i <- 1;
+  i
+);
+
+zero {m} :: Scalar double[m,m] := (
+  i :: Scalar double[m,m];
+  i <- 0;
+  i
+);
+
 kalman_predict_ {dim}
   (x :: double[dim])
   (P :: double[dim, dim])
@@ -56,18 +71,6 @@ omega_dot_unit_vector {sats, dim}
   );
 );
 
-id {m} :: Scalar double[m,m] := (
-  i :: Scalar double[m,m];
-  i <- 1;
-  i
-);
-
-zero {m} :: Scalar double[m,m] := (
-  i :: Scalar double[m,m];
-  i <- 0;
-  i
-);
-
 observation_model_ {sats}
   (pseudoranges :: double[sats])
   (carrier_phases :: double[sats])
@@ -91,10 +94,9 @@ observation_model_ {sats}
   u[0] <- u[0] + 1;
 
   P_bar :: double[sats-1, sats];
-  P_bar <- (id () - 2 * (u * u^T) / (u * u))[1:];
+  P_bar <- (id() - 2 * (u * u^T) / (u * u))[1:];
 
-  F :: double[sats-1, sats-1];
-  F <- id () - (1 / (sats - sqrt sats));
+  F := id{sats-1} - (1 / (sats - sqrt sats));
 
   sig_ratio := sig_cp / (sig_pr / GPS_L1_LAMBDA);
 
@@ -106,5 +108,5 @@ observation_model_ {sats}
   PE := P_bar * E;
   H <- ((PE^T # F^T)^T # ((sig_ratio * PE^T) # zero())^T);
 
-  R <- 4 * sig_cp * id ();
+  R <- 4 * sig_cp * id();
 )
