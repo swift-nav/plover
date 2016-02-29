@@ -677,6 +677,10 @@ typeCanHold' StringType StringType = True
 typeCanHold' BoolType BoolType = True
 typeCanHold' (PtrType t1) (PtrType t2) = typeCanHold' t1 t2 -- TODO should check t1 == t2
 typeCanHold' (TypedefType ty1 v1) (TypedefType ty2 v2)  = v1 == v2 || typeCanHold' ty1 ty2
+-- WARNING: --
+typeCanHold' (TypedefType ty1 v1) ty2@(StructType v2 _) = v1 == v2 || typeCanHold' ty1 ty2
+typeCanHold' ty1@(StructType v1 _) (TypedefType ty2 v2) = v1 == v2 || typeCanHold' ty1 ty2
+-- :GNINRAW --
 typeCanHold' (TypedefType ty1 _) ty2 = typeCanHold' ty1 ty2
 typeCanHold' ty1 (TypedefType ty2 _) = typeCanHold' ty1 ty2
 typeCanHold' (StructType v1 _) (StructType v2 _) = v1 == v2
