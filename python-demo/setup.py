@@ -6,7 +6,7 @@ import numpy
 extensions = [
       Extension("plover", ["plover.pyx"],
                 include_dirs=[numpy.get_include()],
-                libraries=["plover", "prelude", "qr"])]
+                libraries=["plover_main", "prelude", "qr", "filter", "util", "operations"])]
 setup(
   ext_modules = cythonize(extensions, gdb_debug=True)
 )

@@ -1,0 +1,64 @@
+import prelude;
+import util;
+
+-- ADD SAT --
+
+add_sat_
+  (out state :: filter_state)
+  (sat :: gnss_signal_t)
+  (sigma :: double)
+  :: () := (
+  num := state.num_sats;
+  state.num_sats <- num + 1;
+  state.sats[num-1] <- sat;
+  state.x[num-1] <- 0;
+  -- initial variance = sigma
+  state.P[3+num-1, 3+num-1] <- sigma;
+  -- initial covariance = 0
+  state.P[3+num-1, :3+num-1] <- 0;
+  state.P[:3+num-1, 3+num-1] <- 0;
+);
+
+-- DROP SAT --
+
+drop_sat_ {sats}
+  (x :: double[3+sats])
+  (P :: double[3+sats, 3+sats])
+
+  (sat :: gnss_signal_t)
+
+  (out x_new :: double[3+sats-1])
+  (out P_new :: double[3+sats-1, 3+sats-1])
+  (inout sat_state :: filter_state)
+  :: () := (
+  index := drop_sat_state sat (inout sat_state);
+  x_new <- drop_i_1_double index x;
+  P_new <- drop_i_2 index (drop_i_2 index P^T)^T;
+);
+
+-- CHOOSE REF --
+
+choose_ref_ {m}
+  (measurements :: measurement[m])
+  :: s32 := (
+  if m < 1 then return -1 else 0;
+
+  index := 0;
+  max_snr := measurements[0].snr;
+  for i in 1:m ->
+    if measurements[i].snr > max_snr then (
+        max_snr <- measurements[i].snr;
+        index   <- i;
+    ) else ();
+
+  return index;
+);
+
+-- CHANGE REF --
+
+-- assumes sat is already part of the state
+change_ref_
+  (inout sat_state :: filter_state)
+  (sat :: gnss_signal_t)
+  :: () := (
+);

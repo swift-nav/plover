@@ -1,29 +1,21 @@
 import prelude;
 import qr;
+import util;
 
-__C__ "#include <libswiftnav/linear_algebra.h>";
-__C__ "#include <libswiftnav/constants.h>";
-
-extern (
-  GPS_L1_LAMBDA :: double;
-);
-
--- currently needed for plover compiler
-main () :: int := 0;
-
--- WARNING do not use id or zero in a general direct assignment.
--- Correct code will only be generated if id is used within
+-- WARNING do not use eye or zero in a general direct assignment.
+-- Correct code will only be generated if used within
 -- an expression, or assigned to a Scalar location.
-id {m} :: Scalar double[m,m] := (
-  i :: Scalar double[m,m];
-  i <- 1;
-  i
-);
+eye  {m} :: Scalar double[m,m] := scalar 1.0;
+zero {m} :: Scalar double[m,m] := scalar 0.0;
 
-zero {m} :: Scalar double[m,m] := (
-  i :: Scalar double[m,m];
-  i <- 0;
-  i
+kalman_init_
+  (out state :: filter_state)
+  :: () := (
+  state.num_sats <- 0;
+  state.x <- 0.0;
+  position_covariance :: double[state.num_sats + 3, state.num_sats + 3];
+  position_covariance <- 0.0;
+  state.P <- position_covariance;
 );
 
 kalman_predict_ {dim}
@@ -34,7 +26,6 @@ kalman_predict_ {dim}
   (out x_new :: double[dim])
   (out P_new :: double[dim, dim])
   :: () := (
-
   P_new <- F * P * F^T + Q;
   x_new <- F * x;
 );
@@ -55,7 +46,7 @@ kalman_update_ {xdim, dim}
   K := PHt * S^(-1) :: double[xdim, dim];
 
   x_new <- x + K * innovation;
-  P_new <- (id () - K * H) * P;
+  P_new <- (eye () - K * H) * P;
 );
 
 omega_dot_unit_vector {sats, dim}
@@ -94,9 +85,9 @@ observation_model_ {sats}
   u[0] <- u[0] + 1;
 
   P_bar :: double[sats-1, sats];
-  P_bar <- (id() - 2 * (u * u^T) / (u * u))[1:];
+  P_bar <- (eye() - 2 * (u * u^T) / (u * u))[1:];
 
-  F := id{sats-1} - (1 / (sats - sqrt sats));
+  F := eye{sats-1} - (1 / (sats - sqrt sats));
 
   sig_ratio := sig_cp / (sig_pr / GPS_L1_LAMBDA);
 
@@ -108,5 +99,17 @@ observation_model_ {sats}
   PE := P_bar * E;
   H <- ((PE^T # F^T)^T # ((sig_ratio * PE^T) # zero())^T);
 
-  R <- 4 * sig_cp * id();
-)
+  R <- 4 * sig_cp * eye();
+);
+
+--intersect obs set on prn, computer sdiffs
+--if ref is gone -> drop_sat, choose_ref
+--new sats -> add_sat
+--new ref -> change_ref
+update {base_dim, rover_dim}
+  (inout filter_state :: filter_state)
+  (rover :: measurement[rover_dim])
+  (base  :: measurement[base_dim])
+  :: () := (
+  -- TODO
+);

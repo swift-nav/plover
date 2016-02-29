@@ -1,0 +1,80 @@
+__C__ "#include <libswiftnav/linear_algebra.h>";
+__C__ "#include <libswiftnav/constants.h>";
+__C__ "#include <libswiftnav/signal.h>";
+--__C__ "#include <libswiftnav/set.h>";
+
+extern MAX_STATE_DIM :: int;
+__C__ "#define MAX_STATE_DIM 22";
+
+extern (
+  GPS_L1_LAMBDA :: double;
+
+  -- we don't use the fields; only call functions with gnss_signal_t parameters
+  -- TODO make parser accept empty struct definition
+  struct gnss_signal_t ( hidden :: () );
+
+  sid_to_code_index (x :: gnss_signal_t) :: u16;
+  sid_is_equal(a :: gnss_signal_t) (b :: gnss_signal_t) :: bool;
+);
+
+struct measurement (
+  pseudorange :: double;
+  carrier_phase :: double;
+  snr :: double;
+  sat_id :: gnss_signal_t;
+);
+
+struct filter_state (
+  num_sats :: int;
+  sats :: gnss_signal_t[MAX_STATE_DIM] storing gnss_signal_t[num_sats];
+  x :: double[MAX_STATE_DIM] storing double[num_sats+3];
+  P :: double[MAX_STATE_DIM, MAX_STATE_DIM] storing double[num_sats+3, num_sats+3];
+);
+
+-- TODO base type polymorphism
+drop_i_1_double {d}
+  (i :: u32)
+  (v :: double[d])
+  :: double[d-1] := (
+  u :: double[d-1];
+  u[0:i] <- v[0:i];
+  u[i:]  <- v[i+1:];
+  u;
+);
+
+drop_i_1_s32 {d}
+  (i :: u32)
+  (v :: s32[d])
+  :: s32[d-1] := (
+  u :: s32[d-1];
+  u[0:i] <- v[0:i];
+  u[i:]  <- v[i+1:];
+  u;
+);
+
+drop_i_2 {d, n}
+  (i :: u32)
+  (v :: double[d,n])
+  :: double[d-1,n] := (
+  u :: double[d-1,n];
+  u[0:i] <- v[0:i];
+  u[i:]  <- v[i+1:];
+  u;
+);
+
+-- returns index of dropped sat
+drop_sat_state
+  (target :: gnss_signal_t)
+  (inout sat_state :: filter_state)
+  :: s32 := (
+  index :: s32;
+  for i in sat_state.num_sats -> (
+    if sid_is_equal target sat_state.sats[i] then
+      index <- i;
+  );
+
+  dim := sat_state.num_sats; -- slight hack
+  sat_state.num_sats <- dim - 1;
+  sat_state.sats[index:dim-1] <- sat_state.sats[index+1:dim];
+  return index;
+);
