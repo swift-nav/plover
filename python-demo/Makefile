@@ -1,4 +1,4 @@
-all: cython
+all: cython main
 
 MAIN_SRC = $(wildcard *.plv)
 
@@ -13,9 +13,13 @@ lib%.a : %.o
 %.o : %.c
 	gcc -fpic -c $<
 
-plover_main.c prelude.c qr.c: $(MAIN_SRC)
+plover_main.c prelude.c qr.c: ../examples/prelude.plv $(MAIN_SRC)
 	plover -I ../examples ../examples/prelude.plv ../examples/qr.plv util.plv operations.plv filter.plv plover_main.plv
 
 .PHONY: clean
 clean:
 	rm -rf build/ *.o *.a plover_main.c prelude.c qr.c plover_main.h prelude.h qr.h plover.so plover.c
+
+# TODO: pattern for c files
+main: plover_main.c
+	gcc -g -o test_suite plover_main.c prelude.c qr.c util.c filter.c operations.c rand.c

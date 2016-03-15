@@ -1,0 +1,35 @@
+import prelude;
+import util;
+
+uniform_interval
+  (k :: s32) (m :: s32) :: s32
+  := k + (rand () % (m-k));
+
+-- choose length of subset, then choose uniformly from subsets of that size
+-- return length of subset
+sample_k
+  (m :: s32)
+  (out indices :: s32[m])
+  :: s32 := (
+  k := (uniform_interval 0 m);
+  res := 0:m;
+  for i in m - k -> res[:m-1] <- drop_i_1_s32 (rand () % (m-i)) res; -- TODO
+  indices[:k] <- res[:k];
+  k
+);
+
+-- select each element with probability p < 1/2
+-- return length of subset
+sample_uniform
+  (n :: s32)
+  (out indices :: s32[n])
+  :: s32 := (
+  j := 0;
+  for i in n -> (
+    if rand () % 8 < 4 then (
+      indices[j] <- i;
+      j <- j + 1;
+    )
+  );
+  return j
+);

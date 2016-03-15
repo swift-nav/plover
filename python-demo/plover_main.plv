@@ -1,10 +1,67 @@
 import prelude;
+import rand;
 import util;
 import operations;
 import filter;
 
--- currently needed for plover compiler
-main () :: int := 0;
+sample_sid {m}
+  (sids :: gnss_signal_t[m])
+  (out res :: gnss_signal_t[m])
+  :: s32 := (
+  indices :: s32[m];
+  -- Choose sampling strategy here:
+  --count := sample_k m (out indices);
+  count := sample_uniform m (out indices);
+  res[:count] <- sids[indices[:count]];
+  count
+);
+
+make_measurement
+  (s :: gnss_signal_t)
+  :: measurement := (
+  m :: measurement;
+  m.pseudorange <- rand_normal ();
+  m.carrier_phase <- rand_normal ();
+  m.snr <- rand_normal () + 1;
+  m.sat_id <- s;
+  m
+);
+
+make_sat_sequence {num_sats}
+  :: gnss_signal_t[num_sats] := (
+  vec i in num_sats -> (
+    s :: gnss_signal_t;
+    s.sat <- i;
+    s.code <- CODE_GPS_L1CA;
+    s
+  );
+);
+
+test_add_drop
+  (num_sats :: u32)
+  (iterations :: u32) :: () := (
+  state := make_filter_state ();
+  sats := make_sat_sequence {num_sats};
+
+  for i in iterations -> (
+    res :: gnss_signal_t[num_sats];
+    count := sample_sid sats (out res);
+    subset :: gnss_signal_t[count] := res[:count];
+    printf "measurement sats: "; print_sats subset;
+    measurements := vec k in count -> make_measurement subset[k];
+
+    -- update
+    update (inout state) measurements;
+    nl (); print_sat_state state; nl ();
+
+    --print_vec state.x;
+  );
+  ()
+);
+
+main () :: int := (
+  test_add_drop 10 22222; 0
+);
 
 -- TODO --
 -- align/sdiff

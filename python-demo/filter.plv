@@ -1,20 +1,26 @@
 import prelude;
 import qr;
 import util;
+import operations;
 
--- WARNING do not use eye or zero in a general direct assignment.
--- Correct code will only be generated if used within
--- an expression, or assigned to a Scalar location.
-eye  {m} :: Scalar double[m,m] := scalar 1.0;
-zero {m} :: Scalar double[m,m] := scalar 0.0;
+make_filter_state () :: filter_state := (
+  s :: filter_state;
+  s.invalid <- True;
+  s.num_sats <- 0;
+  s;
+);
 
 kalman_init_
   (out state :: filter_state)
+  (ref :: gnss_signal_t)
   :: () := (
-  state.num_sats <- 0;
+  printf "reset filter. ref: "; print_sat ref; nl ();
+  state.num_sats <- 1;
+  state.ref <- ref;
+  state.invalid <- False;
   state.x <- 0.0;
-  position_covariance :: double[state.num_sats + 3, state.num_sats + 3];
-  position_covariance <- 0.0;
+  position_covariance :: double[state.num_sats + 2, state.num_sats + 2];
+  position_covariance <- 0.0; -- TODO
   state.P <- position_covariance;
 );
 
@@ -102,14 +108,45 @@ observation_model_ {sats}
   R <- 4 * sig_cp * eye();
 );
 
---intersect obs set on prn, computer sdiffs
---if ref is gone -> drop_sat, choose_ref
---new sats -> add_sat
---new ref -> change_ref
-update {base_dim, rover_dim}
-  (inout filter_state :: filter_state)
-  (rover :: measurement[rover_dim])
-  (base  :: measurement[base_dim])
+update {dim}
+  (inout state :: filter_state)
+  (sdiffs :: measurement[dim])
+  -- ? (receiver_ecef :: double)
+  -- ? (raim flag)
   :: () := (
-  -- TODO
+
+  if dim == 0 then (
+    printf "empty filter\n";
+    state <- make_filter_state ();
+    return;
+  );
+  if state.invalid then kalman_init_ (out state) sdiffs[0].sat_id;
+
+  new_sats := vec i in dim -> sdiffs[i].sat_id;
+
+  if not (contains_sat state.ref new_sats) then (
+    index := choose_ref state sdiffs;
+    if index < 0 then (
+      kalman_init_ (out state) sdiffs[0].sat_id;
+    ) else (
+      printf "change ref: ";
+      print_sat sdiffs[index].sat_id; nl ();
+      change_ref (inout state) sdiffs[index].sat_id;
+    );
+
+  );
+  while (drop_a_sat (inout state) new_sats);
+
+  for i in dim -> (
+    if not (contains_sat new_sats[i] state.sats or sid_is_equal new_sats[i] state.ref) then
+      add_sat (inout state) new_sats[i]
+  );
+
+  assert state.num_sats == dim;
+  for i in dim -> assert (
+    contains_sat sdiffs[i].sat_id state.sats or
+    sid_is_equal sdiffs[i].sat_id state.ref
+  );
+
+  -- TODO kalman_update
 );

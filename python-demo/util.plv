@@ -1,3 +1,5 @@
+import prelude;
+
 __C__ "#include <libswiftnav/linear_algebra.h>";
 __C__ "#include <libswiftnav/constants.h>";
 __C__ "#include <libswiftnav/signal.h>";
@@ -6,12 +8,36 @@ __C__ "#include <libswiftnav/signal.h>";
 extern MAX_STATE_DIM :: int;
 __C__ "#define MAX_STATE_DIM 22";
 
+-- /** Code identifier. */
+-- enum code {
+--   CODE_INVALID = -1,
+--   CODE_GPS_L1CA,
+--   CODE_GPS_L2CM,
+--   CODE_SBAS_L1CA,
+--   CODE_COUNT,
+-- };
+-- 
+-- /** GNSS signal identifier. */
+-- typedef struct {
+--   u16 sat;
+--   enum code code;
+-- } gnss_signal_t;
+
 extern (
   GPS_L1_LAMBDA :: double;
 
   -- we don't use the fields; only call functions with gnss_signal_t parameters
   -- TODO make parser accept empty struct definition
-  struct gnss_signal_t ( hidden :: () );
+  struct gnss_signal_t ( 
+    sat :: u16;
+    code :: u16; -- taken from enum values below
+  );
+
+  CODE_INVALID :: s32;
+  CODE_GPS_L1CA :: s32;
+  CODE_GPS_L2CM :: s32;
+  CODE_SBAS_L1CA :: s32;
+  CODE_COUNT :: s32;
 
   sid_to_code_index (x :: gnss_signal_t) :: u16;
   sid_is_equal(a :: gnss_signal_t) (b :: gnss_signal_t) :: bool;
@@ -25,11 +51,21 @@ struct measurement (
 );
 
 struct filter_state (
-  num_sats :: int;
-  sats :: gnss_signal_t[MAX_STATE_DIM] storing gnss_signal_t[num_sats];
-  x :: double[MAX_STATE_DIM] storing double[num_sats+3];
-  P :: double[MAX_STATE_DIM, MAX_STATE_DIM] storing double[num_sats+3, num_sats+3];
+  num_sats :: int; -- must be at least 1!
+  ref :: gnss_signal_t;
+  sats :: gnss_signal_t[MAX_STATE_DIM] storing gnss_signal_t[num_sats-1];
+  invalid :: bool;
+  x :: double[MAX_STATE_DIM] storing double[num_sats+2];
+  P :: double[MAX_STATE_DIM, MAX_STATE_DIM] storing double[num_sats+2, num_sats+2];
+
+  sigma :: double;
 );
+
+-- WARNING do not use eye or zero in a general direct assignment.
+-- Correct code will only be generated if used within
+-- an expression, or assigned to a Scalar location.
+eye  {m} :: Scalar double[m,m] := scalar 1.0;
+zero {m} :: Scalar double[m,m] := scalar 0.0;
 
 -- TODO base type polymorphism
 drop_i_1_double {d}
@@ -62,19 +98,34 @@ drop_i_2 {d, n}
   u;
 );
 
--- returns index of dropped sat
-drop_sat_state
+find_sat {dim}
   (target :: gnss_signal_t)
-  (inout sat_state :: filter_state)
+  (sats :: gnss_signal_t[dim])
   :: s32 := (
-  index :: s32;
-  for i in sat_state.num_sats -> (
-    if sid_is_equal target sat_state.sats[i] then
-      index <- i;
+  for i in dim -> (
+    if sid_is_equal target sats[i] then
+      return i
   );
+  return -1;
+);
 
-  dim := sat_state.num_sats; -- slight hack
-  sat_state.num_sats <- dim - 1;
-  sat_state.sats[index:dim-1] <- sat_state.sats[index+1:dim];
-  return index;
+contains_sat {dim}
+  (target :: gnss_signal_t)
+  (sats :: gnss_signal_t[dim])
+  :: bool := find_sat target sats >= 0;
+
+-- Print utils
+nl () :: () := (printf "\n"; ());
+
+print_sat (s :: gnss_signal_t) :: s32 := printf "%d, " s.sat;
+
+print_sats {n} (s :: gnss_signal_t[n]) :: () := (
+  for i in n -> (
+    print_sat s[i];
+  ); printf "\n"; ();
+);
+
+print_sat_state (s :: filter_state) :: () := (
+  if s.invalid then (printf "state empty\n"; ())
+  else (printf "("; print_sat s.ref; printf ")"; print_sats s.sats;);
 );

@@ -6,11 +6,12 @@ syn keyword Keyword   True False Void T _ __
 syn keyword Keyword   and or return assert
 
 syntax match comm "--.*$"
-syntax match sep "\v\(.*::.*\)"
+syntax match param "\v\([^\)\(]*::[^\)\(]*\)"
 syntax match semi "\;"
 syntax match fntype "::.*:="
+syntax match String "\v\"(\\.|[^\"])*\""
 
 highlight link comm Comment
-highlight link sep Function
+highlight link param Function
 highlight link semi PreProc
 highlight link fntype TypeDef
