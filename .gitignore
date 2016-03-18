@@ -7,3 +7,9 @@ prelude.[ch]
 qr.[ch]
 qr_test.[ch]
 test_bin
+python-demo/*.h
+python-demo/*.c
+python-demo/*.o
+python-demo/*.a
+python-demo/*.so
+python-demo/build/

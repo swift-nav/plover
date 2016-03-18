@@ -345,6 +345,16 @@ print_vec {n} (v :: double[n]) :: () := (
   ();
 );
 
+print_vec_s32 {n} (v :: s32[n]) :: () := (
+  printf "vec(";
+  for i in n -> (
+    if i > 0 then printf "," else 0;
+    printf "%d" v[i];
+  );
+  printf ")\n";
+  ();
+);
+
 print_mat {n,m} (A :: double[n,m]) :: () := (
   printf "mat(";
    for i in n -> (

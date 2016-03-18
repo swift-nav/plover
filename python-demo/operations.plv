@@ -1,0 +1,130 @@
+import prelude;
+import util;
+
+-- ADD SAT --
+
+add_sat
+  (inout state :: filter_state)
+  (sat :: gnss_signal_t)
+  :: () := (
+  printf "add: "; print_sat sat;
+  num := state.num_sats + 1;
+  sigma := state.sigma;
+  state.num_sats <- num;
+  state.sats[num-2] <- sat;
+  state.x[3+num-1] <- 0.0;
+  -- initial variance = sigma
+  state.P[3+num-1, 3+num-1] <- sigma;
+  -- initial covariance = 0
+  state.P[3+num-1, :3+num-1] <- 0;
+  state.P[:3+num-1, 3+num-1] <- 0;
+);
+
+-- DROP SAT --
+
+-- returns index of dropped sat
+drop_sat_state
+  (target :: gnss_signal_t)
+  (inout sat_state :: filter_state)
+  :: s32 := (
+
+  index := find_sat target sat_state.sats;
+
+  if index >= 0 then (
+    dim := sat_state.num_sats; -- slight hack
+    sat_state.num_sats <- dim - 1;
+    sat_state.sats[index:dim-1] <- sat_state.sats[index+1:dim];
+  ) else (
+    printf "ERROR; cannot drop. sat not found: "; print_sat target;
+    printf "\n"; print_sat_state sat_state;
+    assert False;
+  );
+
+  return index;
+);
+
+drop_sat
+  (inout state :: filter_state)
+  (sat :: gnss_signal_t)
+  :: () := (
+  printf "drop: "; print_sat sat;
+  index := drop_sat_state sat (inout state);
+  -- TODO check
+  dim := state.num_sats+2;
+  state.x[:dim-1] <- drop_i_1_double index state.x[:dim];
+  state.P[:dim-1,:dim-1] <- drop_i_2 index (drop_i_2 index state.P[:dim,:dim]^T)^T;
+);
+
+drop_a_sat {n}
+  (inout state :: filter_state)
+  (sats :: gnss_signal_t[n])
+  :: bool := (
+  for i in state.num_sats - 1 -> (
+    if not (contains_sat state.sats[i] sats) then (
+      drop_sat (inout state) state.sats[i];
+      return True;
+    );
+  );
+  return False;
+);
+
+
+-- CHOOSE REF --
+
+choose_ref {dim}
+  (state :: filter_state)
+  (measurements :: measurement[dim])
+  :: s32 := (
+
+  index := -1;
+  max_snr := -1000.0; -- TODO check units
+  for i in dim -> (
+    m := measurements[i];
+    if m.snr >= max_snr and contains_sat m.sat_id state.sats then (
+        max_snr <- measurements[i].snr;
+        index   <- i;
+    ) else ();
+  );
+
+  return index;
+);
+
+-- CHANGE REF --
+
+-- assumes sat is already part of the state
+change_ref
+  (inout sat_state :: filter_state)
+  (sat :: gnss_signal_t)
+  :: () := (
+
+  -- have:
+  -- xi = z_i - z_0
+  -- xj = z_j - z_0
+  -- want:
+  -- xi = z_i - z_j
+  -- xj = z_0 - z_j
+
+  -- so xi <- xi - xj
+  --    xj <- -xj
+  --    satj <- sat0
+  sats := sat_state.num_sats;
+  dim := sats+2;
+
+  -- Construct change of basis matrix
+  change :: double[dim, dim];
+  -- sat == sat_state.sats[j]
+  j := find_sat sat sat_state.sats;
+  change <- scalar 1.0;
+  change[j,j] <- -1;
+  for i in dim -> if i != j then change[i,j] <- -1;
+  -- Apply update
+  new_x := change * sat_state.x[:dim];
+  new_p := change * sat_state.P[:dim,:dim] * change^T;
+
+  -- Update state struct
+  sat_state.sats[j] <- sat_state.ref;
+  sat_state.ref <- sat;
+  -- TODO fix struct sizing issue
+  sat_state.x[:dim] <- new_x;
+  sat_state.P[:dim,:dim] <- new_p;
+);
