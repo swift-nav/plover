@@ -12,7 +12,7 @@ add_sat
   sigma := state.sigma;
   state.num_sats <- num;
   state.sats[num-2] <- sat;
-  state.x[num-2] <- 0;
+  state.x[3+num-1] <- 0.0;
   -- initial variance = sigma
   state.P[3+num-1, 3+num-1] <- sigma;
   -- initial covariance = 0
@@ -114,7 +114,7 @@ change_ref
   change :: double[dim, dim];
   -- sat == sat_state.sats[j]
   j := find_sat sat sat_state.sats;
-  change <- eye ();
+  change <- scalar 1.0;
   change[j,j] <- -1;
   for i in dim -> if i != j then change[i,j] <- -1;
   -- Apply update

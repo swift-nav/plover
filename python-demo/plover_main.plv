@@ -37,30 +37,42 @@ make_sat_sequence {num_sats}
   );
 );
 
+vec_not_nan {dim} (x :: double[dim]) :: bool := (
+  for i in dim -> if isnan x[i] then return False;
+  return True;
+);
+
+rand_n3 () :: double[3] := vec i in 3 -> rand_normal ();
+
 test_add_drop
   (num_sats :: u32)
   (iterations :: u32) :: () := (
   state := make_filter_state ();
   sats := make_sat_sequence {num_sats};
 
-  for i in iterations -> (
+  for iter in iterations -> (
     res :: gnss_signal_t[num_sats];
     count := sample_sid sats (out res);
     subset :: gnss_signal_t[count] := res[:count];
     printf "measurement sats: "; print_sats subset;
-    measurements := vec k in count -> make_measurement subset[k];
+    measurements := vec i in count -> make_measurement subset[i];
 
     -- update
-    update (inout state) measurements;
-    nl (); print_sat_state state; nl ();
+    position := vec(0.0, 0, 0); -- TODO
+    sat_positions := vec i in : -> (100+(5) * rand_n3 ());
+    update_ (inout state) measurements position sat_positions;
+    nl (); print_sat_state state;
 
-    --print_vec state.x;
+    --printf "\nstate:\n"; print_vec state.x; nl ();
+    --print_mat state.P; nl ();
+
+    assert vec_not_nan state.x;
   );
   ()
 );
 
 main () :: int := (
-  test_add_drop 10 22222; 0
+  test_add_drop 10 2222; 0
 );
 
 -- TODO --

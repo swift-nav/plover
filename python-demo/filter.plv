@@ -1,3 +1,4 @@
+-- TODO remove debug print statements
 import prelude;
 import qr;
 import util;
@@ -20,7 +21,7 @@ kalman_init_
   state.invalid <- False;
   state.x <- 0.0;
   position_covariance :: double[state.num_sats + 2, state.num_sats + 2];
-  position_covariance <- 0.0; -- TODO
+  position_covariance <- scalar 1.0; -- TODO
   state.P <- position_covariance;
 );
 
@@ -52,7 +53,7 @@ kalman_update_ {xdim, dim}
   K := PHt * S^(-1) :: double[xdim, dim];
 
   x_new <- x + K * innovation;
-  P_new <- (eye () - K * H) * P;
+  P_new <- (scalar 1.0 - K * H) * P;
 );
 
 omega_dot_unit_vector {sats, dim}
@@ -71,7 +72,7 @@ omega_dot_unit_vector {sats, dim}
 observation_model_ {sats}
   (pseudoranges :: double[sats])
   (carrier_phases :: double[sats])
-  (x :: double[3+sats])
+  (x :: double[3])
   (base_pos :: double[3])
   (sat_positions :: double[sats, 3])
 
@@ -91,9 +92,10 @@ observation_model_ {sats}
   u[0] <- u[0] + 1;
 
   P_bar :: double[sats-1, sats];
-  P_bar <- (eye() - 2 * (u * u^T) / (u * u))[1:];
+  P_bar <- (scalar 1.0 - 2 * (u * u^T) / (u * u))[1:];
 
-  F := eye{sats-1} - (1 / (sats - sqrt sats));
+  F :: double[sats-1, sats-1] :=
+    scalar 1.0 - (1 / (sats - sqrt sats));
 
   sig_ratio := sig_cp / (sig_pr / GPS_L1_LAMBDA);
 
@@ -103,17 +105,30 @@ observation_model_ {sats}
 
   -- block: [PE, F; sig_ratio*PE, 0]
   PE := P_bar * E;
-  H <- ((PE^T # F^T)^T # ((sig_ratio * PE^T) # zero())^T);
+  H <- ((PE^T # F^T)^T # ((sig_ratio * PE^T) # scalar 0.0)^T);
 
-  R <- 4 * sig_cp * eye();
+  R <- 4 * sig_cp * scalar 1.0;
 );
 
-update {dim}
+process_model {dim}
+  (out F :: double[dim, dim])
+  (out Q :: double[dim, dim])
+  :: () := (
+  F <- scalar 1.0;
+  -- TODO:
+  Q <- scalar 1.0;
+);
+
+update_ {dim}
   (inout state :: filter_state)
-  (sdiffs :: measurement[dim])
-  -- ? (receiver_ecef :: double)
+  (input_sdiffs :: measurement[dim])
+  (receiver_ecef :: double[3])
+  (sat_positions :: double[dim, 3])
   -- ? (raim flag)
   :: () := (
+
+  -- We want to reorder them
+  sdiffs := input_sdiffs;
 
   if dim == 0 then (
     printf "empty filter\n";
@@ -132,6 +147,10 @@ update {dim}
       printf "change ref: ";
       print_sat sdiffs[index].sat_id; nl ();
       change_ref (inout state) sdiffs[index].sat_id;
+      -- reorder measurements
+      ref_measurement := sdiffs[index];
+      sdiffs[index] <- sdiffs[0];
+      sdiffs[0] <- ref_measurement;
     );
 
   );
@@ -148,5 +167,31 @@ update {dim}
     sid_is_equal sdiffs[i].sat_id state.ref
   );
 
-  -- TODO kalman_update
+  F :: double[dim+2, dim+2];
+  Q :: double[dim+2, dim+2];
+  process_model (out F) (out Q);
+
+  x_new_1 :: double[dim+2];
+  P_new_1 :: double[dim+2, dim+2];
+  kalman_predict_ state.x[:dim+2] state.P[:dim+2,:dim+2]
+    F Q (out x_new_1) (out P_new_1);
+
+  y :: double[2*(dim-1)];
+  H :: double[2*(dim-1), dim+2];
+  R :: double[2*(dim-1), 2*(dim-1)];
+  -- TODO
+  sig_cp := 1.0; sig_pr := 1.0;
+  observation_model_
+    (vec i in : -> sdiffs[i].pseudorange)
+    (vec i in : -> sdiffs[i].carrier_phase)
+    x_new_1[0:3] receiver_ecef sat_positions sig_cp sig_pr
+    (out y) (out H) (out R);
+
+  x_new_2 :: double[dim+2];
+  P_new_2 :: double[dim+2, dim+2];
+  kalman_update_ x_new_1 P_new_1 y H R
+    (out x_new_2) (out P_new_2);
+
+  state.x[:dim+2] <- x_new_2;
+  state.P[:dim+2, :dim+2] <- P_new_2;
 );

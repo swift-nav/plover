@@ -57,3 +57,15 @@ def observation_model(self,
             &sat_pos[0,0], self.sig_cp, self.sig_pr, &y[0], &H[0,0], &R[0,0])
 
     return (y, H, R)
+
+# make KF object wrapper for plover implementation
+    # init?
+    # structs in cython?
+# construct arguments to update_
+# test suite
+def update( ? ):
+    filter_state ?
+    measurements[sats] ?
+
+    receiver_ecef[3]
+    sat_positions[sats, 3]

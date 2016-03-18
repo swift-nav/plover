@@ -61,12 +61,6 @@ struct filter_state (
   sigma :: double;
 );
 
--- WARNING do not use eye or zero in a general direct assignment.
--- Correct code will only be generated if used within
--- an expression, or assigned to a Scalar location.
-eye  {m} :: Scalar double[m,m] := scalar 1.0;
-zero {m} :: Scalar double[m,m] := scalar 0.0;
-
 -- TODO base type polymorphism
 drop_i_1_double {d}
   (i :: u32)
