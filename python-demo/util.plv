@@ -3,6 +3,7 @@ import prelude;
 __C__ "#include <libswiftnav/linear_algebra.h>";
 __C__ "#include <libswiftnav/constants.h>";
 __C__ "#include <libswiftnav/signal.h>";
+__C__ "#include <libswiftnav/observation.h>";
 --__C__ "#include <libswiftnav/set.h>";
 
 extern MAX_STATE_DIM :: int;
@@ -16,6 +17,14 @@ extern (
   struct gnss_signal_t ( 
     sat :: u16;
     code :: u16; -- taken from enum values below
+  );
+
+  struct sdiff_t (
+    pseudorange :: double;
+    carrier_phase :: double;
+    snr :: double;
+    sid :: gnss_signal_t;
+    sat_pos :: double[3];
   );
 
   CODE_INVALID :: s32;
@@ -33,6 +42,21 @@ struct measurement (
   carrier_phase :: double;
   snr :: double;
   sat_id :: gnss_signal_t;
+);
+
+
+to_sat_pos {dim}
+  (sdiffs :: sdiff_t[dim])
+  (out sats :: double[dim, 3])
+  (out ms :: measurement[dim])
+  :: () := (
+  for i in dim -> (
+    sats[i, :] <- sdiffs[i].sat_pos;
+    ms[i].pseudorange <- sdiffs[i].pseudorange;
+    ms[i].carrier_phase <- sdiffs[i].carrier_phase;
+    ms[i].snr <- sdiffs[i].snr;
+    ms[i].sat_id <- sdiffs[i].sid;
+  );
 );
 
 struct filter_state (
@@ -92,6 +116,18 @@ contains_sat {dim}
   (target :: gnss_signal_t)
   (sats :: gnss_signal_t[dim])
   :: bool := find_sat target sats >= 0;
+
+-- Adding a new row/col of zeroes to a matrix
+add_dimension {dim}
+  (m :: double[dim, dim])
+  :: double[dim+1, dim+1] := (
+  result :: double[dim+1, dim+1];
+  end := dim;
+  result[:end, :end] <- m[:end, :end];
+  result[end, 0..end] <- 0;
+  result[0..end, end] <- 0;
+  result;
+);
 
 -- Print utils
 nl () :: () := (printf "\n"; ());

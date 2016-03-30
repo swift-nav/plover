@@ -22,4 +22,4 @@ clean:
 
 # TODO: pattern for c files
 main: plover_main.c
-	gcc -o test_suite plover_main.c prelude.c qr.c util.c filter.c operations.c rand.c
+	gcc -g -o test_suite plover_main.c prelude.c qr.c util.c filter.c operations.c rand.c

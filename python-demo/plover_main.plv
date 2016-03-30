@@ -38,7 +38,7 @@ make_sat_sequence {num_sats}
 );
 
 vec_not_nan {dim} (x :: double[dim]) :: bool := (
-  for i in dim -> if isnan x[i] then return False;
+  for i in dim -> if (isnan x[i] or fabs x[i] > 1e22) then return False;
   return True;
 );
 
@@ -67,6 +67,7 @@ test_add_drop
     --printf "\nstate:\n"; print_vec state.x; nl ();
     --print_mat state.P; nl ();
 
+    print_vec state.x;
     assert vec_not_nan state.x;
   );
   ()
@@ -78,5 +79,6 @@ sigtest (inout x :: gnss_signal_t) :: () := (
 );
 
 main () :: int := (
-  test_add_drop 10 22222; 0
+  test_add_drop 6 88888;
+  0
 );

@@ -8,16 +8,19 @@ add_sat
   (sat :: gnss_signal_t)
   :: () := (
   printf "add: "; print_sat sat;
+  printf "current dim: %d\n" state.num_sats;
   num := state.num_sats + 1;
-  sigma := state.sigma;
-  state.num_sats <- num;
+  p_new :: double[num+2, num+2];
+  -- initial off-diagonal covariance = 0
+  p_new <- (add_dimension state.P)[:num+2, :num+2];
   state.sats[num-2] <- sat;
-  state.x[3+num-1] <- 0.0;
+  pdim := 3+num-1;
+  state.x[pdim-1] <- 0.0;
   -- initial variance = sigma
-  state.P[3+num-1, 3+num-1] <- sigma;
-  -- initial covariance = 0
-  state.P[3+num-1, :3+num-1] <- 0;
-  state.P[:3+num-1, 3+num-1] <- 0;
+  p_new[pdim-1, pdim-1] <- state.sigma;
+  state.num_sats <- num; -- this line must happen before the next!
+  state.P[:pdim, :pdim] <- p_new[:pdim, :pdim];
+  --nl (); print_mat state.P; nl ();
 );
 
 -- DROP SAT --

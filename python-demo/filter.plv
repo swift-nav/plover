@@ -8,6 +8,7 @@ make_filter_state () :: filter_state := (
   s :: filter_state;
   s.invalid <- True;
   s.num_sats <- 0;
+  s.sigma <- 2.2; --TODO
   s;
 );
 
