@@ -130,6 +130,7 @@ update_ {dim}
   -- We want to reorder them
   sdiffs := input_sdiffs;
 
+  -- Filter reset
   if dim == 0 then (
     printf "empty filter\n";
     state <- make_filter_state ();
@@ -139,6 +140,7 @@ update_ {dim}
 
   new_sats := vec i in dim -> sdiffs[i].sat_id;
 
+  -- Update the reference
   if not (contains_sat state.ref new_sats) then (
     index := choose_ref state sdiffs;
     if index < 0 then (
@@ -154,19 +156,25 @@ update_ {dim}
     );
 
   );
+  -- Drop any missing sats
   while (drop_a_sat (inout state) new_sats);
 
+  -- Add any new sats
   for i in dim -> (
     if not (contains_sat new_sats[i] state.sats or sid_is_equal new_sats[i] state.ref) then
       add_sat (inout state) new_sats[i]
   );
 
+  -- Assert that sat sets are consistent
   assert state.num_sats == dim;
   for i in dim -> assert (
     contains_sat sdiffs[i].sat_id state.sats or
     sid_is_equal sdiffs[i].sat_id state.ref
   );
 
+  -- Begin KF update
+
+  -- Process model
   F :: double[dim+2, dim+2];
   Q :: double[dim+2, dim+2];
   process_model (out F) (out Q);
@@ -176,6 +184,7 @@ update_ {dim}
   kalman_predict_ state.x[:dim+2] state.P[:dim+2,:dim+2]
     F Q (out x_new_1) (out P_new_1);
 
+  -- Measurement update
   y :: double[2*(dim-1)];
   H :: double[2*(dim-1), dim+2];
   R :: double[2*(dim-1), 2*(dim-1)];

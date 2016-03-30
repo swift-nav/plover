@@ -8,21 +8,6 @@ __C__ "#include <libswiftnav/signal.h>";
 extern MAX_STATE_DIM :: int;
 __C__ "#define MAX_STATE_DIM 22";
 
--- /** Code identifier. */
--- enum code {
---   CODE_INVALID = -1,
---   CODE_GPS_L1CA,
---   CODE_GPS_L2CM,
---   CODE_SBAS_L1CA,
---   CODE_COUNT,
--- };
--- 
--- /** GNSS signal identifier. */
--- typedef struct {
---   u16 sat;
---   enum code code;
--- } gnss_signal_t;
-
 extern (
   GPS_L1_LAMBDA :: double;
 

@@ -50,6 +50,9 @@ test_add_drop
   state := make_filter_state ();
   sats := make_sat_sequence {num_sats};
 
+  position := vec(0.0, 0, 0); -- TODO
+  sat_positions := vec i in num_sats -> (10000+(5) * rand_n3 ());
+
   for iter in iterations -> (
     res :: gnss_signal_t[num_sats];
     count := sample_sid sats (out res);
@@ -58,9 +61,7 @@ test_add_drop
     measurements := vec i in count -> make_measurement subset[i];
 
     -- update
-    position := vec(0.0, 0, 0); -- TODO
-    sat_positions := vec i in : -> (100+(5) * rand_n3 ());
-    update_ (inout state) measurements position sat_positions;
+    update_ (inout state) measurements position sat_positions[:count];
     nl (); print_sat_state state;
 
     --printf "\nstate:\n"; print_vec state.x; nl ();
@@ -71,10 +72,11 @@ test_add_drop
   ()
 );
 
-main () :: int := (
-  test_add_drop 10 2222; 0
+sigtest (inout x :: gnss_signal_t) :: () := (
+  x.sat <- 22;
+  x.code <- 2;
 );
 
--- TODO --
--- align/sdiff
--- propagate
+main () :: int := (
+  test_add_drop 10 22222; 0
+);

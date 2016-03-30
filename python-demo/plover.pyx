@@ -3,6 +3,16 @@ import numpy as np
 cimport numpy as np
 from libc.stdlib cimport malloc, free
 
+def test(s):
+    cdef gnss_signal_t x;
+    x.sat = s['sat']
+    x.code = s['code']
+    print x.sat;
+    print x.code;
+    sigtest(&x);
+    print x.sat;
+    print x.code;
+
 def kalman_predict(
         np.ndarray[double, ndim=1, mode="c"] x,
         np.ndarray[double, ndim=2, mode="c"] P,
@@ -63,9 +73,10 @@ def observation_model(self,
     # structs in cython?
 # construct arguments to update_
 # test suite
-def update( ? ):
-    filter_state ?
-    measurements[sats] ?
-
-    receiver_ecef[3]
-    sat_positions[sats, 3]
+#def update(  ):
+#    pass
+#    #filter_state ?
+#    #measurements[sats] ?
+#
+#    #receiver_ecef[3]
+#    #sat_positions[sats, 3]
