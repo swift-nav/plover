@@ -6,7 +6,7 @@ name:                plover
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.1.0.0
+version:             0.2.0.0
 
 synopsis: An embedded DSL for compiling linear algebra into C for embedded systems
 
