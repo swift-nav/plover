@@ -765,6 +765,7 @@ reduceArithmetic expr =
     toExpr (IntLit _ _ i) = return $ S.Prim i
     toExpr g@(Get _ (Ref _ _)) = return $ S.Atom g
     toExpr g@(HoleJ _ _) = return $ S.Atom g
+    toExpr g@(Get _ (Field _ _)) = return $ S.Atom g
     toExpr _ = Nothing
 
 class PP a where
