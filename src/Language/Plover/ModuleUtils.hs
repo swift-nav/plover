@@ -213,11 +213,37 @@ doCodegenAll = do
     (pair, imports) <- doCodegen opts (return $ fromRight bs)
     liftIO $ writeFiles pair imports opts (Just mod)
 
+makeHeaderName :: String -> String
+makeHeaderName unitName = "PLOVER_GENERATED_" ++ clean' unitName
+  where clean' = map clean''
+        clean'' c | c `elem` (['A'..'Z'] ++ ['a' .. 'z'] ++ ['0'..'9'])  = c
+                  | otherwise  = '_'
+
+wrapHeader :: [String] -> String -> String -> String
+wrapHeader moduleNames unitName body = unlines $
+  [ "#ifndef " ++ headername
+  , "#define " ++ headername
+  , "" ] ++
+  ["#include \"" ++ mod ++ ".h\"" | mod <- moduleNames] ++
+  [ ""
+  , body
+  , ""
+  , "#endif /* " ++ headername ++ " */"
+  ]
+  where headername = makeHeaderName unitName
+
+addIncludes :: [String] -> String -> String -> String
+addIncludes moduleNames name body = unlines $
+  [ "#include \"" ++ name ++ ".h\""
+  , "" ] ++
+  ["#include \"" ++ mod ++ ".h\"" | mod <- moduleNames] ++
+  [ "" , body ]
+
 getBinaryHash :: IO String
 getBinaryHash = do
   f <- getExecutablePath
   file <- BS.readFile f
-  return $ "/* " ++ show (SHA.sha1 file) ++ " */\n"
+  return $ "/* plover binary version: " ++ show (SHA.sha1 file) ++ " */\n"
 
 splitStatic b | T.static b = Left b
 splitStatic b = Right b
@@ -246,29 +272,3 @@ writeFiles (header, source) imports opts unitName =
      writeFile hfile $ hashHeader ++ (wrapHeader (map addPrefix normalIncludes) name header)
      writeFile cfile $ hashHeader ++ (addIncludes (map addPrefix staticIncludes) includeName source)
      return $ Just (hfile, cfile)
-
-makeHeaderName :: String -> String
-makeHeaderName unitName = "PLOVER_GENERATED_" ++ clean' unitName
-  where clean' = map clean''
-        clean'' c | c `elem` (['A'..'Z'] ++ ['a' .. 'z'] ++ ['0'..'9'])  = c
-                  | otherwise  = '_'
-
-wrapHeader :: [String] -> String -> String -> String
-wrapHeader moduleNames unitName body = unlines $
-  [ "#ifndef " ++ headername
-  , "#define " ++ headername
-  , "" ] ++
-  ["#include \"" ++ mod ++ ".h\"" | mod <- moduleNames] ++
-  [ ""
-  , body
-  , ""
-  , "#endif /* " ++ headername ++ " */"
-  ]
-  where headername = makeHeaderName unitName
-
-addIncludes :: [String] -> String -> String -> String
-addIncludes moduleNames name body = unlines $
-  [ "#include \"" ++ name ++ ".h\""
-  , "" ] ++
-  ["#include \"" ++ mod ++ ".h\"" | mod <- moduleNames] ++
-  [ "" , body ]
