@@ -83,6 +83,9 @@ library
                    , haskell-src-meta
                    , syb
 
+                   , bytestring
+                   , SHA
+
   hs-source-dirs:    src/
   ghc-options:
               -- -Wall -Werror

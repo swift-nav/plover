@@ -25,6 +25,9 @@ import Control.Arrow (first, second)
 import System.Directory
 import System.FilePath
 import Debug.Trace
+import System.Environment (getExecutablePath)
+import qualified Data.ByteString.Lazy as BS
+import qualified Data.Digest.Pure.SHA as SHA
 
 type Error = String
 type Action = EitherT Error (StateT ModuleState IO)
@@ -210,6 +213,11 @@ doCodegenAll = do
     (pair, imports) <- doCodegen opts (return $ fromRight bs)
     liftIO $ writeFiles pair imports opts (Just mod)
 
+getBinaryHash :: IO String
+getBinaryHash = do
+  f <- getExecutablePath
+  file <- BS.readFile f
+  return $ "/* " ++ show (SHA.sha1 file) ++ " */\n"
 
 splitStatic b | T.static b = Left b
 splitStatic b = Right b
@@ -234,8 +242,9 @@ writeFiles (header, source) imports opts unitName =
      let hfile = joinPath [fromMaybe "" (hFilePrefix opts), name ++ ".h"]
      let addPrefix name = joinPath [fromMaybe "" (libPrefix opts), name]
      let includeName = addPrefix name
-     writeFile hfile (wrapHeader (map addPrefix normalIncludes) name header)
-     writeFile cfile (addIncludes (map addPrefix staticIncludes) includeName source)
+     hashHeader <- getBinaryHash
+     writeFile hfile $ hashHeader ++ (wrapHeader (map addPrefix normalIncludes) name header)
+     writeFile cfile $ hashHeader ++ (addIncludes (map addPrefix staticIncludes) includeName source)
      return $ Just (hfile, cfile)
 
 makeHeaderName :: String -> String
