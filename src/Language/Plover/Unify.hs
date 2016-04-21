@@ -195,6 +195,16 @@ fullExpandTerm term = do
                                  let Just (_, ty) = mty
                                  ty' <- expand ty
                                  return $ TypedefType ty' v
+
+      tty (StructType var st) = withNewUScope $ do
+        let fix (var, (tag, t1, t2)) = do
+              t1 <- fullExpandTerm t1
+              t2 <- fullExpandTerm t2
+              addBinding tag var t2
+              return (var, (tag, t1, t2))
+        fs <- mapM fix (st_fields st)
+        return (StructType var (ST fs))
+
       tty ty = return ty
 
       texp (Return pos ty v) = do ty' <- expand ty
@@ -206,10 +216,12 @@ fullExpandTerm term = do
       texp (HoleJ pos v) | Just (_, exp') <- M.lookup v eenv = expand exp'
       texp exp = return exp
 
-      tloc (Ref _ v) = do mty <- getBinding v
-                          let Just (_, ty) = mty
-                          ty' <- expand ty
-                          return $ Ref ty' v
+      tloc r@(Ref _ v) = do mty <- getBinding v
+                            case mty of
+                              Just (_, ty) -> do
+                                ty' <- expand ty
+                                return $ Ref ty' v
+                              Nothing -> error $ "internal plover error: identifier missing from type environment: " ++ show r
       tloc loc = return loc
 
       trng = return
