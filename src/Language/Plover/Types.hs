@@ -1026,6 +1026,7 @@ structField members base memberTy = replaceMemberRefs memberTy
                   Ref ty v -> case M.lookup v vMap of
                     Just vty -> return $ Field base v
                     Nothing -> return loc
+                  other -> return other
                 trng = return
 
 
