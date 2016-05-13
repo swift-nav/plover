@@ -1020,8 +1020,24 @@ Functions
 Structs
 -------
 
-Typedefs
---------
+Typedefs and Aliases
+--------------------
+
+Add a type alias using ::
+
+  type ${new_name} := ${type_name};
+
+This does not generate a C typedef; it simply replaces occurrences of the name
+on the left hand side with that on the right.
+
+To add a C typedef to your generated code, use the inline C feature: ::
+
+  __C__
+    "typedef int8_t s8;\n\
+    \typedef int16_t s16;\n";
+
+Plover does not analyze code inside a ``__C__`` block, so any names introduced
+here will be unavailable to the typechecker.
 
 Modules
 =======

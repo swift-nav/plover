@@ -1338,7 +1338,7 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 <li><a class="reference internal" href="#top-level-definitions" id="id50">Top-level Definitions</a><ul>
 <li><a class="reference internal" href="#functions" id="id51">Functions</a></li>
 <li><a class="reference internal" href="#structs" id="id52">Structs</a></li>
-<li><a class="reference internal" href="#typedefs" id="id53">Typedefs</a></li>
+<li><a class="reference internal" href="#typedefs-and-aliases" id="id53">Typedefs and Aliases</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#modules" id="id54">Modules</a></li>
@@ -2258,8 +2258,22 @@ B :: __  := (G^T * G :: __)^(-1) * G^T;
 <div class="section" id="structs">
 <h2>Structs</h2>
 </div>
-<div class="section" id="typedefs">
-<h2>Typedefs</h2>
+<div class="section" id="typedefs-and-aliases">
+<h2>Typedefs and Aliases</h2>
+<p>Add a type alias using</p>
+<pre class="literal-block">
+type ${new_name} := ${type_name};
+</pre>
+<p>This does not generate a C typedef; it simply replaces occurrences of the name
+on the left hand side with that on the right.</p>
+<p>To add a C typedef to your generated code, use the inline C feature:</p>
+<pre class="literal-block">
+__C__
+  &quot;typedef int8_t s8;\n\
+  \typedef int16_t s16;\n&quot;;
+</pre>
+<p>Plover does not analyze code inside a <tt class="docutils literal">__C__</tt> block, so any names introduced
+here will be unavailable to the typechecker.</p>
 </div>
 </div>
 <div class="section" id="modules">
