@@ -17,10 +17,11 @@ CURR_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 GIT_TOP := $(shell git rev-parse --show-toplevel)
 TMP_DOC_DIR := $(shell mktemp -d /tmp/gh_pages.XXXXXX)
 
+
 .PHONY: publish gh-pages
 gh-pages: $(PAGES)
 	@echo This will cause some noise
-	git stash
+	git diff-files --quiet --ignore-submodules -- || (echo "\nThere are locally modified files. Please stash or commit them before rebuilding the docs.\n" && false)
 	-git branch -D gh-pages
 	cp -r $(GIT_TOP)/doc/* $(TMP_DOC_DIR)/
 	cd $(GIT_TOP) && git checkout --orphan gh-pages
@@ -31,7 +32,6 @@ gh-pages: $(PAGES)
 	cd $(GIT_TOP) && git add `ls $(TMP_DOC_DIR)`
 	cd $(GIT_TOP) && git commit -m "auto published"
 	cd $(GIT_TOP) && git checkout -f $(CURR_BRANCH)
-	-git stash pop
 	@echo
 	@echo Success
 	@echo Use \'make publish\' to submit to github.
