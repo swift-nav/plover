@@ -43,7 +43,7 @@ $ stack build
 Run the test suite (requires gcc):
 
 ```
-$ stack test --test-arguments --show-details=streaming
+$ stack test
 ```
 
 Installation of the `plover` binary into `~/.local/bin`
@@ -55,14 +55,14 @@ $ stack build --copy-bins
 or
 
 ```
-# same thing as previous
+# (equivalent to previous command)
 $ stack install
 ```
 
 
-## Cabal sandbox build
+## (Alternative Installation Method) Cabal sandbox build
 
-We suggest using a cabal sandbox: this keeps any dependencies isolated so you don't
+Using a cabal sandbox keeps any dependencies isolated so you don't
 have to worry about conflicts with other versions you may have on your system.
 
 ```
