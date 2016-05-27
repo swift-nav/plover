@@ -354,7 +354,7 @@ form = iter Vec "vec" <|> iter For "for" <|> whileexp <|> ifexpr <|> specexpr
 
         struct = withPos $ do reserved "struct"
                               name <- identifier
-                              xs <- parens $ sepEndBy1 expr (symbol ";")
+                              xs <- parens $ sepEndBy expr (symbol ";")
                               return $ Struct name xs
         typedef = withPos $ do reserved "type"
                                name <- identifier
