@@ -35,7 +35,7 @@ qr_solve {m, n, p}
   solution <- b[0:n, :];
 
   -- Norm of error = norm of last m-n rows
-  residual <- vec i in p -> norm b[n:m, p];
+  residual <- vec i in p -> norm b[n:m, i];
 
   return code;
 );
