@@ -44,6 +44,7 @@ doCase (label, args, fn, outcome) = testCase label $ do
 cases :: [TestCase]
 cases =
   [ ("qr", ["-I", "examples"], "examples/qr_test.plv", (True, Just ExitSuccess))
+  , ("cholesky", ["-I", "examples"], "examples/cholesky_test.plv", (True, Just ExitSuccess))
   , ("cyclic", ["-I", "examples/module-tests"],
      "examples/module-tests/cycleA.plv", (False, Nothing))
   ]
@@ -52,4 +53,3 @@ tests :: TestTree
 tests = testGroup "Tests" [
   testGroup "Units" $ map doCase cases
   ]
-
