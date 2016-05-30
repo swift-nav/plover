@@ -1,0 +1,103 @@
+import prelude;
+
+-- "Matrix Computations" 4th ed., Golub and Van Loan.  Algorithm
+-- 4.1.2, the LDL^T decomposition for a symmetric, positive-definite
+-- matrix.
+--
+-- On success, the argument A now contains the lower-triangular factor
+-- L and the diagonal vector D.
+ldlt {m}
+  (inout A :: double[m, m])
+  :: s8 := (
+
+  v :: double[m];
+
+  for j in 0:m -> (
+    -- Compute v[1:j].
+    for i in 0:j -> (
+       v[i] <- A[j, i] * A[i, i];
+    );
+    v[j] <- A[j, j] - A[j, 0:j] * v[0:j];
+
+    -- Store d[j].
+    A[j, j] <- v[j];
+
+    -- Compute L[j+1:n, j].
+    A[j+1:m, j] <- (A[j+1:m, j] - A[j+1:m, 0:j]*v[0:j]) / v[j];
+  );
+
+  return 0;
+);
+
+-- "Advanced Kalman Filtering, Least-Squares and Modeling.", Bruce
+-- P. Gibbs.  Algorithm 10.2-2, the UDU^T decomposition for a
+-- symmetric, positive-definite matrix.
+--
+-- On exit, the argument A now contains the upper-triangular factor U
+-- and the diagonal vector D.
+udut {m}
+  (inout A :: double[m, m])
+  :: Void := (
+  for j in m-1:0:-1 -> (  -- column loop
+    alpha := if (A[j, j] > 0.0) then (1.0 / A[j, j]) else 0.0;
+    for k in 0:j -> (     -- row loop
+      beta := A[k, j];
+      A[k, j] <- alpha*beta;  -- scale elements in j column
+      A[0..k, k] <- A[0..k, k] - beta*A[0..k, j];  -- modify column k
+    );
+  );
+);
+
+
+-- "Matrix Computations" 4th ed., Golub and Van Loan.  Algorithm
+-- 4.2.2, the Cholesky decomposition for a symmetric,
+-- positive-definite matrix.
+--
+-- On exit, the argument A now contains the lower-triangular
+-- Cholesky factor G.
+cholesky {m}
+  (inout A :: double[m, m])
+  :: Void := (
+  for k in 0:m -> (
+    sq := sqrt(A[k, k]);
+    A[k, k] <- sq;
+    A[k+1:m, k] <- A[k+1:m, k] / sq;
+    for j in k+1:m -> (
+      A[j:m, j] <- A[j:m, j] - A[j:m, k]*A[j, k];
+    );
+  );
+);
+
+-- "Matrix computations" 4th ed., Golub and Van Loan.  Based on
+-- Algorithm 4.2.2, the Cholesky decomposition by outer product
+-- updates.
+--
+-- On exit, the lower-triangular Cholesky factor G passed as an
+-- argument has been updated to the lower-triangular Cholesky factor
+-- G' of A + vv^T, where A = GG^T.
+--
+-- If a negative 'sign' argument is given, then the rank-1 Cholesky
+-- downdate A - vv^T is performed instead.  It is the caller's
+-- responsibility to ensure that GG^T remains positive definite.
+cholupdate {m}
+  (inout G :: double[m, m])
+  (v' :: double[m])
+  (sign :: s8)
+  :: Void := (
+
+  v := v';
+
+  for k in 0:m -> (
+    sq := sqrt(G[k, k]^2 + (if sign < 0
+                            then -v[k]^2
+                            else v[k]^2));
+    alpha := sq / G[k, k];
+    beta := v[k] / G[k, k];
+
+    G[k, k] <- sq;
+    G[k+1:m, k] <- (G[k+1:m, k] + (if sign < 0
+                                   then -beta*v[k+1:m]
+                                   else beta*v[k+1:m])) / alpha;
+    v[k+1:m] <- alpha*v[k+1:m] - beta*G[k+1:m, k];
+  );
+);
