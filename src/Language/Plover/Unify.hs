@@ -931,8 +931,11 @@ arithType pos ty1 ty2 = do ty1' <- expandTerm ty1
           (FloatType t1, IntType {}) -> return $ FloatType $ promoteFloat t1
           (IntType {}, FloatType t2) -> return $ FloatType $ promoteFloat t2
           (FloatType t1, FloatType t2) -> return $ FloatType $ arithFloat t1 t2
-          _ -> do addUError $ UError pos "Invalid types for arithmetic."
-                  return $ IntType defaultIntType
+          (a, b) -> do
+            addUError $ UError pos $
+              "Invalid types for arithmetic: '" ++ show (pretty a) ++
+              "', '" ++ show (pretty b) ++ "'"
+            return $ IntType defaultIntType
 
 genTypeVectorize :: (Tag SourcePos -> Type -> Type -> UM Type)
                     -> Tag SourcePos -> Type -> Type -> UM Type
