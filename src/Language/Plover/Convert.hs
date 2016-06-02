@@ -147,7 +147,7 @@ builtinFuncs = [ ("not", builtinUFunc (\pos arg -> return $ T.Unary pos T.Not ar
                , ("shape", builtinUFunc (\pos arg -> return $ T.Unary pos T.Shape arg))
                , ("nomemo", builtinUFunc (\pos arg -> return $ T.Unary pos T.NoMemo arg))
                , ("void", builtinUFunc (\pos arg -> return $ T.Unary pos T.ToVoid arg))
-               , ("reshape", builtinBFunc (\pos a b -> return $ T.Binary pos T.Reshape a b))
+               -- , ("reshape", builtinBFunc (\pos a b -> return $ T.Binary pos T.Reshape a b)) -- not implemented
                , ("scalar", builtinScalarFunc)
                ]
                ++ [(v, builtinUFunc (\pos arg -> return $ T.Unary pos (T.VecCons st) arg))
