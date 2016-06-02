@@ -1269,80 +1269,89 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 <div class="contents topic" id="table-of-contents">
 <p class="topic-title first">Table of Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#overview" id="id2">Overview</a></li>
-<li><a class="reference internal" href="#syntax-elements" id="id3">Syntax Elements</a><ul>
-<li><a class="reference internal" href="#identifiers" id="id4">Identifiers</a></li>
-<li><a class="reference internal" href="#reserved-names" id="id5">Reserved names</a></li>
-<li><a class="reference internal" href="#operators" id="id6">Operators</a></li>
-<li><a class="reference internal" href="#constant-literals" id="id7">Constant Literals</a><ul>
-<li><a class="reference internal" href="#integers" id="id8">Integers</a></li>
-<li><a class="reference internal" href="#floating-point-numbers" id="id9">Floating-Point Numbers</a></li>
-<li><a class="reference internal" href="#booleans" id="id10">Booleans</a></li>
-<li><a class="reference internal" href="#void" id="id11">Void</a></li>
-<li><a class="reference internal" href="#strings" id="id12">Strings</a></li>
+<li><a class="reference internal" href="#overview" id="id3">Overview</a></li>
+<li><a class="reference internal" href="#syntax-elements" id="id4">Syntax Elements</a><ul>
+<li><a class="reference internal" href="#identifiers" id="id5">Identifiers</a></li>
+<li><a class="reference internal" href="#reserved-names" id="id6">Reserved names</a></li>
+<li><a class="reference internal" href="#operators" id="id7">Operators</a></li>
+<li><a class="reference internal" href="#constant-literals" id="id8">Constant Literals</a><ul>
+<li><a class="reference internal" href="#integers" id="id9">Integers</a></li>
+<li><a class="reference internal" href="#floating-point-numbers" id="id10">Floating-Point Numbers</a></li>
+<li><a class="reference internal" href="#booleans" id="id11">Booleans</a></li>
+<li><a class="reference internal" href="#void" id="id12">Void</a></li>
+<li><a class="reference internal" href="#strings" id="id13">Strings</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#whitespace" id="id13">Whitespace</a><ul>
-<li><a class="reference internal" href="#comments" id="id14">Comments</a></li>
+<li><a class="reference internal" href="#whitespace" id="id14">Whitespace</a><ul>
+<li><a class="reference internal" href="#comments" id="id15">Comments</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#types" id="id15">Types</a><ul>
-<li><a class="reference internal" href="#integer-types" id="id16">Integer Types</a></li>
-<li><a class="reference internal" href="#floating-point-types" id="id17">Floating-Point Types</a></li>
-<li><a class="reference internal" href="#boolean-type" id="id18">Boolean Type</a></li>
-<li><a class="reference internal" href="#string-type" id="id19">String Type</a></li>
-<li><a class="reference internal" href="#pointer-types" id="id20">Pointer Types</a></li>
-<li><a class="reference internal" href="#vector-types" id="id21">Vector Types</a></li>
-<li><a class="reference internal" href="#tuple-types" id="id22">Tuple Types</a></li>
-<li><a class="reference internal" href="#function-types" id="id23">Function Types</a></li>
-<li><a class="reference internal" href="#struct-types" id="id24">Struct Types</a></li>
-<li><a class="reference internal" href="#type-holes" id="id25">Type Holes</a></li>
+<li><a class="reference internal" href="#types" id="id16">Types</a><ul>
+<li><a class="reference internal" href="#integer-types" id="id17">Integer Types</a></li>
+<li><a class="reference internal" href="#floating-point-types" id="id18">Floating-Point Types</a></li>
+<li><a class="reference internal" href="#boolean-type" id="id19">Boolean Type</a></li>
+<li><a class="reference internal" href="#string-type" id="id20">String Type</a></li>
+<li><a class="reference internal" href="#pointer-types" id="id21">Pointer Types</a></li>
+<li><a class="reference internal" href="#vector-types" id="id22">Vector Types</a></li>
+<li><a class="reference internal" href="#tuple-types" id="id23">Tuple Types</a></li>
+<li><a class="reference internal" href="#function-types" id="id24">Function Types</a></li>
+<li><a class="reference internal" href="#struct-types" id="id25">Struct Types</a></li>
+<li><a class="reference internal" href="#type-holes" id="id26">Type Holes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#expressions-and-operators" id="id26">Expressions and Operators</a><ul>
-<li><a class="reference internal" href="#parentheses-and-dollar" id="id27">Parentheses and Dollar</a></li>
-<li><a class="reference internal" href="#sequencing" id="id28">Sequencing</a></li>
-<li><a class="reference internal" href="#variable-definitions" id="id29">Variable Definitions</a></li>
-<li><a class="reference internal" href="#ranges" id="id30">Ranges</a></li>
-<li><a class="reference internal" href="#tuples" id="id31">Tuples</a></li>
-<li><a class="reference internal" href="#locations" id="id32">Locations</a><ul>
-<li><a class="reference internal" href="#slices" id="id33">Slices</a></li>
+<li><a class="reference internal" href="#expressions-and-operators" id="id27">Expressions and Operators</a><ul>
+<li><a class="reference internal" href="#parentheses-and-dollar" id="id28">Parentheses and Dollar</a></li>
+<li><a class="reference internal" href="#sequencing" id="id29">Sequencing</a></li>
+<li><a class="reference internal" href="#variable-definitions" id="id30">Variable Definitions</a></li>
+<li><a class="reference internal" href="#ranges" id="id31">Ranges</a></li>
+<li><a class="reference internal" href="#tuples" id="id32">Tuples</a></li>
+<li><a class="reference internal" href="#locations" id="id33">Locations</a><ul>
+<li><a class="reference internal" href="#slices" id="id34">Slices</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#type-specification" id="id34">Type Specification</a></li>
-<li><a class="reference internal" href="#pointer-operators" id="id35">Pointer Operators</a></li>
-<li><a class="reference internal" href="#id1" id="id36">Operators</a><ul>
-<li><a class="reference internal" href="#exponentiation" id="id37">Exponentiation</a></li>
-<li><a class="reference internal" href="#multiplication" id="id38">Multiplication</a></li>
-<li><a class="reference internal" href="#element-wise-operations" id="id39">Element-wise Operations</a></li>
-<li><a class="reference internal" href="#concatenation" id="id40">Concatenation</a></li>
-<li><a class="reference internal" href="#inequalities" id="id41">Inequalities</a></li>
-<li><a class="reference internal" href="#boolean-operators" id="id42">Boolean Operators</a></li>
+<li><a class="reference internal" href="#type-specification" id="id35">Type Specification</a></li>
+<li><a class="reference internal" href="#pointer-operators" id="id36">Pointer Operators</a></li>
+<li><a class="reference internal" href="#id1" id="id37">Operators</a><ul>
+<li><a class="reference internal" href="#exponentiation" id="id38">Exponentiation</a></li>
+<li><a class="reference internal" href="#multiplication" id="id39">Multiplication</a></li>
+<li><a class="reference internal" href="#element-wise-operations" id="id40">Element-wise Operations</a></li>
+<li><a class="reference internal" href="#concatenation" id="id41">Concatenation</a></li>
+<li><a class="reference internal" href="#inequalities" id="id42">Inequalities</a></li>
+<li><a class="reference internal" href="#boolean-operators" id="id43">Boolean Operators</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#function-application" id="id43">Function Application</a><ul>
-<li><a class="reference internal" href="#argument-directions" id="id44">Argument Directions</a></li>
+<li><a class="reference internal" href="#function-application" id="id44">Function Application</a><ul>
+<li><a class="reference internal" href="#argument-directions" id="id45">Argument Directions</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#iteration-constructs" id="id45">Iteration Constructs</a><ul>
-<li><a class="reference internal" href="#for-loop" id="id46"><tt class="docutils literal">for</tt> loop</a></li>
-<li><a class="reference internal" href="#vec-constructor" id="id47"><tt class="docutils literal">vec</tt> constructor</a></li>
-<li><a class="reference internal" href="#while-loop" id="id48"><tt class="docutils literal">while</tt> loop</a></li>
+<li><a class="reference internal" href="#built-in-functions" id="id46">Built-in Functions</a><ul>
+<li><a class="reference internal" href="#not" id="id47">not</a></li>
+<li><a class="reference internal" href="#sum" id="id48">sum</a></li>
+<li><a class="reference internal" href="#shape" id="id49">shape</a></li>
+<li><a class="reference internal" href="#nomemo" id="id50">nomemo</a></li>
+<li><a class="reference internal" href="#id2" id="id51">void</a></li>
+<li><a class="reference internal" href="#diag-scalar" id="id52">diag, scalar</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#value-and-type-holes" id="id49">Value and type holes</a></li>
+<li><a class="reference internal" href="#iteration-constructs" id="id53">Iteration Constructs</a><ul>
+<li><a class="reference internal" href="#for-loop" id="id54"><tt class="docutils literal">for</tt> loop</a></li>
+<li><a class="reference internal" href="#vec-constructor" id="id55"><tt class="docutils literal">vec</tt> constructor</a></li>
+<li><a class="reference internal" href="#while-loop" id="id56"><tt class="docutils literal">while</tt> loop</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#top-level-definitions" id="id50">Top-level Definitions</a><ul>
-<li><a class="reference internal" href="#functions" id="id51">Functions</a></li>
-<li><a class="reference internal" href="#structs" id="id52">Structs</a></li>
-<li><a class="reference internal" href="#typedefs-and-aliases" id="id53">Typedefs and Aliases</a></li>
+<li><a class="reference internal" href="#value-and-type-holes" id="id57">Value and type holes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id54">Modules</a></li>
-<li><a class="reference internal" href="#language-proposals" id="id55">Language Proposals</a></li>
+<li><a class="reference internal" href="#top-level-definitions" id="id58">Top-level Definitions</a><ul>
+<li><a class="reference internal" href="#functions" id="id59">Functions</a></li>
+<li><a class="reference internal" href="#structs" id="id60">Structs</a></li>
+<li><a class="reference internal" href="#typedefs-and-aliases" id="id61">Typedefs and Aliases</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#modules" id="id62">Modules</a></li>
+<li><a class="reference internal" href="#language-proposals" id="id63">Language Proposals</a></li>
 </ul>
 </div>
 </div>
@@ -1665,6 +1674,15 @@ some other code which should be spliced in this location.</p>
 </div>
 <div class="section" id="parentheses-and-dollar">
 <h2>Parentheses and Dollar</h2>
+<p>Parentheses can be used to override the default order of operations. The <tt class="docutils literal">$</tt>
+operator groups everything to the right: it is like an open parenthesis that
+doesn't need to be closed. Some examples:</p>
+<pre class="literal-block">
+            f a + b  --vs--  f (a + b)
+(not False or True)  --vs--  (not $ False or True)
+</pre>
+<p>Remember that parentheses are not used to mark function calls. Attemping to
+pass a comma separated list of arguments will result in syntax errors.</p>
 </div>
 <div class="section" id="sequencing">
 <h2>Sequencing</h2>
@@ -2116,6 +2134,54 @@ matrix_inverse {n} A (out B) -- returns -1 if A is singular
 <p>C interface note: when a function returns a vector, it is actually
 represented as an <tt class="docutils literal">out</tt> variable, and the caller must allocate stack
 space for the returned vector.</p>
+</div>
+</div>
+<div class="section" id="built-in-functions">
+<h2>Built-in Functions</h2>
+<div class="section" id="not">
+<h3>not</h3>
+<p>Boolean negation.</p>
+<pre class="literal-block">
+not False --&gt; True
+not True --&gt; False
+</pre>
+</div>
+<div class="section" id="sum">
+<h3>sum</h3>
+<p>Sums the elements of a vector.</p>
+<pre class="literal-block">
+sum vec(1.0,2,3,4) --&gt; 10.0
+</pre>
+</div>
+<div class="section" id="shape">
+<h3>shape</h3>
+<p><tt class="docutils literal">shape M</tt>, with <tt class="docutils literal">M</tt> a matrix, returns the index size of M as a vector. For example:</p>
+<pre class="literal-block">
+x :: double[2,3,4];
+shape x  --&gt;  vec(2,3,4);
+</pre>
+</div>
+<div class="section" id="nomemo">
+<h3>nomemo</h3>
+<p>Ordinarily, a matrix value will be spilled to the stack if any of its entries are referred to multiple times. The builtin <tt class="docutils literal">nomemo</tt> will prevent this behavior. Consider the generated code for</p>
+<pre class="literal-block">
+x :: double[2,2];
+z0 := x * x * x;
+z1 := nomemo (x * x) * x;
+</pre>
+</div>
+<div class="section" id="id2">
+<h3>void</h3>
+<p>Drops the result of a computation, creating an expression with void type. For
+example:</p>
+<pre class="literal-block">
+f () :: () := void $ printf &quot;hi there\n&quot;;
+</pre>
+</div>
+<div class="section" id="diag-scalar">
+<h3>diag, scalar</h3>
+<p>Calling <tt class="docutils literal">scalar f</tt> creates a <tt class="docutils literal">Scalar</tt> matrix initialized with the value
+<tt class="docutils literal">f</tt>. <tt class="docutils literal">diag</tt> is similar. See <a class="reference internal" href="#vector-types">Vector Types</a> for more information.</p>
 </div>
 </div>
 <div class="section" id="iteration-constructs">

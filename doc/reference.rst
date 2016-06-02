@@ -372,6 +372,16 @@ reserved for expressions which appear in a sequence.
 
 Parentheses and Dollar
 ----------------------
+
+Parentheses can be used to override the default order of operations. The ``$``
+operator groups everything to the right: it is like an open parenthesis that
+doesn't need to be closed. Some examples: ::
+
+              f a + b  --vs--  f (a + b)
+  (not False or True)  --vs--  (not $ False or True)
+
+Remember that parentheses are not used to mark function calls. Attemping to
+pass a comma separated list of arguments will result in syntax errors.
    
 Sequencing
 ----------
@@ -862,6 +872,50 @@ Of course, the ``{n}`` is optional.
 C interface note: when a function returns a vector, it is actually
 represented as an ``out`` variable, and the caller must allocate stack
 space for the returned vector.
+
+Built-in Functions
+------------------
+
+not
+~~~
+Boolean negation.  ::
+
+  not False --> True
+  not True --> False
+
+sum
+~~~
+Sums the elements of a vector.  ::
+
+  sum vec(1.0,2,3,4) --> 10.0
+
+shape
+~~~~~
+``shape M``, with ``M`` a matrix, returns the index size of M as a vector. For example:
+::
+
+  x :: double[2,3,4];
+  shape x  -->  vec(2,3,4);
+
+nomemo
+~~~~~~
+Ordinarily, a matrix value will be spilled to the stack if any of its entries are referred to multiple times. The builtin ``nomemo`` will prevent this behavior. Consider the generated code for ::
+
+  x :: double[2,2];
+  z0 := x * x * x;
+  z1 := nomemo (x * x) * x;
+
+void
+~~~~
+Drops the result of a computation, creating an expression with void type. For
+example: ::
+
+  f () :: () := void $ printf "hi there\n";
+
+diag, scalar
+~~~~~~~~~~~~
+Calling ``scalar f`` creates a ``Scalar`` matrix initialized with the value
+``f``. ``diag`` is similar. See `Vector Types`_ for more information.
 
 
 Iteration Constructs
