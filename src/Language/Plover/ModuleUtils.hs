@@ -25,6 +25,9 @@ import Control.Arrow (first, second)
 import System.Directory
 import System.FilePath
 import Debug.Trace
+import System.Environment (getExecutablePath)
+import qualified Data.ByteString.Lazy as BS
+import qualified Data.Digest.Pure.SHA as SHA
 
 type Error = String
 type Action = EitherT Error (StateT ModuleState IO)
@@ -210,34 +213,6 @@ doCodegenAll = do
     (pair, imports) <- doCodegen opts (return $ fromRight bs)
     liftIO $ writeFiles pair imports opts (Just mod)
 
-
-splitStatic b | T.static b = Left b
-splitStatic b = Right b
-
-importName (T.ImportDef n) = n
-both f (a, b) = (f a, f b)
-
-writeFiles :: (String, String) -> [T.DefBinding] -> CompilerOpts -> Maybe String
-           -> IO (Maybe (FilePath, FilePath))
-writeFiles (header, source) imports opts unitName =
-  let (staticIncludes, normalIncludes) =
-        both (map $ importName . T.definition) . partitionEithers . map splitStatic $ imports
-  in
-  case unitName of
-   Nothing -> do putStrLn "/* START HEADER */"
-                 putStrLn (wrapHeader normalIncludes "DEFAULT" header)
-                 putStrLn "/* START SOURCE */"
-                 putStrLn source
-                 return Nothing
-   Just name -> do
-     let cfile = joinPath [fromMaybe "" (cFilePrefix opts), name ++ ".c"]
-     let hfile = joinPath [fromMaybe "" (hFilePrefix opts), name ++ ".h"]
-     let addPrefix name = joinPath [fromMaybe "" (libPrefix opts), name]
-     let includeName = addPrefix name
-     writeFile hfile (wrapHeader (map addPrefix normalIncludes) name header)
-     writeFile cfile (addIncludes (map addPrefix staticIncludes) includeName source)
-     return $ Just (hfile, cfile)
-
 makeHeaderName :: String -> String
 makeHeaderName unitName = "PLOVER_GENERATED_" ++ clean' unitName
   where clean' = map clean''
@@ -263,3 +238,37 @@ addIncludes moduleNames name body = unlines $
   , "" ] ++
   ["#include \"" ++ mod ++ ".h\"" | mod <- moduleNames] ++
   [ "" , body ]
+
+getBinaryHash :: IO String
+getBinaryHash = do
+  f <- getExecutablePath
+  file <- BS.readFile f
+  return $ "/* plover binary version: " ++ show (SHA.sha1 file) ++ " */\n"
+
+splitStatic b | T.static b = Left b
+splitStatic b = Right b
+
+importName (T.ImportDef n) = n
+both f (a, b) = (f a, f b)
+
+writeFiles :: (String, String) -> [T.DefBinding] -> CompilerOpts -> Maybe String
+           -> IO (Maybe (FilePath, FilePath))
+writeFiles (header, source) imports opts unitName =
+  let (staticIncludes, normalIncludes) =
+        both (map $ importName . T.definition) . partitionEithers . map splitStatic $ imports
+  in
+  case unitName of
+   Nothing -> do putStrLn "/* START HEADER */"
+                 putStrLn (wrapHeader normalIncludes "DEFAULT" header)
+                 putStrLn "/* START SOURCE */"
+                 putStrLn source
+                 return Nothing
+   Just name -> do
+     let cfile = joinPath [fromMaybe "" (cFilePrefix opts), name ++ ".c"]
+     let hfile = joinPath [fromMaybe "" (hFilePrefix opts), name ++ ".h"]
+     let addPrefix name = joinPath [fromMaybe "" (libPrefix opts), name]
+     let includeName = addPrefix name
+     hashHeader <- getBinaryHash
+     writeFile hfile $ hashHeader ++ (wrapHeader (map addPrefix normalIncludes) name header)
+     writeFile cfile $ hashHeader ++ (addIncludes (map addPrefix staticIncludes) includeName source)
+     return $ Just (hfile, cfile)
