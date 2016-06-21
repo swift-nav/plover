@@ -1064,6 +1064,23 @@ For instance, ::
 
 to get the types of ``B`` and of ``G^T * G``.
 
+Specialize
+----------
+
+The ``specialize`` syntax can be used to discriminate on an integer value at
+any point in a program. An example from ``prelude.plv``: ::
+
+  det {n} (A :: double[n,n]) :: double
+    := specialize n (
+         0 -> 1;
+         1 -> A[0,0];
+         2 -> det2 A;
+         3 -> det3 A;
+         4 -> det4 A;
+         _ -> gen_det_qr A;
+       );
+
+It is implemented with a C ``switch`` statement.
 
 Top-level Definitions
 =====================

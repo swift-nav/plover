@@ -1342,16 +1342,17 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 </ul>
 </li>
 <li><a class="reference internal" href="#value-and-type-holes" id="id57">Value and type holes</a></li>
+<li><a class="reference internal" href="#specialize" id="id58">Specialize</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#top-level-definitions" id="id58">Top-level Definitions</a><ul>
-<li><a class="reference internal" href="#functions" id="id59">Functions</a></li>
-<li><a class="reference internal" href="#structs" id="id60">Structs</a></li>
-<li><a class="reference internal" href="#typedefs-and-aliases" id="id61">Typedefs and Aliases</a></li>
+<li><a class="reference internal" href="#top-level-definitions" id="id59">Top-level Definitions</a><ul>
+<li><a class="reference internal" href="#functions" id="id60">Functions</a></li>
+<li><a class="reference internal" href="#structs" id="id61">Structs</a></li>
+<li><a class="reference internal" href="#typedefs-and-aliases" id="id62">Typedefs and Aliases</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id62">Modules</a></li>
-<li><a class="reference internal" href="#language-proposals" id="id63">Language Proposals</a></li>
+<li><a class="reference internal" href="#modules" id="id63">Modules</a></li>
+<li><a class="reference internal" href="#language-proposals" id="id64">Language Proposals</a></li>
 </ul>
 </div>
 </div>
@@ -2314,6 +2315,23 @@ For instance,</p>
 B :: __  := (G^T * G :: __)^(-1) * G^T;
 </pre>
 <p>to get the types of <tt class="docutils literal">B</tt> and of <tt class="docutils literal">G^T * G</tt>.</p>
+</div>
+<div class="section" id="specialize">
+<h2>Specialize</h2>
+<p>The <tt class="docutils literal">specialize</tt> syntax can be used to discriminate on an integer value at
+any point in a program. An example from <tt class="docutils literal">prelude.plv</tt>:</p>
+<pre class="literal-block">
+det {n} (A :: double[n,n]) :: double
+  := specialize n (
+       0 -&gt; 1;
+       1 -&gt; A[0,0];
+       2 -&gt; det2 A;
+       3 -&gt; det3 A;
+       4 -&gt; det4 A;
+       _ -&gt; gen_det_qr A;
+     );
+</pre>
+<p>It is implemented with a C <tt class="docutils literal">switch</tt> statement.</p>
 </div>
 </div>
 <div class="section" id="top-level-definitions">
