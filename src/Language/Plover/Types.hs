@@ -155,6 +155,7 @@ data Location a = Ref Type Variable
                 | Deref a
                 deriving (Eq, Ord, Show, Functor, F.Foldable, T.Traversable)
 
+
 -- Note [indexing rules]
 --
 -- These are equivalences:

@@ -42,7 +42,7 @@ data UnifierData = UnifierData
                    , uTypes :: M.Map Variable (Tag SourcePos, Type) -- ^ unification variables -> types (see note [unification])
                    , uExprs :: M.Map Variable (Tag SourcePos, CExpr) -- ^ unification variables -> exprs (see note [unification])
                    , uErrors :: [UnificationError]
-                   , uTypeEnv :: M.Map Variable (Tag SourcePos, Type) -- ^ variables -> types
+                   , uTypeEnv :: M.Map Variable (Tag SourcePos, Type, ArgDir) -- ^ variables -> types
                    , uRetType :: Maybe (Tag SourcePos, Type) -- ^ The expected return type of the current function
                    , uSpecializations :: M.Map Variable CExpr
                    }
@@ -111,7 +111,9 @@ initUniData defbs = UnifierData
                     , uTypes = M.empty
                     , uExprs = M.empty
                     , uErrors = []
-                    , uTypeEnv = M.fromList [(binding d, (bindingPos d, definitionType d))
+                    -- Top level definitions are immutable.
+                    -- TODO add "inout" syntax for DefBinding
+                    , uTypeEnv = M.fromList [(binding d, (bindingPos d, definitionType d, ArgIn))
                                             | d <- defbs]
                     , uRetType = error "Return type not set"
                     , uSpecializations = M.empty
@@ -140,13 +142,20 @@ gensym prefix = do names <- usedVars <$> get
                                      return newName
 
 -- | Adds a type binding to a variable (i.e., global variables or parameters to a function)
-addBinding :: Tag SourcePos -> String -> Type -> UM ()
-addBinding pos v ty = do bindings <- uTypeEnv <$> get
-                         modify $ \state -> state { uTypeEnv = M.insert v (pos, ty) bindings }
+addBinding :: Tag SourcePos -> String -> Type -> ArgDir -> UM ()
+addBinding pos v ty argdir = do
+  bindings <- uTypeEnv <$> get
+  modify $ \state -> state { uTypeEnv = M.insert v (pos, ty, argdir) bindings }
 -- | Gets a type for a variable (i.e., global variables or function parameters)
-getBinding :: String -> UM (Maybe (Tag SourcePos, Type))
+getBinding :: String -> UM (Maybe (Tag SourcePos, Type, ArgDir))
 getBinding v = do env <- uTypeEnv <$> get
                   return $ M.lookup v env
+getBindingDir :: String -> UM (Maybe (Tag SourcePos, ArgDir))
+getBindingDir v = do
+  mbind <- getBinding v
+  return $ do
+    (pos, _, dir) <- mbind
+    return (pos, dir)
 -- | Adds a type for a typehole or hole
 addUTypeBinding :: Tag SourcePos -> String -> Type -> UM ()
 addUTypeBinding pos v ty = do bindings <- uTypes <$> get
@@ -192,7 +201,7 @@ fullExpandTerm term = do
   eenv <- uExprs <$> get
   let tty (TypeHoleJ v) | Just (_, ty') <- M.lookup v tenv = expand ty'
       tty (TypedefType _ v) = do mty <- getBinding v
-                                 let Just (_, ty) = mty
+                                 let Just (_, ty, _) = mty
                                  ty' <- expand ty
                                  return $ TypedefType ty' v
 
@@ -200,7 +209,7 @@ fullExpandTerm term = do
         let fix (var, (tag, t1, t2)) = do
               t1 <- fullExpandTerm t1
               t2 <- fullExpandTerm t2
-              addBinding tag var t2
+              addBinding tag var t2 ArgIn
               return (var, (tag, t1, t2))
         fs <- mapM fix (st_fields st)
         return (StructType var (ST fs))
@@ -218,7 +227,7 @@ fullExpandTerm term = do
 
       tloc r@(Ref _ v) = do mty <- getBinding v
                             case mty of
-                              Just (_, ty) -> do
+                              Just (_, ty, _) -> do
                                 ty' <- expand ty
                                 return $ Ref ty' v
                               Nothing -> error $ "internal plover error: identifier missing from type environment: " ++ show r
@@ -236,7 +245,7 @@ baseExpandTypedefM :: Type -> UM Type
 baseExpandTypedefM (TypedefType _ name) = do
   mty' <- getBinding name
   case mty' of -- Relies on the fact that the semchecker already checked this name refers to a type
-    Just (pos, ty) -> baseExpandTypedefM ty
+    Just (pos, ty, _) -> baseExpandTypedefM ty
     _ -> do addUError $ UError NoTag $ "COMPILER ERROR: The type " ++ show name ++ " should be defined."
             TypeHoleJ <$> gensym "typedef"
 baseExpandTypedefM (VecType st idxs bty) = VecType st idxs <$> baseExpandTypedefM bty
@@ -331,7 +340,7 @@ typeCheckDefBinding def = case definition def of
     forM_ members $ \(v, (vpos, exty, inty)) -> do
       typeCheckType vpos exty
       inty' <- typeCheckType vpos inty
-      addBinding vpos v inty'
+      addBinding vpos v inty' ArgIn
   ValueDef mexp ty -> do
     ty' <- typeCheckType (bindingPos def) ty
     case mexp of
@@ -369,7 +378,7 @@ expandDefBinding' def = case definition def of
     forM members $ \(v, (vpos, exty, inty)) -> do
       exty' <- fullExpandTerm exty
       inty' <- fullExpandTerm inty
-      addBinding vpos v inty'
+      addBinding vpos v inty' ArgIn
       return (v, (vpos, exty', inty'))
   ValueDef mexp ty -> do
     ty' <- fullExpandTerm ty
@@ -653,7 +662,7 @@ typeCheckType pos (FnType fn) = do  -- Adds function parameters as bindings
   let (FnT args mva retty) = fn
   args' <- forM args $ \(vpos, v, b, dir, vty) -> do
     vty' <- typeCheckType vpos vty
-    addBinding vpos v vty' -- assumes bindings cleared between functions
+    addBinding vpos v vty' dir -- assumes bindings cleared between functions
     return (vpos, v, b, dir, vty')
   retty' <- typeCheckType pos retty
   return $ FnType $ FnT args' mva retty' -- N.B. this is the effective func type
@@ -666,11 +675,35 @@ typeCheckType pos t@(TypedefType _ _) = return t -- it is perfect as it is
 typeCheckType pos t@(StructType v (ST fields)) = return t
 typeCheckType pos t@(TypeHole {}) = expandTerm t
 
+getBaseLoc :: Location CExpr -> UM (Maybe Variable)
+getBaseLoc (Ref _ v) = return $ Just v
+getBaseLoc l =
+  let expr = case l of
+               Index e _ -> e
+               Field e _ -> e
+               Deref e -> e
+  in case expr of
+       Get _ l -> getBaseLoc l
+       _ -> do
+         addUError $ UError (getTag expr) "Invalid expression used as left hand side of assignment."
+         return Nothing
+
+-- Checks that a location being modified in a Set expression is not an ArgIn parameter
+checkSetDir :: Location CExpr -> UM ()
+checkSetDir loc = do
+  mbaseVariable <- getBaseLoc loc
+  case mbaseVariable of
+    Just baseVariable -> do
+      Just (pos, dir) <- getBindingDir baseVariable
+      when (dir == ArgIn) $
+        addUError $ UError pos "Cannot mutate input argument. To do so, declare the parameter `out` or `inout`."
+    Nothing -> return ()
+
 typeCheck :: CExpr -> UM Type
 typeCheck (Vec pos v range body) = do
   rt <- typeCheckRange pos range
   -- alpha renamed, so can just add v to scope
-  addBinding pos v (IntType rt)
+  addBinding pos v (IntType rt) ArgIn
   bt <- typeCheck body
   when (refOccursIn v bt) $ do
     addUError $ URefOccurs pos v bt
@@ -678,7 +711,7 @@ typeCheck (Vec pos v range body) = do
 typeCheck (For pos v range body) = do
   rt <- typeCheckRange pos range
   -- alpha renamed, so can just add v to scope
-  addBinding pos v (IntType rt)
+  addBinding pos v (IntType rt) ArgIn
   typeCheck body
   return Void
 typeCheck (While pos test body) = do
@@ -705,7 +738,7 @@ typeCheck (If pos a b c) = do
   tyc <- typeCheck c
   unify pos tyb tyc
 typeCheck (Specialize pos v cases dflt) = do
-  Just (vpos, vty) <- getBinding v
+  Just (vpos, vty, _) <- getBinding v
   _ <- expectInt pos vty
   dty <- typeCheck dflt
   forM_ cases $ \(cond, cons) -> do
@@ -730,7 +763,7 @@ typeCheck (ScalarMatLit pos n s) = do _ <- expectInt pos =<< typeCheck n
                                       VecType ScalarMatrix [n,n] <$> typeCheck s
 typeCheck (Let pos v x body) = do
   tyx <- typeCheck x
-  addBinding pos v tyx -- alpha renamed, so ok
+  addBinding pos v tyx ArgInOut -- alpha renamed, so ok
   bt <- typeCheck body
   when (refOccursIn v bt) $ do
     addUError $ URefOccurs (MergeTags [pos, getTag body]) v bt
@@ -741,7 +774,7 @@ typeCheck (Seq pos a b) = do
   typeCheck b
 -- skip App
 typeCheck (ConcreteApp pos (Get _ (Ref _ v)) args rty) = do
-  Just (gpos, (FnType fty)) <- getBinding v
+  Just (gpos, (FnType fty), _) <- getBinding v
   FnEnv fargs mva ret <- universalizeFunType fty
   when (length args < length fargs || (not mva && length args > length fargs)) $ do
     addUError $ UError (MergeTags [pos, gpos]) "COMPILER ERROR. Incorrect number of arguments."
@@ -765,6 +798,7 @@ typeCheck (Addr pos loc) = do
   tyloc <- typeCheckLoc pos loc
   return $ PtrType tyloc
 typeCheck (Set pos loc v) = do
+  checkSetDir loc
   tyloc <- typeCheckLoc pos loc >>= expandTerm >>= normalizeTypesM
   tyv <- typeCheck v >>= expandTerm >>= normalizeTypesM
   unifySet tyloc tyv
@@ -970,7 +1004,7 @@ typeCheckRange pos (Range from to step) = do
 
 typeCheckLoc :: Tag SourcePos -> Location CExpr -> UM Type
 typeCheckLoc pos (Ref _ v) = do -- We DO NOT unify against the type of the Ref.  Filled in later.
-  Just (vpos, vty) <- getBinding v
+  Just (vpos, vty, _) <- getBinding v
   return vty
 typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLocType`
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM

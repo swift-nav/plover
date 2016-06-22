@@ -46,6 +46,7 @@ cases =
   [ ("qr", ["-I", "examples"], "examples/qr_test.plv", (True, Just ExitSuccess))
   , ("cyclic", ["-I", "examples/module-tests"],
      "examples/module-tests/cycleA.plv", (False, Nothing))
+  , ("in_bad", ["-I", "examples"], "examples/test_in_failure.plv", (False, Nothing))
   ]
 
 tests :: TestTree
