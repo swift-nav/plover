@@ -1349,10 +1349,11 @@ has embedded systems in mind and gives some care to stack utilization.</p>
 <li><a class="reference internal" href="#functions" id="id60">Functions</a></li>
 <li><a class="reference internal" href="#structs" id="id61">Structs</a></li>
 <li><a class="reference internal" href="#typedefs-and-aliases" id="id62">Typedefs and Aliases</a></li>
+<li><a class="reference internal" href="#external-definitions" id="id63">External Definitions</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#modules" id="id63">Modules</a></li>
-<li><a class="reference internal" href="#language-proposals" id="id64">Language Proposals</a></li>
+<li><a class="reference internal" href="#modules" id="id64">Modules</a></li>
+<li><a class="reference internal" href="#language-proposals" id="id65">Language Proposals</a></li>
 </ul>
 </div>
 </div>
@@ -2358,6 +2359,46 @@ __C__
 </pre>
 <p>Plover does not analyze code inside a <tt class="docutils literal">__C__</tt> block, so any names introduced
 here will be unavailable to the typechecker.</p>
+</div>
+<div class="section" id="external-definitions">
+<h2>External Definitions</h2>
+<p>External C code is generally easy to call within Plover code. The primary
+obligation is to specify a Plover type for any externally defined constant or
+function.  This allows the Plover typechecker to verify all references to the
+external definition.  The mechanism to do this is the <tt class="docutils literal">extern</tt> keyword. An
+example from <tt class="docutils literal">prelude.plv</tt>:</p>
+<pre class="literal-block">
+__C__ &quot;#include &lt;stdlib.h&gt;&quot;;
+extern (
+  struct div_t (
+    quot :: int;
+    rem :: int;
+  );
+  div (n :: int) (denom :: int) :: div_t;
+);
+</pre>
+<p>This enables references to <tt class="docutils literal">div_t</tt> structs and the <tt class="docutils literal">div</tt> function.</p>
+<p>Note that omitting struct members is possible, and if your code only passes a
+particular type around to external functions, never scrutinizing it itself, it
+may even make use of empty extern struct definitions. For instance, a somewhat
+awkward way of calling the <tt class="docutils literal">qsort</tt> function using an external comparison
+function:</p>
+<pre class="literal-block">
+extern (
+  struct cmp (
+  );
+  cmp_int :: cmp;
+  qsort (array :: *s32) (length :: int) (size :: int) (comparison :: cmp) :: ();
+);
+
+qsort_int {n} (array :: s32[n]) :: s32[n] := (
+  result := array;
+  qsort (&amp;result[0]) n 4 cmp_int;
+  result;
+);
+</pre>
+<p>Giving <tt class="docutils literal">qsort</tt> a type that would allow plover-defined comparisons is
+problematic because it is currently impossible to have functions as parameters.</p>
 </div>
 </div>
 <div class="section" id="modules">
