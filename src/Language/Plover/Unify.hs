@@ -262,7 +262,7 @@ fullExpandTerm term = do
 -- | Expands just enough typedefs to see how many indices a vector has
 baseExpandTypedefM :: Type -> UM Type
 baseExpandTypedefM (TypedefType _ name) = do
-  VB pos ty _ <- getBinding name
+  ty <- vbType <$> getBinding name
   baseExpandTypedefM ty
 baseExpandTypedefM (VecType st idxs bty) = VecType st idxs <$> baseExpandTypedefM bty
 baseExpandTypedefM x@(TypeHoleJ {}) = do x' <- expandTerm x
@@ -755,7 +755,7 @@ typeCheck (If pos a b c) = do
   tyc <- typeCheck c
   unify pos tyb tyc
 typeCheck (Specialize pos v cases dflt) = do
-  VB pos vty _ <- getBinding v
+  VB _ vty _ <- getBinding v
   _ <- expectInt pos vty
   dty <- typeCheck dflt
   forM_ cases $ \(cond, cons) -> do
@@ -1020,9 +1020,7 @@ typeCheckRange pos (Range from to step) = do
   return ty
 
 typeCheckLoc :: Tag SourcePos -> Location CExpr -> UM Type
-typeCheckLoc pos (Ref _ v) = do -- We DO NOT unify against the type of the Ref.  Filled in later.
-  VB vpos vty _ <- getBinding v
-  return vty
+typeCheckLoc pos (Ref _ v) = vbType <$> getBinding v -- We DO NOT unify against the type of the Ref.  Filled in later.
 typeCheckLoc pos (Index a idxs) = do -- see note [indexing rules] and see `getLocType`
   aty <- typeCheck a >>= expandTerm >>= normalizeTypesM
   normalizeTypes <$> typeCheckIdx aty idxs aty
