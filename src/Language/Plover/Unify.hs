@@ -168,7 +168,7 @@ getBinding' v = do
 -- | Gets a type for a variable (global variables or function
 -- parameters).  This should only be used in places where the
 -- semchecker has already ensured a binding exists for everything.
-getBinding :: String -> UM (VariableBinding')
+getBinding :: String -> UM VariableBinding'
 getBinding v = fromMaybe err <$> getBinding' v
   where
     err = error . unlines $
