@@ -46,10 +46,13 @@ cases =
   [ ("qr", ["-I", "examples"], "examples/qr_test.plv", (True, Just ExitSuccess))
   , ("cyclic", ["-I", "examples/module-tests"],
      "examples/module-tests/cycleA.plv", (False, Nothing))
+  , ("scalar_in_failure", ["-I", "examples"], "examples/argdir_tests/scalar_in_failure.plv", (False, Nothing))
+  , ("vector_in_failure", ["-I", "examples"], "examples/argdir_tests/vector_in_failure.plv", (False, Nothing))
+  , ("field_in_failure", ["-I", "examples"], "examples/argdir_tests/field_in_failure.plv", (False, Nothing))
+  , ("deref_in_failure", ["-I", "examples"], "examples/argdir_tests/deref_in_failure.plv", (False, Nothing))
   ]
 
 tests :: TestTree
 tests = testGroup "Tests" [
   testGroup "Units" $ map doCase cases
   ]
-

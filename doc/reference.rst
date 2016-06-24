@@ -1064,6 +1064,23 @@ For instance, ::
 
 to get the types of ``B`` and of ``G^T * G``.
 
+Specialize
+----------
+
+The ``specialize`` syntax can be used to discriminate on an integer value at
+any point in a program. An example from ``prelude.plv``: ::
+
+  det {n} (A :: double[n,n]) :: double
+    := specialize n (
+         0 -> 1;
+         1 -> A[0,0];
+         2 -> det2 A;
+         3 -> det3 A;
+         4 -> det4 A;
+         _ -> gen_det_qr A;
+       );
+
+It is implemented with a C ``switch`` statement.
 
 Top-level Definitions
 =====================
@@ -1092,6 +1109,48 @@ To add a C typedef to your generated code, use the inline C feature: ::
 
 Plover does not analyze code inside a ``__C__`` block, so any names introduced
 here will be unavailable to the typechecker.
+
+External Definitions
+--------------------
+
+External C code is generally easy to call within Plover code. The primary
+obligation is to specify a Plover type for any externally defined constant or
+function.  This allows the Plover typechecker to verify all references to the
+external definition.  The mechanism to do this is the ``extern`` keyword. An
+example from ``prelude.plv``: ::
+
+  __C__ "#include <stdlib.h>";
+  extern (
+    struct div_t (
+      quot :: int;
+      rem :: int;
+    );
+    div (n :: int) (denom :: int) :: div_t;
+  );
+
+This enables references to ``div_t`` structs and the ``div`` function.
+
+Note that omitting struct members is possible, and if your code only passes a
+particular type around to external functions, never scrutinizing it itself, it
+may even make use of empty extern struct definitions. For instance, a somewhat
+awkward way of calling the ``qsort`` function using an external comparison
+function: ::
+
+  extern (
+    struct cmp (
+    );
+    cmp_int :: cmp;
+    qsort (array :: *s32) (length :: int) (size :: int) (comparison :: cmp) :: ();
+  );
+
+  qsort_int {n} (array :: s32[n]) :: s32[n] := (
+    result := array;
+    qsort (&result[0]) n 4 cmp_int;
+    result;
+  );
+
+Giving ``qsort`` a type that would allow plover-defined comparisons is
+problematic because it is currently impossible to have functions as parameters.
 
 Modules
 =======

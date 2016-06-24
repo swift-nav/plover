@@ -1,0 +1,8 @@
+struct Foo (
+  n :: int;
+  A :: double[100] storing double[n,n];
+);
+
+bad (x :: Foo) :: () := (
+  x.n <- 3;
+);
