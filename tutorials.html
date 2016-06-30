@@ -1,0 +1,1999 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<link rel="shortcut icon" type="image/png" href="favicon.png"/>
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+config: ["MMLorHTML.js"],
+jax: ["input/TeX", "output/HTML-CSS", "output/NativeMML", "output/CommonHTML"],
+extensions: ["MathMenu.js", "MathZoom.js", "CHTML-preview.js"],
+TeX: {
+extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js",
+"AMScd.js"],
+Macros: {
+del: '\\partial',
+R: '{\\mathbb{R}}',
+C: '{\\mathbb{C}}',
+Z: '{\\mathbb{Z}}',
+Q: '{\\mathbb{Q}}',
+RP: '{\\mathbb{R}\\mathrm{P}}',
+CP: '{\\mathbb{C}\\mathrm{P}}',
+Hom: '\\operatorname{Hom}',
+im: '\\operatorname{im}',
+coker: '\\operatorname{coker}',
+abs: ['{\\lvert #1 \\rvert}', 1],
+norm: ['{\\lVert #1 \\rVert}', 1],
+gen: ['{\\langle #1 \\rangle}', 1],
+id: '{\\mathrm{id}}'
+}
+},
+});
+</script>
+
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
+<title>Plover Tutorials</title>
+<meta name="authors" content="Scott Kovach  Kyle Miller" />
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+<style type="text/css">
+
+/*! normalize.css v2.1.3 | MIT License | git.io/normalize */
+
+/* ==========================================================================
+   HTML5 display definitions
+   ========================================================================== */
+
+/**
+ * Correct `block` display not defined in IE 8/9.
+ */
+
+article,
+aside,
+details,
+figcaption,
+figure,
+footer,
+header,
+hgroup,
+main,
+nav,
+section,
+summary {
+    display: block;
+}
+
+/**
+ * Correct `inline-block` display not defined in IE 8/9.
+ */
+
+audio,
+canvas,
+video {
+    display: inline-block;
+}
+
+/**
+ * Prevent modern browsers from displaying `audio` without controls.
+ * Remove excess height in iOS 5 devices.
+ */
+
+audio:not([controls]) {
+    display: none;
+    height: 0;
+}
+
+/**
+ * Address `[hidden]` styling not present in IE 8/9.
+ * Hide the `template` element in IE, Safari, and Firefox < 22.
+ */
+
+[hidden],
+template {
+    display: none;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+/**
+ * 1. Set default font family to sans-serif.
+ * 2. Prevent iOS text size adjust after orientation change, without disabling
+ *    user zoom.
+ */
+
+html {
+    font-family: sans-serif; /* 1 */
+    -ms-text-size-adjust: 100%; /* 2 */
+    -webkit-text-size-adjust: 100%; /* 2 */
+}
+
+/**
+ * Remove default margin.
+ */
+
+body {
+    margin: 0;
+}
+
+/* ==========================================================================
+   Links
+   ========================================================================== */
+
+/**
+ * Remove the gray background color from active links in IE 10.
+ */
+
+a {
+    background: transparent;
+}
+
+/**
+ * Address `outline` inconsistency between Chrome and other browsers.
+ */
+
+a:focus {
+    outline: thin dotted;
+}
+
+/**
+ * Improve readability when focused and also mouse hovered in all browsers.
+ */
+
+a:active,
+a:hover {
+    outline: 0;
+}
+
+/* ==========================================================================
+   Typography
+   ========================================================================== */
+
+/**
+ * Address variable `h1` font-size and margin within `section` and `article`
+ * contexts in Firefox 4+, Safari 5, and Chrome.
+ */
+
+h1 {
+    font-size: 2em;
+    margin: 0.67em 0;
+}
+
+/**
+ * Address styling not present in IE 8/9, Safari 5, and Chrome.
+ */
+
+abbr[title] {
+    border-bottom: 1px dotted;
+}
+
+/**
+ * Address style set to `bolder` in Firefox 4+, Safari 5, and Chrome.
+ */
+
+b,
+strong {
+    font-weight: bold;
+}
+
+/**
+ * Address styling not present in Safari 5 and Chrome.
+ */
+
+dfn {
+    font-style: italic;
+}
+
+/**
+ * Address differences between Firefox and other browsers.
+ */
+
+hr {
+    -moz-box-sizing: content-box;
+    box-sizing: content-box;
+    height: 0;
+}
+
+/**
+ * Address styling not present in IE 8/9.
+ */
+
+mark {
+    background: #ff0;
+    color: #000;
+}
+
+/**
+ * Correct font family set oddly in Safari 5 and Chrome.
+ */
+
+code,
+kbd,
+pre,
+samp {
+    font-family: monospace, serif;
+    font-size: 1em;
+}
+
+/**
+ * Improve readability of pre-formatted text in all browsers.
+ */
+
+pre {
+    white-space: pre-wrap;
+}
+
+/**
+ * Set consistent quote types.
+ */
+
+q {
+    quotes: "\201C" "\201D" "\2018" "\2019";
+}
+
+/**
+ * Address inconsistent and variable font size in all browsers.
+ */
+
+small {
+    font-size: 80%;
+}
+
+/**
+ * Prevent `sub` and `sup` affecting `line-height` in all browsers.
+ */
+
+sub,
+sup {
+    font-size: 75%;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+}
+
+sup {
+    top: -0.5em;
+}
+
+sub {
+    bottom: -0.25em;
+}
+
+/* ==========================================================================
+   Embedded content
+   ========================================================================== */
+
+/**
+ * Remove border when inside `a` element in IE 8/9.
+ */
+
+img {
+    border: 0;
+}
+
+/**
+ * Correct overflow displayed oddly in IE 9.
+ */
+
+svg:not(:root) {
+    overflow: hidden;
+}
+
+/* ==========================================================================
+   Figures
+   ========================================================================== */
+
+/**
+ * Address margin not present in IE 8/9 and Safari 5.
+ */
+
+figure {
+    margin: 0;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+/**
+ * Define consistent border, margin, and padding.
+ */
+
+fieldset {
+    border: 1px solid #c0c0c0;
+    margin: 0 2px;
+    padding: 0.35em 0.625em 0.75em;
+}
+
+/**
+ * 1. Correct `color` not being inherited in IE 8/9.
+ * 2. Remove padding so people aren't caught out if they zero out fieldsets.
+ */
+
+legend {
+    border: 0; /* 1 */
+    padding: 0; /* 2 */
+}
+
+/**
+ * 1. Correct font family not being inherited in all browsers.
+ * 2. Correct font size not being inherited in all browsers.
+ * 3. Address margins set differently in Firefox 4+, Safari 5, and Chrome.
+ */
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit; /* 1 */
+    font-size: 100%; /* 2 */
+    margin: 0; /* 3 */
+}
+
+/**
+ * Address Firefox 4+ setting `line-height` on `input` using `!important` in
+ * the UA stylesheet.
+ */
+
+button,
+input {
+    line-height: normal;
+}
+
+/**
+ * Address inconsistent `text-transform` inheritance for `button` and `select`.
+ * All other form control elements do not inherit `text-transform` values.
+ * Correct `button` style inheritance in Chrome, Safari 5+, and IE 8+.
+ * Correct `select` style inheritance in Firefox 4+ and Opera.
+ */
+
+button,
+select {
+    text-transform: none;
+}
+
+/**
+ * 1. Avoid the WebKit bug in Android 4.0.* where (2) destroys native `audio`
+ *    and `video` controls.
+ * 2. Correct inability to style clickable `input` types in iOS.
+ * 3. Improve usability and consistency of cursor style between image-type
+ *    `input` and others.
+ */
+
+button,
+html input[type="button"], /* 1 */
+input[type="reset"],
+input[type="submit"] {
+    -webkit-appearance: button; /* 2 */
+    cursor: pointer; /* 3 */
+}
+
+/**
+ * Re-set default cursor for disabled elements.
+ */
+
+button[disabled],
+html input[disabled] {
+    cursor: default;
+}
+
+/**
+ * 1. Address box sizing set to `content-box` in IE 8/9/10.
+ * 2. Remove excess padding in IE 8/9/10.
+ */
+
+input[type="checkbox"],
+input[type="radio"] {
+    box-sizing: border-box; /* 1 */
+    padding: 0; /* 2 */
+}
+
+/**
+ * 1. Address `appearance` set to `searchfield` in Safari 5 and Chrome.
+ * 2. Address `box-sizing` set to `border-box` in Safari 5 and Chrome
+ *    (include `-moz` to future-proof).
+ */
+
+input[type="search"] {
+    -webkit-appearance: textfield; /* 1 */
+    -moz-box-sizing: content-box;
+    -webkit-box-sizing: content-box; /* 2 */
+    box-sizing: content-box;
+}
+
+/**
+ * Remove inner padding and search cancel button in Safari 5 and Chrome
+ * on OS X.
+ */
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+}
+
+/**
+ * Remove inner padding and border in Firefox 4+.
+ */
+
+button::-moz-focus-inner,
+input::-moz-focus-inner {
+    border: 0;
+    padding: 0;
+}
+
+/**
+ * 1. Remove default vertical scrollbar in IE 8/9.
+ * 2. Improve readability and alignment in all browsers.
+ */
+
+textarea {
+    overflow: auto; /* 1 */
+    vertical-align: top; /* 2 */
+}
+
+/* ==========================================================================
+   Tables
+   ========================================================================== */
+
+/**
+ * Remove most spacing between table cells.
+ */
+
+table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+</style>
+<style type="text/css">
+
+.highlight .hll { background-color: #ffffcc }
+.highlight  { background: #f0f3f3; }
+.highlight .c { color: #0099FF; font-style: italic } /* Comment */
+.highlight .err { color: #AA0000; background-color: #FFAAAA } /* Error */
+.highlight .k { color: #006699; font-weight: bold } /* Keyword */
+.highlight .o { color: #555555 } /* Operator */
+.highlight .cm { color: #0099FF; font-style: italic } /* Comment.Multiline */
+.highlight .cp { color: #009999 } /* Comment.Preproc */
+.highlight .c1 { color: #0099FF; font-style: italic } /* Comment.Single */
+.highlight .cs { color: #0099FF; font-weight: bold; font-style: italic } /* Comment.Special */
+.highlight .gd { background-color: #FFCCCC; border: 1px solid #CC0000 } /* Generic.Deleted */
+.highlight .ge { font-style: italic } /* Generic.Emph */
+.highlight .gr { color: #FF0000 } /* Generic.Error */
+.highlight .gh { color: #003300; font-weight: bold } /* Generic.Heading */
+.highlight .gi { background-color: #CCFFCC; border: 1px solid #00CC00 } /* Generic.Inserted */
+.highlight .go { color: #AAAAAA } /* Generic.Output */
+.highlight .gp { color: #000099; font-weight: bold } /* Generic.Prompt */
+.highlight .gs { font-weight: bold } /* Generic.Strong */
+.highlight .gu { color: #003300; font-weight: bold } /* Generic.Subheading */
+.highlight .gt { color: #99CC66 } /* Generic.Traceback */
+.highlight .kc { color: #006699; font-weight: bold } /* Keyword.Constant */
+.highlight .kd { color: #006699; font-weight: bold } /* Keyword.Declaration */
+.highlight .kn { color: #006699; font-weight: bold } /* Keyword.Namespace */
+.highlight .kp { color: #006699 } /* Keyword.Pseudo */
+.highlight .kr { color: #006699; font-weight: bold } /* Keyword.Reserved */
+.highlight .kt { color: #007788; font-weight: bold } /* Keyword.Type */
+.highlight .m { color: #FF6600 } /* Literal.Number */
+.highlight .s { color: #CC3300 } /* Literal.String */
+.highlight .na { color: #330099 } /* Name.Attribute */
+.highlight .nb { color: #336666 } /* Name.Builtin */
+.highlight .nc { color: #00AA88; font-weight: bold } /* Name.Class */
+.highlight .no { color: #336600 } /* Name.Constant */
+.highlight .nd { color: #9999FF } /* Name.Decorator */
+.highlight .ni { color: #999999; font-weight: bold } /* Name.Entity */
+.highlight .ne { color: #CC0000; font-weight: bold } /* Name.Exception */
+.highlight .nf { color: #CC00FF } /* Name.Function */
+.highlight .nl { color: #9999FF } /* Name.Label */
+.highlight .nn { color: #00CCFF; font-weight: bold } /* Name.Namespace */
+.highlight .nt { color: #330099; font-weight: bold } /* Name.Tag */
+.highlight .nv { color: #003333 } /* Name.Variable */
+.highlight .ow { color: #000000; font-weight: bold } /* Operator.Word */
+.highlight .w { color: #bbbbbb } /* Text.Whitespace */
+.highlight .mf { color: #FF6600 } /* Literal.Number.Float */
+.highlight .mh { color: #FF6600 } /* Literal.Number.Hex */
+.highlight .mi { color: #FF6600 } /* Literal.Number.Integer */
+.highlight .mo { color: #FF6600 } /* Literal.Number.Oct */
+.highlight .sb { color: #CC3300 } /* Literal.String.Backtick */
+.highlight .sc { color: #CC3300 } /* Literal.String.Char */
+.highlight .sd { color: #CC3300; font-style: italic } /* Literal.String.Doc */
+.highlight .s2 { color: #CC3300 } /* Literal.String.Double */
+.highlight .se { color: #CC3300; font-weight: bold } /* Literal.String.Escape */
+.highlight .sh { color: #CC3300 } /* Literal.String.Heredoc */
+.highlight .si { color: #AA0000 } /* Literal.String.Interpol */
+.highlight .sx { color: #CC3300 } /* Literal.String.Other */
+.highlight .sr { color: #33AAAA } /* Literal.String.Regex */
+.highlight .s1 { color: #CC3300 } /* Literal.String.Single */
+.highlight .ss { color: #FFCC33 } /* Literal.String.Symbol */
+.highlight .bp { color: #336666 } /* Name.Builtin.Pseudo */
+.highlight .vc { color: #003333 } /* Name.Variable.Class */
+.highlight .vg { color: #003333 } /* Name.Variable.Global */
+.highlight .vi { color: #003333 } /* Name.Variable.Instance */
+.highlight .il { color: #FF6600 } /* Literal.Number.Integer.Long */
+
+.type-csharp .highlight .k { color: #0000FF }
+.type-csharp .highlight .kt { color: #0000FF }
+.type-csharp .highlight .nf { color: #000000; font-weight: normal }
+.type-csharp .highlight .nc { color: #2B91AF }
+.type-csharp .highlight .nn { color: #000000 }
+.type-csharp .highlight .s { color: #A31515 }
+.type-csharp .highlight .sc { color: #A31515 }
+
+</style>
+<style type="text/css">
+
+/****
+Adapted from Slate Theme for GitHub Pages and David Goodger's html4css1.css
+****/
+
+*, *:before, *:after {
+  -moz-box-sizing: border-box;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+
+body {
+  color:#373737;
+  background: #212121;
+  font-size: 18px;
+  font-family: 'Myriad Pro', Calibri, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 10px 0;
+  font-weight: 700;
+  color:#222222;
+  font-family: 'Lucida Grande', 'Calibri', Helvetica, Arial, sans-serif;
+  letter-spacing: -1px;
+}
+
+h1 {
+  font-size: 36px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 32px;
+}
+
+h3 {
+  font-size: 24px;
+}
+
+h4 {
+  font-size: 21px;
+}
+
+h5 {
+  font-size: 18px;
+}
+
+h6 {
+  font-size: 16px;
+}
+
+p {
+  font-size: 18px;
+  margin: 10px 0 15px 0;
+}
+
+footer p, footer table {
+  color: #f2f2f2;
+}
+footer table.docinfo th.docinfo-name {
+
+}
+
+a {
+  text-decoration: none;
+  color: #007edf;
+  text-shadow: none;
+}
+
+a:hover, a:focus {text-decoration: underline;}
+
+footer a {
+  color: #F2F2F2;
+  text-decoration: underline;
+}
+
+em {
+  font-style: italic;
+}
+
+strong {
+  font-weight: bold;
+}
+
+img {
+  position: relative;
+  margin: 0 auto;
+  max-width: 739px;
+  padding: 5px;
+  margin: 10px 0 10px 0;
+  border: 1px solid #ebebeb;
+
+  box-shadow: 0 0 5px #ebebeb;
+  -webkit-box-shadow: 0 0 5px #ebebeb;
+  -moz-box-shadow: 0 0 5px #ebebeb;
+  -o-box-shadow: 0 0 5px #ebebeb;
+  -ms-box-shadow: 0 0 5px #ebebeb;
+}
+
+p img {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+  text-align: center;
+  border: none;
+}
+
+pre, code {
+  width: 100%;
+  color: #222;
+  background-color: #fff;
+
+  font-family: Monaco, "Bitstream Vera Sans Mono", "Lucida Console", Terminal, monospace;
+  font-size: 14px;
+
+  border-radius: 2px;
+  -moz-border-radius: 2px;
+  -webkit-border-radius: 2px;
+
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+}
+
+pre {
+  padding: 10px;
+  overflow: auto;
+}
+
+code {
+  padding: 3px;
+  margin: 0 3px;
+}
+
+pre.code {
+  display: block;
+  box-shadow: none;
+}
+
+blockquote {
+  color: #333;
+  margin: 0 0 20px 2px;
+  padding-left: 20px;
+  padding-bottom: 7px;
+  border-left: 3px solid #bbb;
+  background: white;
+  /*font-style: italic;*/
+}
+
+blockquote div.line-block {
+  margin-bottom: 0;
+}
+
+ul, ol, dl {
+/*  margin: 0 0 15px 0;*/
+  padding-left: 35px;
+}
+
+dl dt {
+  font-weight: bold;
+}
+
+dl dd {
+  margin-left: 0;
+  padding-left: 0;
+  font-style: italic;
+}
+
+dl p {
+  padding-left: 20px;
+  font-style: italic;
+}
+
+table {
+
+  margin-bottom: 20px;
+  text-align: left;
+
+}
+
+.docinfo tr {
+    display: inline-block;
+    padding-right: 2.2em;
+}
+
+th {
+  font-family: 'Lucida Grande', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+ }
+
+td {
+
+ }
+
+
+
+/*******************************************************************************
+Full-Width Styles
+*******************************************************************************/
+
+.outer {
+  width: 100%;
+}
+
+.inner {
+  position: relative;
+  max-width: 777px; /* jackpot! */
+  padding: 20px 10px;
+  margin: 0 auto;
+}
+
+#forkme_banner {
+  display: block;
+  position: absolute;
+  top:0;
+  right: 10px;
+  z-index: 10;
+  padding: 8px 50px 8px 10px;
+  color: #fff;
+  background: url('blacktocat.png') #0090ff no-repeat 95% 50%;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(0,0,0,.5);
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+#header_wrap {
+    background: #212121;
+    min-height: 200px;
+}
+
+#logo {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: -160px;
+    padding: 0; margin: 0;
+    width: 264px; height: 200px;
+    background: url("plover.w2.png") #212121 no-repeat left top;
+}
+
+#header_wrap .inner {
+    padding: 50px 10px 30px 10px;
+}
+
+.title {
+    position: relative;
+  margin: 0;
+  color: #fff;
+  font-size: 42px;
+  font-weight: 700;
+/*  text-shadow: #111 0px 0px 10px;*/
+  text-shadow: #111 2px 0px 2px, #111 0px 0px 5px, #111 0px 0px 10px, #000 1px 1px 15px;
+}
+
+.subtitle {
+    position: relative;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 300;
+  background: none;
+/*  text-shadow: #111 0px 0px 10px;*/
+  text-shadow: #111 2px 0px 2px, #111 0px 0px 5px, #111 0px 0px 10px, #000 1px 1px 15px;
+}
+
+#main_content_wrap {
+    background: #f2f2f2;
+    background: #f9f8f7;
+  border-top: 1px solid #111;
+  border-bottom: 1px solid #111;
+}
+
+#main_content {
+  padding-top: 40px;
+}
+
+#footer_wrap {
+  background: #212121;
+}
+
+#toptoc {
+    position: absolute;
+    right: 0;
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+#toptoc li {
+    display: inline-block;
+    margin-left: 5px;
+}
+
+#toptoc a {
+  color: #229eff; /* #007edf */
+  text-decoration: none;
+}
+#toptoc a:hover, #toptoc a:focus {
+                     color: #eee;
+                 }
+
+/*******************************************************************************
+Small Device Styles
+*******************************************************************************/
+
+@media screen and (max-width: 480px) {
+  body {
+    font-size:14px;
+  }
+
+  #downloads {
+    display: none;
+  }
+
+  .inner {
+    min-width: 320px;
+    max-width: 480px;
+  }
+
+  #project_title {
+  font-size: 32px;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  h2 {
+    font-size: 24px;
+  }
+
+  h3 {
+    font-size: 21px;
+  }
+
+  h4 {
+    font-size: 18px;
+  }
+
+  h5 {
+    font-size: 14px;
+  }
+
+  h6 {
+    font-size: 12px;
+  }
+
+  code, pre {
+    min-width: 320px;
+    max-width: 480px;
+    font-size: 9px;
+  }
+}
+
+/*****
+ End small device styles
+****/
+
+/*
+:Author: David Goodger (goodger@python.org)
+:Id: $Id: html4css1.css 7614 2013-02-21 15:55:51Z milde $
+:Copyright: This stylesheet has been placed in the public domain.
+
+Default cascading style sheet for the HTML output of Docutils.
+
+See http://docutils.sf.net/docs/howto/html-stylesheets.html for how to
+customize this style sheet.
+*/
+
+/* used to remove borders from tables and images */
+.borderless, table.borderless td, table.borderless th {
+  border: 0 }
+
+table.borderless td, table.borderless th {
+  /* Override padding for "table.docutils td" with "! important".
+     The right padding separates the table cells. */
+  padding: 0 0.5em 0 0 ! important }
+
+.first {
+  /* Override more specific margin styles with "! important". */
+  margin-top: 0 ! important }
+
+.last, .with-subtitle {
+  margin-bottom: 0 ! important }
+
+.hidden {
+  display: none }
+
+a.toc-backref {
+  text-decoration: none ;
+  color: black }
+
+blockquote.epigraph {
+  margin: 2em 5em ; }
+
+dl.docutils dd {
+  margin-bottom: 0.5em }
+
+object[type="image/svg+xml"], object[type="application/x-shockwave-flash"] {
+  overflow: hidden;
+}
+
+/* Uncomment (and remove this text!) to get bold-faced definition list terms
+dl.docutils dt {
+  font-weight: bold }
+*/
+
+div.abstract {
+  margin: 2em 5em }
+
+div.abstract p.topic-title {
+  font-weight: bold ;
+  text-align: center }
+
+div.admonition, div.attention, div.caution, div.danger, div.error,
+div.hint, div.important, div.note, div.tip, div.warning {
+  margin: 2em ;
+  border: medium outset ;
+  padding: 1em }
+
+div.admonition p.admonition-title, div.hint p.admonition-title,
+div.important p.admonition-title, div.note p.admonition-title,
+div.tip p.admonition-title {
+  font-weight: bold ;
+  font-family: sans-serif }
+
+div.attention p.admonition-title, div.caution p.admonition-title,
+div.danger p.admonition-title, div.error p.admonition-title,
+div.warning p.admonition-title, .code .error {
+  color: red ;
+  font-weight: bold ;
+  font-family: sans-serif }
+
+/* Uncomment (and remove this text!) to get reduced vertical space in
+   compound paragraphs.
+div.compound .compound-first, div.compound .compound-middle {
+  margin-bottom: 0.5em }
+
+div.compound .compound-last, div.compound .compound-middle {
+  margin-top: 0.5em }
+*/
+
+div.dedication {
+  margin: 2em 5em ;
+  text-align: center ;
+  font-style: italic }
+
+div.dedication p.topic-title {
+  font-weight: bold ;
+  font-style: normal }
+
+div.figure {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+div.footer, div.header {
+  clear: both;
+  font-size: smaller }
+
+div.line-block {
+  display: block ;
+  margin-top: 1em ;
+  margin-bottom: 1em }
+
+div.line-block div.line-block {
+  margin-top: 0 ;
+  margin-bottom: 0 ;
+  margin-left: 1.5em }
+
+div.sidebar {
+  margin: 0 0 0.5em 1em ;
+  border: medium outset ;
+  padding: 1em ;
+  background-color: #ffffee ;
+  width: 40% ;
+  float: right ;
+  clear: right }
+
+div.sidebar p.rubric {
+  font-family: sans-serif ;
+  font-size: medium }
+
+div.system-messages {
+  margin: 5em }
+
+div.system-messages h1 {
+  color: red }
+
+div.system-message {
+  border: medium outset ;
+  padding: 1em }
+
+div.system-message p.system-message-title {
+  color: red ;
+  font-weight: bold }
+
+div.topic {
+  margin: 2em }
+
+h1.section-subtitle, h2.section-subtitle, h3.section-subtitle,
+h4.section-subtitle, h5.section-subtitle, h6.section-subtitle {
+  margin-top: 0.4em }
+
+hr.docutils {
+  width: 75% }
+
+img.align-left, .figure.align-left, object.align-left {
+  clear: left ;
+  float: left ;
+  margin-right: 1em }
+
+img.align-right, .figure.align-right, object.align-right {
+  clear: right ;
+  float: right ;
+  margin-left: 1em }
+
+img.align-center, .figure.align-center, object.align-center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.align-left {
+  text-align: left }
+
+.align-center {
+  clear: both ;
+  text-align: center }
+
+.align-right {
+  text-align: right }
+
+/* reset inner alignment in figures */
+div.align-right {
+  text-align: inherit }
+
+/* div.align-center * { */
+/*   text-align: left } */
+
+ol.simple, ul.simple {
+  margin-bottom: 1em }
+
+ol.arabic {
+  list-style: decimal }
+
+ol.loweralpha {
+  list-style: lower-alpha }
+
+ol.upperalpha {
+  list-style: upper-alpha }
+
+ol.lowerroman {
+  list-style: lower-roman }
+
+ol.upperroman {
+  list-style: upper-roman }
+
+p.attribution {
+  text-align: right ;
+  margin-left: 50% }
+
+p.caption {
+  font-style: italic }
+
+p.credits {
+  font-style: italic ;
+  font-size: smaller }
+
+p.label {
+  white-space: nowrap }
+
+p.rubric {
+  font-weight: bold ;
+  font-size: larger ;
+  color: maroon ;
+  text-align: center }
+
+p.sidebar-title {
+  font-family: sans-serif ;
+  font-weight: bold ;
+  font-size: larger }
+
+p.sidebar-subtitle {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+p.topic-title {
+  font-weight: bold }
+
+pre.address {
+  margin-bottom: 0 ;
+  margin-top: 0 ;
+  font: inherit }
+
+pre.doctest-block, pre.math, pre.code {
+  margin-left: 2em ;
+  margin-right: 2em }
+
+pre.code .ln { color: grey; } /* line numbers */
+pre.code, code { background-color: #eeeeee }
+pre.code .comment, code .comment { color: #5C6576 }
+pre.code .keyword, code .keyword { color: #3B0D06; font-weight: bold }
+pre.code .literal.string, code .literal.string { color: #0C5404 }
+pre.code .name.builtin, code .name.builtin { color: #352B84 }
+pre.code .deleted, code .deleted { background-color: #DEB0A1}
+pre.code .inserted, code .inserted { background-color: #A3D289}
+
+span.classifier {
+  font-family: sans-serif ;
+  font-style: oblique }
+
+span.classifier-delimiter {
+  font-family: sans-serif ;
+  font-weight: bold }
+
+span.interpreted {
+  font-family: sans-serif }
+
+span.option {
+  white-space: nowrap }
+
+span.pre {
+  white-space: pre }
+
+span.problematic {
+  color: red }
+
+span.section-subtitle {
+  /* font-size relative to parent (h1..h6 element) */
+  font-size: 80% }
+
+table.citation {
+  border-left: solid 1px gray;
+  margin-left: 1px }
+
+table.docinfo {
+  margin: 2em 4em }
+
+table.docutils {
+  margin-top: 0.5em ;
+  margin-bottom: 0.5em }
+
+table.footnote {
+  border-left: solid 1px black;
+  margin-left: 1px }
+
+table.docutils td, table.docutils th,
+table.docinfo td, table.docinfo th {
+  padding-left: 0.5em ;
+  padding-right: 0.5em ;
+  vertical-align: top }
+
+table.docutils th.field-name, table.docinfo th.docinfo-name {
+  font-weight: bold ;
+  text-align: left ;
+  white-space: nowrap ;
+  padding-left: 0 }
+
+/* "booktabs" style (no vertical lines) */
+table.docutils.booktabs {
+  border: 0px;
+  border-top: 2px solid;
+  border-bottom: 2px solid;
+  border-collapse: collapse;
+}
+table.docutils.booktabs * {
+  border: 0px;
+}
+table.docutils.booktabs th {
+  border-bottom: thin solid;
+  text-align: left;
+}
+
+h1 tt.docutils, h2 tt.docutils, h3 tt.docutils,
+h4 tt.docutils, h5 tt.docutils, h6 tt.docutils {
+  font-size: 100% }
+
+ul.auto-toc {
+  list-style-type: none }
+
+/*.contents {
+    float: right;
+    width: 200px;
+    margin-right: -200px;
+}
+*/
+.contents {
+    font-size: 90%;
+}
+.contents .topic-title {
+    margin-bottom: 5px;
+}
+.contents ul {
+    margin-top: 0px;
+    padding-left: 1.5em;
+    list-style-type: square;
+}
+
+</style>
+<style type="text/css">
+
+#logo {
+    top: 20px; left: -100px;
+    width: 132px; height: 100px;
+    background-size: 132px 100px;
+}
+#header_wrap .inner {
+    padding-top: 35px;
+}
+#header_wrap {
+    min-height: 120px;
+}
+</style>
+<!-- body prefix -->
+</head>
+<body>
+<div class="document" id="plover-tutorials">
+<!-- body pre docinfo  -->
+<div id="header_wrap" class="outer">
+  <header class="inner">
+    <div id="logo"></div>
+    <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
+    <h1 class="title">Plover Tutorials</h1>
+    <ul id="toptoc">
+      <li><a href="index.html">About</a></li>
+      <li><a href="guide.html">Guide</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="reference.html">Reference</a></li>
+      <li><a href="warnings.html">Warnings</a></li>
+    </ul>
+  </header>
+</div>
+
+<div id="main_content_wrap" class="outer">
+  <section id="main_content" class="inner">
+    <!-- body -->
+    <p>This part of the documentation gives worked examples of using Plover.</p>
+<div class="contents topic" id="table-of-contents">
+<p class="topic-title first">Table of Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#matrix-multiplications" id="id4">Matrix Multiplications</a></li>
+<li><a class="reference internal" href="#computing-correlation-vectors" id="id5">Computing Correlation Vectors</a></li>
+<li><a class="reference internal" href="#programming-a-qr-least-squares-solver" id="id6">Programming a QR Least Squares Solver</a><ul>
+<li><a class="reference internal" href="#qr-factorization" id="id7">QR Factorization</a></li>
+<li><a class="reference internal" href="#backsolving" id="id8">Backsolving</a></li>
+<li><a class="reference internal" href="#complete-solver" id="id9">Complete Solver</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#citations" id="id10">Citations</a></li>
+</ul>
+</div>
+<div class="section" id="matrix-multiplications">
+<h1>Matrix Multiplications</h1>
+<p>A quick application of using Plover is to create bespoke functions
+which operate on matrices.  A very basic example is a matrix times a
+vector:</p>
+<pre class="literal-block">
+mul_mat_vec {m,n} (A :: double[m,n]) (v :: double[n]) :: double[m]
+  := A * v;
+</pre>
+<p>This function takes two implicit arguments (<tt class="docutils literal">m</tt> and <tt class="docutils literal">n</tt>) which
+give the dimensions of the <span class="math">\(m\times n\)</span> matrix <tt class="docutils literal">A</tt> and an
+<span class="math">\(n\)</span>-dimensional vector <tt class="docutils literal">v</tt>.  Putting this into a file called
+<tt class="docutils literal">mats.plv</tt>, we compile it with Plover using</p>
+<pre class="literal-block">
+$ plover mats.plv
+</pre>
+<p>which creates two files, <tt class="docutils literal">mats.c</tt> and <tt class="docutils literal">mats.h</tt>.  The resulting C
+definition is</p>
+<pre class="literal-block">
+void mul_mat_vec (const s32 m, const s32 n,
+                  const double * A, const double * v,
+                  double * result)
+{
+    for (s32 idx = 0; idx &lt; m; idx++) {
+        double sum = 0;
+
+        for (s32 idx2 = 0; idx2 &lt; n; idx2++) {
+            sum += A[n * idx + idx2] * v[idx2];
+        }
+        result[idx] = sum;
+    }
+}
+</pre>
+<p>with a corresponding definition in the header file.  The rules for
+creating the C function type from a Plover type are simple: the
+parameters for the C function appear in the same order as they appear
+in the Plover definition, and if the result is a vector type (i.e.,
+non-scalar), it is appended as the last argument.  The caller is
+responsible for allocating the memory of the returned vector.</p>
+<p>Another example is computing a quadratic form  <span class="math">\(v^TAv\)</span>:</p>
+<pre class="literal-block">
+mat_quad_form {n} (A :: double[n,n]) (v :: double[n]) :: double
+  := (v^T * A * v)[0];
+</pre>
+<p>Multiplication is left-associative, so the inner expression is the
+same as <tt class="docutils literal">(v^T * A) * v</tt>. The rule for taking the transpose of an
+<span class="math">\(n\)</span>-dimensional vector is that it becomes a <span class="math">\(1\times
+n\)</span>-dimensional matrix, and so the product with the <span class="math">\(n\times n\)</span>
+matrix <tt class="docutils literal">A</tt>, giving a <span class="math">\(1\times n\)</span> matrix.  This is then
+multiplied by the vector, and a matrix times a vector results in a
+vector, in this case <span class="math">\(1\)</span>-dimensional.  This is indexed to get
+the sole entry.  Alternatively, the body of the function could
+equivalently be <tt class="docutils literal">(A * v) * v</tt>, without indexing, where the second
+<tt class="docutils literal">*</tt> is a dot product between vectors.</p>
+<p>Compiling this, the resulting C is</p>
+<pre class="literal-block">
+double mat_quad_form (const s32 n,
+                      const double * A, const double * v)
+{
+    double sum = 0;
+
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        double sum2 = 0;
+
+        for (s32 idx2 = 0; idx2 &lt; n; idx2++) {
+            sum2 += v[idx2] * A[n * idx2 + idx];
+        }
+        sum += sum2 * v[idx];
+    }
+    return sum;
+}
+</pre>
+<p>Notice that the Plover compiler does not generate the intermediate
+matrix product.  This is because the later multiplication informs the
+first that it will only be evaluating each element of the first at
+most once, so the elements may be computed on demand.</p>
+<p>Suppose that the vector were instead a matrix.  That is,</p>
+<pre class="literal-block">
+mat_quad_prod {n,m} (A :: double[n,n]) (B :: double[n,m]) :: double[m,m]
+  := B^T * A * B;
+</pre>
+<p>Plover generates the following code:</p>
+<pre class="literal-block">
+void mat_quad_prod (const s32 n, const s32 m,
+                    const double * A, const double * B,
+                    double * result)
+{
+    double tmp [m * n];
+
+    for (s32 idx = 0; idx &lt; m; idx++) {
+        for (s32 idx2 = 0; idx2 &lt; n; idx2++) {
+            double sum = 0;
+
+            for (s32 idx3 = 0; idx3 &lt; n; idx3++) {
+                sum += B[m * idx3 + idx] * A[n * idx3 + idx2];
+            }
+            tmp[n * idx + idx2] = sum;
+        }
+    }
+    for (s32 idx = 0; idx &lt; m; idx++) {
+        for (s32 idx2 = 0; idx2 &lt; m; idx2++) {
+            double sum = 0;
+
+            for (s32 idx3 = 0; idx3 &lt; n; idx3++) {
+                sum += tmp[n * idx + idx3] * B[m * idx3 + idx2];
+            }
+            result[m * idx + idx2] = sum;
+        }
+    }
+}
+</pre>
+<p>Since the second product will use the elements of the first product
+multiple times, the compiler <em>memoizes</em> (or <em>spills</em>) the result onto
+the stack.  If <tt class="docutils literal">n</tt> is large relative to <tt class="docutils literal">m</tt> this might be
+unacceptable behavior on an embedded system, and we may be willing to
+trade stack space for computation time.  Plover gives the <tt class="docutils literal">nomemo</tt>
+operator to control whether a request to memoize an intermediate value
+will be acknowledged.  This does not change the result of a
+computation, but it might change whether the computation is computable
+on a given system.  Concretely:</p>
+<pre class="literal-block">
+mat_quad_prod_safe {n,m} (A :: double[n,n]) (B :: double[n,m]) :: double[m,m]
+  := nomemo (B^T * A) * B;
+</pre>
+<p>gives</p>
+<pre class="literal-block">
+void mat_quad_safe (const s32 n, const s32 m,
+                    const double * A, const double * B,
+                    double * result)
+{
+    for (s32 idx = 0; idx &lt; m; idx++) {
+        for (s32 idx2 = 0; idx2 &lt; m; idx2++) {
+            double sum = 0;
+
+            for (s32 idx3 = 0; idx3 &lt; n; idx3++) {
+                double sum2 = 0;
+
+                for (s32 idx4 = 0; idx4 &lt; n; idx4++) {
+                    sum2 += B[m * idx4 + idx] * A[n * idx4 + idx3];
+                }
+                sum += sum2 * B[m * idx3 + idx2];
+            }
+            result[m * idx + idx2] = sum;
+        }
+    }
+}
+</pre>
+</div>
+<div class="section" id="computing-correlation-vectors">
+<h1>Computing Correlation Vectors</h1>
+<p>The cross-correlation of two (real-valued) signals <span class="math">\(f\)</span> and
+<span class="math">\(g\)</span> is defined to be</p>
+<div class="math">
+\begin{equation*}
+(f \star g)[i] = \sum_{j=-\infty}^\infty f[j] g[j+i]
+\end{equation*}
+</div>
+<p>For periodic signals with period <span class="math">\(N\)</span>, the bounds of the sum can
+be restricted to having length <span class="math">\(N\)</span>, and, if we model <span class="math">\(f\)</span>
+and <span class="math">\(g\)</span> as being vectors of length <span class="math">\(N\)</span>, this amounts to a
+dot product of <span class="math">\(f\)</span> by a cyclic shift of <span class="math">\(g\)</span>.</p>
+<p>In Plover, the right-hand side can be written as <tt class="docutils literal">f * (g[i:] #
+<span class="pre">g[:i])</span></tt>.  The <tt class="docutils literal">*</tt> operator computes the dot product when given
+vector operands, and the <tt class="docutils literal">#</tt> operator concatenates two vectors.
+Like in Python or Matlab, vectors can be <em>sliced</em> by indexing them
+with a range of values.  The lower- or upper- bounds may be omitted on
+the range operator <tt class="docutils literal">:</tt>, and they default to the bounds of the sliced
+vector.  Here, <tt class="docutils literal">i:</tt> and <tt class="docutils literal">:i</tt> are equivalent to the vectors
+<tt class="docutils literal"><span class="pre">vec(i,i+1,...,N-1)</span></tt> and <tt class="docutils literal"><span class="pre">vec(0,1,...,i-1)</span></tt>, respectively.</p>
+<p>With this, we can make a function which computes all of the
+cross-correlations of two vectors of length <tt class="docutils literal">N</tt>:</p>
+<pre class="literal-block">
+cross_cor {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+  vec i in N -&gt; f * (g[i:] # g[:i]);
+</pre>
+<p>The declaration for the function gives <tt class="docutils literal">N</tt> as an implicit parameter,
+<tt class="docutils literal">f</tt> and <tt class="docutils literal">g</tt> as vectors of length <tt class="docutils literal">N</tt> with double-precision
+floating-point numbers as values, and a return type which is also a
+vector of length <tt class="docutils literal">N</tt> with doubles as values.</p>
+<p>The body of the function is given after the <tt class="docutils literal">:=</tt> definition
+operator.  The body creates a new vector of length <tt class="docutils literal">N</tt> with <tt class="docutils literal">i</tt>
+iterating over that range, computing the cross-correlation for each
+offset <tt class="docutils literal">i</tt>.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p>The cross-correlation function can also be written as:</p>
+<pre class="literal-block">
+cross_cor {N} (f :: double[N]) (g :: double[N]) :: double[N] :=
+  vec i in N -&gt; f * g[(i:i+N) % N];
+</pre>
+<p class="last">since arithmetic operators coerce their operands into vectors of
+compatible size and then vectorize the operation elementwise.</p>
+</div>
+<p>Auto-correlation is the cross-correlation of a vector with itself.
+Given the above definition, we may write</p>
+<pre class="literal-block">
+auto_cor {N} (f :: double[N]) :: double[N] :=
+  cross_cor f f;
+</pre>
+<p>Since the first argument to <tt class="docutils literal">cross_cor</tt> is implicit, Plover will try
+to determine a valid argument to place there, which it will determine
+using <tt class="docutils literal">f</tt> and the return type for <tt class="docutils literal">auto_cor</tt>.  If we wish to be
+explicit, we may instead write <tt class="docutils literal">cross_cor {N} f f</tt> to pass the
+implicit argument <tt class="docutils literal">N</tt>.</p>
+<p>Putting these into a file called <tt class="docutils literal">cor.plv</tt>, we may compile them to C
+by entering the directory and running</p>
+<pre class="literal-block">
+$ plover cor.plv
+</pre>
+<p>This creates a files called <tt class="docutils literal">cor.h</tt> and <tt class="docutils literal">cor.c</tt>, with <tt class="docutils literal">cor.c</tt>
+containing the following definitions:</p>
+<pre class="literal-block">
+void cross_cor (const s32 N, const double * f, const double * g, double * result)
+{
+    for (s32 idx = 0; idx &lt; N; idx++) {
+        s32 i = idx;
+        double sum = 0;
+
+        for (s32 idx2 = 0; idx2 &lt; N; idx2++) {
+            double tmp;
+
+            if (idx2 &lt; -i + N) {
+                tmp = g[i + idx2];
+            } else {
+                tmp = g[idx2 - (-i + N)];
+            }
+            sum += f[idx2] * tmp;
+        }
+        result[idx] = sum;
+    }
+}
+void auto_cor (const s32 N, const double * f, double * result)
+{
+    cross_cor(N, f, f, result);
+}
+</pre>
+<p>The auto-correlation of a random vector approximates a delta function
+as the length of the vector goes to infinity.  We will make a test
+which demonstrates this.</p>
+<pre class="literal-block">
+import prelude;
+
+main () :: int :=
+  ( v := normalize (vec i in 1000 -&gt; rand_normal());
+    print_vec $ auto_cor v;
+    return 0;
+  );
+</pre>
+<p>This imports the standard Plover library, and defines a <tt class="docutils literal">main</tt>
+function.  The function creates a vector of 1000 random doubles,
+normally distributed, and normalizes the vector so that its Euclidean
+length is 1.  After this, the auto-correlation vector is printed.  In
+Plover, the dollar sign acts like an open parenthesis which extends to
+the end of an expression.</p>
+<p>Compiling and running this file with:</p>
+<pre class="literal-block">
+$ plover cor.plv
+$ gcc cor.c prelude.c -o cor
+$ ./cor
+</pre>
+<p>shows that the 0th element is <tt class="docutils literal">1.0</tt> (since this entry represents the
+dot product of the vector with itself), and the rest are relatively
+small.  We can measure this with the following code:</p>
+<pre class="literal-block">
+vec_mean {n} (v :: double[n]) :: double :=
+  sum v / n;
+
+main () :: int :=
+  ( w := vec N in 2:2000 -&gt; (
+           v := normalize $ vec i in N -&gt; rand_normal();
+           av := auto_corr v;
+           vec_mean $ av[1:] .* av[1:]
+         );
+    print_vec w;
+    return 0;
+  );
+</pre>
+<p>The <tt class="docutils literal">.*</tt> operator is the point-wise product (&quot;Hadamard&quot; product) and
+effectively squares each element in the array.  So <tt class="docutils literal">w</tt> is a vector
+of the mean of the squares of the non-zero-offset auto-correlations
+for various sizes of random vectors.  Plotting this vector in a
+graphing application, one can see the errors decrease with the inverse
+of the size of the vectors.</p>
+</div>
+<div class="section" id="programming-a-qr-least-squares-solver">
+<h1>Programming a QR Least Squares Solver</h1>
+<p>We're going to step through the implementation of a textbook algorithm: a QR
+least squares solver for overdetermined systems. That is, given <span class="math">\(A\in
+\R^{m\times n}\)</span> and <span class="math">\(b\in \R^m\)</span> with <span class="math">\(m \geq n\)</span>, we want to find a
+vector <span class="math">\(x\in\R^n\)</span> such that the squared error <span class="math">\(\norm{Ax-b}\)</span> is
+minimized. We give a brief explanation of the math first, following <a class="citation-reference" href="#mc2013" id="id1">[MC2013]</a>.</p>
+<p>Suppose we can compute an orthogonal matrix <span class="math">\(Q\in\R^{m\times m}\)</span> such
+that</p>
+<div class="math">
+\begin{equation*}
+Q^T A = R = \begin{bmatrix}R_1 \\ 0 \end{bmatrix}
+\begin{matrix} \scriptstyle n \\ \scriptstyle m-n \end{matrix}
+\end{equation*}
+</div>
+<p>where <span class="math">\(R_1\in \R^{n\times n}\)</span> is upper triangular. Then we can write</p>
+<div class="math">
+\begin{equation*}
+Q^T b = \begin{bmatrix}c \\ d \end{bmatrix}
+\begin{matrix} \scriptstyle n \\ \scriptstyle m-n \end{matrix}
+\end{equation*}
+</div>
+<p>and we note that</p>
+<div class="math">
+\begin{equation*}
+\norm{Ax-b} = \norm{Q^TAx-Q^Tb} = \norm{R_1x-c}+\norm{d}
+\end{equation*}
+</div>
+<p>If <span class="math">\(A\)</span> is full rank, we can solve the system <span class="math">\(R_1x=c\)</span> exactly, and
+the remaining error is <span class="math">\(d\)</span>.</p>
+<p>The essential steps are:</p>
+<ol class="arabic simple">
+<li>Apply orthogonal transformations to <span class="math">\(A\)</span> and <span class="math">\(b\)</span> until
+<span class="math">\(A\)</span>'s first <span class="math">\(n\)</span> rows are upper triangular.</li>
+<li>Backsolve the triangular system.</li>
+<li>Return the solution and the error.</li>
+</ol>
+<p>We will attempt to mindlessly follow the implementation given in <a class="citation-reference" href="#mc2013" id="id2">[MC2013]</a>.</p>
+<div class="section" id="qr-factorization">
+<h2>QR Factorization</h2>
+<p>First we apply a sequence of Givens rotations to introduce zeroes into our matrix <span class="math">\(A\)</span>.
+A Givens rotation is a pair <span class="math">\(c=\cos(\theta)\)</span> and <span class="math">\(s=\sin(\theta)\)</span> such that</p>
+<div class="math">
+\begin{equation*}
+\begin{bmatrix}
+  c &amp; s \\
+  -s &amp; c
+\end{bmatrix}^T
+\begin{bmatrix}
+a \\ b
+\end{bmatrix}
+=
+\begin{bmatrix}
+r \\ 0
+\end{bmatrix}
+.
+\end{equation*}
+</div>
+<p>Pseudocode to calculate such a pair follows:</p>
+<blockquote>
+<div class="line-block">
+<div class="line"><strong>givens</strong> (a, b) <strong>returns</strong> [<span class="math">\(c, s\)</span>]</div>
+<div class="line"><strong>if</strong> <span class="math">\(b = 0\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(c = 1; s = 0\)</span></div>
+</div>
+<div class="line"><strong>else if</strong> <span class="math">\(\abs{b} &gt; \abs{a}\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(\tau = -a/b; s = 1/\sqrt{1+\tau^2}; c = s\tau\)</span></div>
+</div>
+<div class="line"><strong>else</strong></div>
+<div class="line-block">
+<div class="line"><span class="math">\(\tau = -b/a; c = 1/\sqrt{1+\tau^2}; s = c\tau\)</span></div>
+</div>
+</div>
+</blockquote>
+<p>The plover version is below. We will step through it line by line.</p>
+<pre class="literal-block">
+static givens (a :: double) (b :: double) :: double[2,2] := (
+  c :: double;
+  s :: double;
+  if b == 0 then (
+    c &lt;- 1; s &lt;- 0
+  ) else if fabs b &gt; fabs a then (
+    tau := -a/b; s &lt;- 1/sqrt(1+tau^2); c &lt;- s*tau
+  ) else (
+    tau := -b/a; c &lt;- 1/sqrt(1+tau^2); s &lt;- c*tau;
+  );
+
+  mat( c, s ;
+      -s, c );
+);
+</pre>
+<hr class="docutils" />
+<pre class="literal-block">
+static givens (a :: double) (b :: double) :: double[2,2] := (
+  ...
+);
+</pre>
+<p>Plover is statically typed, and all functions require a type
+signature, although in many cases types can be inferred (see the
+language reference section on type holes).  This function signature
+indicates that the function <tt class="docutils literal">givens</tt> is <tt class="docutils literal">static</tt> (declared
+<tt class="docutils literal">static</tt> in the generated <tt class="docutils literal">C</tt> file, with no prototype in the
+header file), takes two arguments <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> of type <tt class="docutils literal">double</tt>,
+and returns a 2-by-2 matrix of doubles.  Function declarations and
+variable initializations use the <tt class="docutils literal">:=</tt> operator and must be
+terminated by a semicolon.  Blocks are enclosed by parentheses, and
+the expressions within a block are separated by semicolons.</p>
+<pre class="literal-block">
+c :: double;
+s :: double;
+</pre>
+<p>A new local variable may either be declared with a type (<tt class="docutils literal">var ::
+type;</tt>) or with an initial value (<tt class="docutils literal">var :: optional_type :=
+value;</tt>), in which case the type is optional and can be inferred.  In
+this case, <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt> are set by each branch of the <tt class="docutils literal">if</tt>
+expression below, so we declare them with only their types.  Declaring
+a variable does not initialize it.</p>
+<pre class="literal-block">
+if b == 0 then (
+  c &lt;- 1; s &lt;- 0
+)
+</pre>
+<p>The condition of an <tt class="docutils literal">if</tt> expression does not need enclosing
+parentheses. The condition must be followed by the keyword <tt class="docutils literal">then</tt>
+and an expression. In this case, we have a block which updates the
+values of <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt>.  Updating variables must be done with
+<tt class="docutils literal">&lt;-</tt> .  An <tt class="docutils literal">if</tt> should be terminated by a semicolon when used as a
+statement.</p>
+<div class="note">
+<p class="first admonition-title">Note</p>
+<p class="last">In Plover, everything is an expression.  Sometimes it is
+convenient to call an expression appearing in a block a
+<em>statement</em>.</p>
+</div>
+<pre class="literal-block">
+else if fabs b &gt; fabs a then (
+  tau := -a/b; s &lt;- 1/sqrt(1+tau^2); c &lt;- s*tau
+) else (
+  tau := -b/a; c &lt;- 1/sqrt(1+tau^2); s &lt;- c*tau
+);
+</pre>
+<p><tt class="docutils literal">if</tt> statements are optionally followed by an <tt class="docutils literal">else</tt> clause and
+another expression or block. Here, the <tt class="docutils literal">fabs</tt> function is called on
+<tt class="docutils literal">b</tt> and on <tt class="docutils literal">a</tt>, and these values are compared to choose the branch.
+The local <tt class="docutils literal">tau</tt> is initialized, and <tt class="docutils literal">c</tt> and <tt class="docutils literal">s</tt> are updated as
+shown in the pseudocode above.  The <tt class="docutils literal">fabs</tt> and <tt class="docutils literal">sqrt</tt> functions
+are included in Plover's <tt class="docutils literal">prelude</tt> module.</p>
+<pre class="literal-block">
+mat( c, s ;
+    -s, c );
+</pre>
+<p>The final expression in a block is treated as the value for that block. Here,
+the function returns a 2-by-2 matrix literal containing the values we've just
+computed. The output code below shows how this is translated into C.</p>
+<p>Let's take a look at the C code generated so far:</p>
+<pre class="literal-block">
+// excerpt, qr.c
+static void givens (const double a, const double b, double * result);
+void givens (const double a, const double b, double * result)
+{
+    double c;
+    double s;
+
+    if (b == 0) {
+        c = 1;
+        s = 0;
+    } else {
+        if (fabs(a) &lt; fabs(b)) {
+            double tau;
+
+            tau = -(a / b);
+            s = 1 / sqrt(1 + tau * tau);
+            c = s * tau;
+        } else {
+            double tau;
+
+            tau = -(b / a);
+            c = 1 / sqrt(1 + tau * tau);
+            s = c * tau;
+        }
+    }
+    result[2 * 0] = c;
+    result[2 * 0 + 1] = s;
+    result[2 * 1] = -s;
+    result[2 * 1 + 1] = c;
+}
+</pre>
+<p>We can see that Plover passes the result matrix as an extra argument, and
+stores the dense matrix in a flat array in row-major order. Arguments are by
+default passed <tt class="docutils literal">const</tt>, but modifications are allowed with the <tt class="docutils literal">out</tt> and
+<tt class="docutils literal">inout</tt> parameter options; see the language reference. The rest of the code
+matches the input closely.</p>
+<p>Now we will use this routine to factor our matrix.  Starting at the lower left
+corner, we go up and then right, introducing zeros with one Givens rotation at
+a time. Pseudocode from <a class="citation-reference" href="#mc2013" id="id3">[MC2013]</a>:</p>
+<blockquote>
+<div class="line-block">
+<div class="line"><strong>qr_factor</strong> (m, n, A)</div>
+<div class="line"><strong>for</strong> <span class="math">\(j = 1:n\)</span></div>
+<div class="line-block">
+<div class="line"><strong>for</strong> <span class="math">\(i=m:-1:j+1\)</span></div>
+<div class="line-block">
+<div class="line"><span class="math">\(R\)</span> = givens(<span class="math">\(A(i-1,j),A(i,j)\)</span>)</div>
+<div class="line"><span class="math">\(A(i-1:i,j:n) = R^T A(i-1:i, j:n)\)</span></div>
+</div>
+</div>
+</div>
+</blockquote>
+<p>We pick a rotation that introduces a zero at location <span class="math">\((i,j)\)</span> and apply
+it to rows <tt class="docutils literal">i</tt> and <tt class="docutils literal"><span class="pre">i-1</span></tt> of <span class="math">\(A\)</span>, updating them in-place. Note that
+the second loop counts down from <span class="math">\(m\)</span> to <span class="math">\(j+1\)</span>, and the arrays are
+one-indexed.</p>
+<p>The Plover code:</p>
+<pre class="literal-block">
+qr_update {m, n}
+  (inout b :: double[m])
+  (inout A :: double[m, n])
+  :: Void := (
+
+    for j in 1 .. n,
+        i in m .. j+1 : -1 -&gt; (
+
+      -- Givens rotation
+      rot := givens A[i-2,j-1] A[i-1,j-1];
+      -- Rotate one column at a time
+      for k in j..n -&gt; (
+        v := A[i-2 .. i-1, k-1];
+        A[i-2 .. i-1, k-1] &lt;- rot^T * v;
+      );
+
+      -- Rotate b vector
+      v := b[i-2 .. i-1];
+      b[i-2 .. i-1] &lt;- rot^T * v;
+
+  );
+);
+</pre>
+<hr class="docutils" />
+<pre class="literal-block">
+qr_update {m, n}
+  (inout b :: double[m])
+  (inout A :: double[m, n])
+</pre>
+<p>We use <tt class="docutils literal">inout</tt> variables, mutating <tt class="docutils literal">b</tt> and <tt class="docutils literal">A</tt> as we go along. This way,
+we never store the <tt class="docutils literal">Q</tt> matrix and simply return the upper triangular rotation
+of <tt class="docutils literal">A</tt>.</p>
+<p><tt class="docutils literal">{m, n}</tt> denotes that <tt class="docutils literal">qr_update</tt> takes two implicit <tt class="docutils literal">int</tt>
+parameters.  The function qr_update can be called simply with the (explicit)
+<tt class="docutils literal">b</tt> and <tt class="docutils literal">A</tt> arguments, and <tt class="docutils literal">m</tt> and <tt class="docutils literal">n</tt> will be inferred. If the
+dimensions of the explicit arguments don't match, Plover will report a type
+error. See the language reference for more details.</p>
+<pre class="literal-block">
+for j in 1 .. n,
+    i in m .. j+1 : -1 -&gt; (
+
+  -- Givens rotation
+  rot := givens A[i-2,j-1] A[i-1,j-1];
+  ...
+);
+</pre>
+<p>Plover uses zero-indexing, but we keep the same loop bounds to avoid too much
+confusion in the translation.  The expression <tt class="docutils literal"><span class="pre">a..b</span></tt> denotes the sequence
+of integers from <tt class="docutils literal">a</tt> to <tt class="docutils literal">b</tt>, inclusive, whereas <tt class="docutils literal">a:b</tt> excludes the upper
+bound. The expression <tt class="docutils literal"><span class="pre">(a..b</span> : <span class="pre">-1)</span></tt> means: count from <tt class="docutils literal">a</tt> to <tt class="docutils literal">b</tt> with
+step size -1.</p>
+<pre class="literal-block">
+-- Rotate one column at a time
+for k in j..n -&gt; (
+  v := A[i-2 .. i-1, k-1];
+  A[i-2 .. i-1, k-1] &lt;- rot^T * v;
+);
+</pre>
+<p>We rotate one column at a time so that we can use a two element temporary
+vector v to avoid overwiting elements of <tt class="docutils literal">A</tt> while they are still needed by
+the product computation.  Currently, Plover will not warn you and will not
+automatically make a copy of the right hand side if one is needed to properly
+compute an update statment <tt class="docutils literal">a &lt;- b</tt>.</p>
+<p>These lines also demonstrate the submatrix indexing facilities of Plover. We
+often use the notation <tt class="docutils literal">v[a:b]</tt> to take the subvector of <tt class="docutils literal">v</tt> at indices
+from <tt class="docutils literal">a</tt> to <tt class="docutils literal"><span class="pre">b-1</span></tt>.  These expressions can be used as l-values and as
+r-values, as above. They can also be passed as <tt class="docutils literal">out</tt> arguments to a function,
+and the proper subvector will be updated.  We can take subranges of objects
+with multiple indices as well: taking a row of a matrix is accomplished with
+<tt class="docutils literal">M[i]</tt> or <tt class="docutils literal">M[i, :]</tt>, and taking a column is simply <tt class="docutils literal"><span class="pre">M[:,</span> i]</tt>. A colon
+without upper or lower bounds is filled in appropriately.</p>
+</div>
+<div class="section" id="backsolving">
+<h2>Backsolving</h2>
+<p>Now we have a square upper triangular constraint matrix and a target vector; we can solve
+this one row at a time, starting with the last.</p>
+<p>For an upper-triangular system <span class="math">\(Rx=b\)</span>, the value of <span class="math">\(x_i\)</span> is given
+by</p>
+<div class="math">
+\begin{equation*}
+x_i = \left. \left(b_i - \sum_{j=i+1}^n R_{ij}x_j\right)\middle/ R_{ii} \right. .
+\end{equation*}
+</div>
+<p>The algorithm will overwrite <tt class="docutils literal">b[i]</tt> with this value, since it is not needed by
+later steps.</p>
+<pre class="literal-block">
+-- Back substitution for upper triangular U
+static backsolve {n}
+  (U :: double[n,n])
+  (inout b :: double[n])
+  :: s8 := (
+    for i in 0:n -&gt;
+      if U[i,i] == 0 then
+        return -1;
+
+    b[n-1] &lt;- b[n-1]/U[n-1, n-1];
+
+    for i in n-1 .. 1 : -1 -&gt; (
+      b[i-1] &lt;- (b[i-1] - U[i-1, i : n] * b[i : n]) / U[i-1, i-1];
+    );
+
+    return 0;
+);
+</pre>
+<p>The <tt class="docutils literal">*</tt> inside the for loop is shorthand for a dot product. We add a check to see if any of the
+diagonal entries are 0 and return an error code as a signed byte.</p>
+</div>
+<div class="section" id="complete-solver">
+<h2>Complete Solver</h2>
+<p>Finally, the completed algorithm:</p>
+<pre class="literal-block">
+-- Assumes m &gt;= n
+-- See &quot;Matrix Computations&quot; 4th ed. Golub and Van Loan
+qr_solve {m, n}
+  (inout A :: double[m, n])
+  (inout b :: double[m])
+
+  (out solution :: double[n])
+  (out residual :: double)
+
+  :: s8 := (
+
+  qr_update (inout b) (inout A);
+
+  -- A is now upper triangular; backsolve it into b
+  code := backsolve A[0:n, 0:n] (inout b[0:n]);
+
+  -- Solution stored in first n elements
+  solution &lt;- b[0:n];
+
+  -- Norm of error = norm of last m-n elements
+  residual &lt;- norm b[n:m];
+
+  return code;
+);
+</pre>
+<p>Note the way implicit arguments are resolved.</p>
+<p>The generated C:</p>
+<pre class="literal-block">
+s8 qr_solve (const s32 m, const s32 n, double * A, double * b, double * solution, double * const residual)
+{
+    qr_update(m, n, b, A);
+
+    s8 code;
+    double arg [n * n];
+    double arg2 [n];
+
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        for (s32 idx2 = 0; idx2 &lt; n; idx2++) {
+            arg[n * idx + idx2] = A[n * idx + idx2];
+        }
+    }
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        arg2[idx] = b[idx];
+    }
+    code = backsolve(n, arg, arg2);
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        b[idx] = arg2[idx];
+    }
+    for (s32 idx = 0; idx &lt; n; idx++) {
+        solution[idx] = b[idx];
+    }
+
+    double arg3 [m - n];
+
+    for (s32 idx = 0; idx &lt; m - n; idx++) {
+        arg3[idx] = b[n + idx];
+    }
+    *residual = norm(m - n, arg3);
+    return code;
+}
+</pre>
+<p>The copying around <tt class="docutils literal">inout b[0:n]</tt> is a bit inefficient in this case, but
+similar logic is needed for more complex matrix storage types.</p>
+<pre class="literal-block">
+// qr.h
+#ifndef PLOVER_GENERATED_qr
+#define PLOVER_GENERATED_qr
+
+#include &quot;prelude.h&quot;
+
+s8 qr_solve (const s32 m, const s32 n, double * A, double * b, double * solution, double * const residual);
+void qr_update (const s32 m, const s32 n, double * b, double * A);
+s32 main (void);
+
+
+#endif /* PLOVER_GENERATED_qr */
+</pre>
+</div>
+</div>
+<div class="section" id="citations">
+<h1>Citations</h1>
+<table class="docutils citation" frame="void" id="mc2013" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label">[MC2013]</td><td><em>(<a class="fn-backref" href="#id1">1</a>, <a class="fn-backref" href="#id2">2</a>, <a class="fn-backref" href="#id3">3</a>)</em> G.H. Golub and C.F. Van Loan (2013). <em>Matrix Computations, 4th ed.</em> The Johns Hopkins University Press, Baltimore, MD.</td></tr>
+</tbody>
+</table>
+</div>
+
+  </section>
+</div>
+
+<div id="footer_wrap" class="outer">
+  <footer class="inner">
+    <!-- docinfo -->
+    <table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Authors:</th>
+<td>Scott Kovach
+<br />Kyle Miller</td></tr>
+<tr class="field"><th class="docinfo-name">Modified:</th><td class="field-body">August 2015</td>
+</tr>
+</tbody>
+</table>
+  </footer>
+</div>
+
+<!-- body suffix -->
+</div>
+</body>
+</html>
