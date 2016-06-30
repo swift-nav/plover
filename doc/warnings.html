@@ -33,8 +33,8 @@ id: '{\\mathrm{id}}'
 
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="Docutils 0.12: http://docutils.sourceforge.net/" />
-<title>Plover</title>
-<meta name="authors" content="Scott Kovach  Kyle Miller" />
+<title>Notable Differences from Other Languages</title>
+<meta name="authors" content="Scott Kovach" />
 <style type="text/css">
 
 /*! normalize.css v2.1.3 | MIT License | git.io/normalize */
@@ -1220,17 +1220,30 @@ ul.auto-toc {
 }
 
 </style>
+<style type="text/css">
+
+#logo {
+    top: 20px; left: -100px;
+    width: 132px; height: 100px;
+    background-size: 132px 100px;
+}
+#header_wrap .inner {
+    padding-top: 35px;
+}
+#header_wrap {
+    min-height: 120px;
+}
+</style>
 <!-- body prefix -->
 </head>
 <body>
-<div class="document" id="plover">
+<div class="document" id="notable-differences-from-other-languages">
 <!-- body pre docinfo  -->
 <div id="header_wrap" class="outer">
   <header class="inner">
     <div id="logo"></div>
     <a id="forkme_banner" href="https://github.com/swift-nav/plover">View on GitHub</a>
-    <h1 class="title">Plover</h1>
-<h2 class="subtitle" id="high-level-embedded-linear-algebra-programming">High-level embedded linear algebra programming</h2>
+    <h1 class="title">Notable Differences from Other Languages</h1>
     <ul id="toptoc">
       <li><a href="index.html">About</a></li>
       <li><a href="guide.html">Guide</a></li>
@@ -1244,32 +1257,136 @@ ul.auto-toc {
 <div id="main_content_wrap" class="outer">
   <section id="main_content" class="inner">
     <!-- body -->
-    <p>Plover is a programming language designed for compiling linear algebra
-into robust, efficient C code suitable for running on embedded systems.</p>
-<p>Plover generates code free of dynamic memory allocation and provides
-compile-time checking of matrix and vector shapes using a lightweight
-dependent type system.</p>
-<p>Plover also aims to make use of sparse structure present in many
-real-world linear algebra problems to generate more efficient code.</p>
-<div class="section" id="documentation">
-<h1>Documentation</h1>
-<p>The Plover documentation is split into the following parts:</p>
-<ul class="simple">
-<li>The <a class="reference external" href="guide.html">Plover User Guide</a> gives installation
-instructions and general information about using the Plover
-compiler.</li>
-<li>The <a class="reference external" href="tutorials.html">Plover Tutorials</a> gives worked examples of
-programming algorithms and applications in Plover.</li>
-<li>The <a class="reference external" href="reference.html">Plover Language Reference</a> gives a more
-in-depth treatment of the language itself.</li>
-<li><a class="reference external" href="warnings.html">Notable Differences</a> enumerates some notable differences
-from related languages and corner cases to be aware of.</li>
-</ul>
+    <div class="section" id="vs">
+<h1>:= vs &lt;-</h1>
+<p>The familiar assignment operator from C, <tt class="docutils literal">=</tt>, splits into two forms in
+plover: <tt class="docutils literal">:=, &lt;-</tt>. In short, <tt class="docutils literal">:=</tt> is used to declare and initialize a
+variable (whose type will generally be inferred), while <tt class="docutils literal">&lt;-</tt> is used to
+mutate a variable already in scope.</p>
+<p>See <a class="reference external" href="http://swift-nav.github.io/plover/reference.html#variable-definitions">definitions</a> <a class="footnote-reference" href="#id1" id="id2">[1]</a> and <a class="reference external" href="http://swift-nav.github.io/plover/reference.html#locations">locations</a> <a class="footnote-reference" href="#id3" id="id4">[2]</a>.</p>
 </div>
-<div class="section" id="in-the-real-world">
-<h1>In the real world</h1>
-<p><a class="reference external" href="http://www.swiftnav.com/">Swift Navigation</a> uses Plover for
-implementing GPS algorithms in <a class="reference external" href="https://github.com/swift-nav/libswiftnav">libswiftnav</a>.</p>
+<div class="section" id="value-of-a-block">
+<h1>Value of a Block</h1>
+<p>As described in <a class="reference external" href="http://swift-nav.github.io/plover/reference.html#sequencing">sequencing</a> <a class="footnote-reference" href="#id5" id="id6">[3]</a>, the value of a sequence expression <tt class="docutils literal">(a ; b)</tt> is
+the value of <tt class="docutils literal">b</tt>. A common error is to call a function as the last statement
+of a block which is intended to have void type.</p>
+<p>For instance,</p>
+<pre class="literal-block">
+f (x :: int) :: () := (
+  printf &quot;x: %d&quot; x;
+);
+</pre>
+<p>will produce an error, because the (often ignored) return type from printf is
+actually <tt class="docutils literal">int</tt>. The simplest fix in this case is to add a void literal,
+<tt class="docutils literal">()</tt>:</p>
+<pre class="literal-block">
+f (x :: int) :: () := (
+  printf &quot;x: %d&quot; x; ();
+);
+</pre>
+<p>Another consequence of this convention is that the <tt class="docutils literal">return</tt> keyword is
+optional on the last statement of a function. It is still useful as an early
+return mechanism, of course.</p>
+</div>
+<div class="section" id="if-then-else">
+<h1>if/then/else</h1>
+<p>The branches of an <tt class="docutils literal">if</tt> expression must have the same type. When the <tt class="docutils literal">else</tt> branch is omitted, it has void type. Hence</p>
+<pre class="literal-block">
+if condition then printf &quot;hi there\n&quot;;
+</pre>
+<p>is incorrect.</p>
+<p>Notably, when <tt class="docutils literal">return</tt> is used, the expression being returned is checked
+against the return type of the enclosing function, but the type of the
+<tt class="docutils literal">return</tt> expression itself changes to match what is expected by its immediate
+context.  Thus, the following is ok:</p>
+<pre class="literal-block">
+f (x :: int) :: int := (
+  if x &gt; 0 then return x;
+  return -x;
+);
+</pre>
+<p>but, when possible, this is a better style:</p>
+<pre class="literal-block">
+f (x :: int) :: int := if x &gt; 0 then x else -x;
+</pre>
+<p>.</p>
+</div>
+<div class="section" id="delimiters">
+<h1>Delimiters</h1>
+<p>A block is typically delimited with parentheses: <tt class="docutils literal">(a; b; <span class="pre">...)</span></tt>. Semicolons
+(<tt class="docutils literal">;</tt>) must separate statements within a block. Top-level definitions and
+<tt class="docutils literal">extern</tt> definitions are, likewise, separated by semicolons.</p>
+<div class="warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">In the face of a troubling parsing or typechecking error, make sure you haven't
+left out any semicolons.</p>
+</div>
+</div>
+<div class="section" id="vectors-and-matrices">
+<h1>Vectors and Matrices</h1>
+<p>The size of a vector object is represented, internally, as a list of Plover
+expressions. Each position in this list is called an &quot;index&quot;, and the
+expression at a given index is called a &quot;bound&quot; or a &quot;dimension.&quot; This is meant
+to coincide with the usual language for discussing tensors. We will refer to
+the number of indices as the object's rank.</p>
+<p>Generally we call rank-1 and rank-2 objects vectors and matrices, respectively.</p>
+<p>Plover overloads <a class="reference external" href="http://swift-nav.github.io/plover/reference.html#multiplication">multiplication</a> <a class="footnote-reference" href="#id7" id="id8">[4]</a> to handle certain frequent use cases. In
+particular, for a matrix-vector product <tt class="docutils literal">(M*v)</tt>, the vector is interpreted as
+a column vector. The vector-matrix product is not implemented; instead, you may
+use <tt class="docutils literal">(v^T*M)</tt>. Note that the builtin transpose operator converts a rank-1
+vector of dimension <tt class="docutils literal">n</tt> into an explicit, rank-2, <tt class="docutils literal">[1,n]</tt> matrix. For this
+reason, taking a transpose twice may not return an object identical to the
+initial one. Some discussion on the complexity of this issue: <a class="reference external" href="https://github.com/JuliaLang/julia/issues/4774">julia</a> <a class="footnote-reference" href="#id13" id="id14">[7]</a>.</p>
+</div>
+<div class="section" id="indexing">
+<h1>Indexing</h1>
+<p>Plover indexing is 0-based. Matrices are row-major. See <a class="reference external" href="http://swift-nav.github.io/plover/reference.html#ranges">ranges</a> <a class="footnote-reference" href="#id9" id="id10">[5]</a> and <a class="reference external" href="http://swift-nav.github.io/plover/reference.html#slices">slicing</a> <a class="footnote-reference" href="#id11" id="id12">[6]</a>
+for more information.</p>
+</div>
+<div class="section" id="references">
+<h1>References</h1>
+<table class="docutils footnote" frame="void" id="id1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id2">[1]</a></td><td><a class="reference external" href="http://swift-nav.github.io/plover/reference.html#variable-definitions">http://swift-nav.github.io/plover/reference.html#variable-definitions</a></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id4">[2]</a></td><td><a class="reference external" href="http://swift-nav.github.io/plover/reference.html#locations">http://swift-nav.github.io/plover/reference.html#locations</a></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id6">[3]</a></td><td><a class="reference external" href="http://swift-nav.github.io/plover/reference.html#sequencing">http://swift-nav.github.io/plover/reference.html#sequencing</a></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id7" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id8">[4]</a></td><td><a class="reference external" href="http://swift-nav.github.io/plover/reference.html#multiplication">http://swift-nav.github.io/plover/reference.html#multiplication</a></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id9" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id10">[5]</a></td><td><a class="reference external" href="http://swift-nav.github.io/plover/reference.html#ranges">http://swift-nav.github.io/plover/reference.html#ranges</a></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id11" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id12">[6]</a></td><td><a class="reference external" href="http://swift-nav.github.io/plover/reference.html#slices">http://swift-nav.github.io/plover/reference.html#slices</a></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id13" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id14">[7]</a></td><td><a class="reference external" href="https://github.com/JuliaLang/julia/issues/4774">https://github.com/JuliaLang/julia/issues/4774</a></td></tr>
+</tbody>
+</table>
 </div>
 
   </section>
@@ -1283,9 +1400,8 @@ implementing GPS algorithms in <a class="reference external" href="https://githu
 <col class="docinfo-content" />
 <tbody valign="top">
 <tr><th class="docinfo-name">Authors:</th>
-<td>Scott Kovach
-<br />Kyle Miller</td></tr>
-<tr class="field"><th class="docinfo-name">Modified:</th><td class="field-body">August 2015</td>
+<td>Scott Kovach</td></tr>
+<tr class="field"><th class="docinfo-name">Modified:</th><td class="field-body">June 2016</td>
 </tr>
 </tbody>
 </table>

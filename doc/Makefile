@@ -1,4 +1,4 @@
-PAGES := index.html reference.html guide.html tutorials.html
+PAGES := index.html reference.html guide.html tutorials.html warnings.html
 
 index.html: index.rst template.txt
 	rst2html.py $< $@ --math-output=MathJax --template=template.txt --stylesheet=stylesheets/normalize.css,stylesheets/pygment_trac.css,stylesheets/style.css --no-toc-backlinks --section-numbering

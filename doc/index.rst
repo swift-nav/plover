@@ -31,6 +31,8 @@ The Plover documentation is split into the following parts:
   programming algorithms and applications in Plover.
 - The `Plover Language Reference <reference.html>`_ gives a more
   in-depth treatment of the language itself.
+- `Notable Differences <warnings.html>`_ enumerates some notable differences
+  from related languages and corner cases to be aware of.
 
 
 In the real world
