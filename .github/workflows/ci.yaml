@@ -1,0 +1,23 @@
+name: CI
+on:
+  pull_request: ~
+  push: ~
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get install libgmp-dev
+          
+      - name: Build project dependencies
+        run: |
+          stack build --only-dependencies
+
+      - name: Build and run tests
+        run: |
+          stack build --test --copy-bins
