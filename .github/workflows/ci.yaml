@@ -16,7 +16,7 @@ jobs:
           
       - name: Install happy from lts-17.5 (workaround for happy bug)
         run: |
-          cd / && stack install happy --resolver=lts-17.5
+          cd / && stack install alex happy --resolver=lts-17.5
  
       - name: Build project dependencies
         run: |
