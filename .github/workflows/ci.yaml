@@ -16,8 +16,6 @@ jobs:
           
       - name: Build project dependencies
         run: |
-          stack update
-          stack setup
           cd / && stack install happy --resolver=lts-3.13
           stack build --only-dependencies
 
