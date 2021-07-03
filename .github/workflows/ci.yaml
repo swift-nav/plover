@@ -18,6 +18,7 @@ jobs:
         run: |
           stack update
           stack setup
+          cd / && stack install happy --resolver=lts-3.13
           stack build --only-dependencies
 
       - name: Build and run tests
