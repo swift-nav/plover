@@ -16,6 +16,8 @@ jobs:
           
       - name: Build project dependencies
         run: |
+          stack update
+          stack setup
           stack build --only-dependencies
 
       - name: Build and run tests
