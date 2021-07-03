@@ -16,7 +16,7 @@ jobs:
           
       - name: Build project dependencies
         run: |
-          cd / && stack install happy --resolver=lts-3.13
+          cd / && stack install happy --resolver=lts-9.0
           stack build --only-dependencies
 
       - name: Build and run tests
