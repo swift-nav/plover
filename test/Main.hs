@@ -44,6 +44,7 @@ doCase (label, args, fn, outcome) = testCase label $ do
 cases :: [TestCase]
 cases =
   [ ("qr", ["-I", "examples"], "examples/qr_test.plv", (True, Just ExitSuccess))
+  , ("cholesky", ["-I", "examples"], "examples/cholesky_test.plv", (True, Just ExitSuccess))
   , ("cyclic", ["-I", "examples/module-tests"],
      "examples/module-tests/cycleA.plv", (False, Nothing))
   , ("scalar_in_failure", ["-I", "examples"], "examples/argdir_tests/scalar_in_failure.plv", (False, Nothing))

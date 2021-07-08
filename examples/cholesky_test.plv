@@ -1,0 +1,209 @@
+import cholesky;
+
+static diagonal {n}
+  (d :: double[n])
+  (out m :: double[n, n])
+  :: Void := (
+  for i in 0:n ->
+    for j in 0:n ->
+      if i == j then (m[i, j] <- d[i]) else (m[i, j] <- 0.0);
+);
+
+static tril {m, n}
+  (a :: double[m, n])
+  (out b :: double[m, n])
+  :: Void := (
+  for i in 0:m ->
+    for j in 0:n ->
+      if i < j then b[i, j] <- 0.0 else b[i, j] <- a[i, j];
+);
+
+static triu {m, n}
+  (a :: double[m, n])
+  (out b :: double[m, n])
+  :: Void := (
+  for i in 0:m ->
+    for j in 0:n ->
+      if i > j then b[i, j] <- 0.0 else b[i, j] <- a[i, j];
+);
+
+static udut_test () :: s32 := (
+  u0 := mat(1.0, 0.57733, 0.42103, 0.98750;
+            0.0, 1.0, 0.99883, 0.99510;
+            0.0, 0.0, 1.0, 0.53597;
+            0.0, 0.0, 0.00000, 1.0);
+  d0 := mat(2.0, 0, 0, 0;
+            0, 3.0, 0, 0;
+            0, 0, 4.0, 0;
+            0, 0, 0, 5.0);
+
+  A0 := u0*d0*u0^T;
+
+  A1 := A0;
+
+  udut(inout A1);
+
+  d :: double[4];
+  d <- vec j in 4 -> A1[j, j];
+  u :: double[4, 4];
+  triu A1 (out u);
+  for i in 0:4 -> u[i, i] <- 1.0;
+
+  dd :: double[4, 4];
+  diagonal d (out dd);
+
+  printf "\nresults:\nA:\n";
+  print_mat A0;
+  printf "u0:\n";
+  print_mat u0;
+  printf "u:\n";
+  print_mat u;
+  printf "d:\n";
+  print_mat dd;
+
+  derror := d0 - dd;
+  uerror := u0 - u;
+  tol := 1e-9;
+  for col in 2 -> (
+    assert(norm(derror[:, col]) < tol);
+    assert(norm(uerror[:, col]) < tol);
+  );
+
+  printf "Solution to within %3e!\n" tol;
+);
+
+static ldlt_test () :: s32 := (
+  l0 := mat(1.0, 0.0, 0.0, 0.0;
+            0.37526, 1.0, 0.0, 0.0;
+            0.25545, 0.35379, 1.0, 0.0;
+            0.24456, 0.79429, 0.44717, 1.0);
+  d0 := mat(5.0, 0, 0, 0;
+            0, 4.0, 0, 0;
+            0, 0, 3.0, 0;
+            0, 0, 0, 2.0);
+
+  A0 := l0*d0*l0^T;
+
+  A1 := A0;
+
+  ret := ldlt(inout A1);
+
+  d :: double[4];
+  d <- vec j in 4 -> A1[j, j];
+  l :: double[4, 4];
+  tril A1 (out l);
+  for i in 0:4 -> l[i, i] <- 1.0;
+
+  dd :: double[4, 4];
+  diagonal d (out dd);
+
+  printf "\nresults:\nA:\n";
+  print_mat A0;
+  printf "l0:\n";
+  print_mat l0;
+  printf "l:\n";
+  print_mat l;
+  printf "d:\n";
+  print_mat dd;
+
+  derror := d0 - dd;
+  lerror := l0 - l;
+  tol := 1e-9;
+  for col in 4 -> (
+    assert(norm(derror[:, col]) < tol);
+    assert(norm(lerror[:, col]) < tol);
+  );
+
+  printf "Solution to within %3e!\n" tol;
+
+  ret;
+);
+
+static cholesky_test () :: s32 := (
+  g0 := mat(1.58518,  0.00000, 0.00000, 0.00000;
+            1.18082,  0.22361, 0.00000, 0.00000;
+           -1.22629, -1.09190, 1.10581, 0.00000;
+           -0.19586, -0.61511, 1.34394, 0.82566);
+
+  A0 := g0*g0^T;
+
+  A1 := A0;
+
+  cholesky(inout A1);
+
+  g :: double[4, 4];
+  tril A1 (out g);
+
+  printf "\nresults:\nA:\n";
+  print_mat A0;
+  printf "g0:\n";
+  print_mat g0;
+  printf "g:\n";
+  print_mat g;
+
+  gerror := g0 - g;
+  tol := 1e-9;
+  for col in 4 -> (
+    assert(norm(gerror[:, col]) < tol);
+  );
+
+  printf "Solution to within %3e!\n" tol;
+);
+
+static cholupdate_test () :: s32 := (
+  g0 := mat(1.58518,  0.00000, 0.00000, 0.00000;
+            1.18082,  0.22361, 0.00000, 0.00000;
+           -1.22629, -1.09190, 1.10581, 0.00000;
+           -0.19586, -0.61511, 1.34394, 0.82566);
+
+  v0 := vec(0.33595, 0.24187, 0.36134, 0.42910);
+
+  A0 := g0*g0^T;
+
+  gup' := g0;
+  gdown' := g0;
+
+  cholupdate (inout gup') v0 1;
+  cholupdate (inout gdown') v0 (-1);
+
+  Aup := A0 + v0*v0^T;
+  cholesky(inout Aup);
+  gup :: double[4, 4];
+  tril Aup (out gup);
+
+  Adown := A0 - v0*v0^T;
+  cholesky(inout Adown);
+  gdown :: double[4, 4];
+  tril Adown (out gdown);
+
+  printf "\nresults:\ng0:\n";
+  print_mat g0;
+  printf "gup:\n";
+  print_mat gup;
+  printf "gup':\n";
+  print_mat gup';
+  printf "gdown:\n";
+  print_mat gdown;
+  printf "gdown':\n";
+  print_mat gdown';
+
+  uperror := gup - gup';
+  downerror := gdown - gdown';
+  tol := 1e-9;
+  for col in 4 -> (
+    assert(norm(uperror[:, col]) < tol);
+    assert(norm(downerror[:, col]) < tol);
+  );
+
+  printf "Solution to within %3e!\n" tol;
+
+);
+
+main () :: s32 := (
+  ret := ldlt_test ();
+  udut_test ();
+  cholesky_test ();
+  cholupdate_test ();
+
+  ret;
+);
